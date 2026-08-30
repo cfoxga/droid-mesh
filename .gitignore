@@ -9,3 +9,8 @@
 .externalNativeBuild
 .cxx
 local.properties
+
+# Release signing identity. Never publicly share the keystore.
+key.properties
+*.jks
+*.keystore

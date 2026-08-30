@@ -1,7 +1,23 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
 }
+
+// The release signing identity. Local builds read key.properties (git-ignored,
+// at the repo root); CI provides the same values through ANDROID_* env vars.
+// Neither present means a contributor build: it falls back to the debug key,
+// which runs fine but cannot update a released install.
+val keystoreProperties = Properties().apply {
+    val f = rootProject.file("key.properties")
+    if (f.exists()) f.inputStream().use { load(it) }
+}
+
+fun signing(name: String): String? =
+    keystoreProperties.getProperty(name) ?: System.getenv(
+        "ANDROID_" + name.replace(Regex("([A-Z])"), "_$1").uppercase()
+    )
 
 android {
     namespace = "com.cfox.kiosksatelliteupdater"
@@ -17,9 +33,26 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    signingConfigs {
+        create("release") {
+            val storeFilePath = signing("storeFile")
+            if (storeFilePath != null) {
+                storeFile = file(storeFilePath)
+                storePassword = signing("storePassword")
+                keyAlias = signing("keyAlias")
+                keyPassword = signing("keyPassword")
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
+            signingConfig = if (signing("storeFile") != null) {
+                signingConfigs.getByName("release")
+            } else {
+                signingConfigs.getByName("debug")
+            }
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -28,6 +61,12 @@ android {
         debug {
             isMinifyEnabled = false
         }
+    }
+
+    lint {
+        // Play Store publish gate; this app is sideloaded onto Portal
+        // devices and never goes through Play, so it doesn't apply.
+        disable += "ExpiredTargetSdkVersion"
     }
 
     compileOptions {

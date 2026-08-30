@@ -49,8 +49,11 @@ resolve_apk() {
   fi
 
   local url out
-  url="$(curl -sf "https://api.github.com/repos/$REPO_OWNER/$REPO_NAME/releases/latest" \
-    | python3 -c 'import json,sys; d=json.load(sys.stdin); print([a["browser_download_url"] for a in d["assets"] if a["name"].endswith(".apk")][0])' \
+  # /releases/latest excludes prereleases, and every release here is marked
+  # prerelease (this project hasn't earned a stable tag yet) — so list all
+  # releases and take the newest instead.
+  url="$(curl -sf "https://api.github.com/repos/$REPO_OWNER/$REPO_NAME/releases" \
+    | python3 -c 'import json,sys; d=json.load(sys.stdin); print([a["browser_download_url"] for a in d[0]["assets"] if a["name"].endswith(".apk")][0])' \
     2>/dev/null)" || die "no GitHub release found for $REPO_OWNER/$REPO_NAME — cut a release, or pass a local APK path as the 2nd argument"
   [[ -n "$url" ]] || die "latest release for $REPO_OWNER/$REPO_NAME has no .apk asset"
 

@@ -13,5 +13,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "KioskUpdater"
+rootProject.name = "kiosk-satellite-updater"
 include(":app")

@@ -1,4 +1,4 @@
-package com.cfox.kioskupdater.api
+package com.cfox.kiosksatelliteupdater.api
 
 data class ReleaseInfo(
     val tagName: String,

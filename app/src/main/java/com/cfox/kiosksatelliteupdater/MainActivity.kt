@@ -1,4 +1,4 @@
-package com.cfox.kioskupdater
+package com.cfox.kiosksatelliteupdater
 
 import android.content.Intent
 import android.os.Build
@@ -7,12 +7,12 @@ import android.provider.Settings
 import android.view.View
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
-import com.cfox.kioskupdater.databinding.ActivityMainBinding
-import com.cfox.kioskupdater.installer.AppVersionHelper
-import com.cfox.kioskupdater.server.UpdateCoordinator
-import com.cfox.kioskupdater.service.AutoInstallService
-import com.cfox.kioskupdater.service.UpdaterForegroundService
-import com.cfox.kioskupdater.utils.Logger
+import com.cfox.kiosksatelliteupdater.databinding.ActivityMainBinding
+import com.cfox.kiosksatelliteupdater.installer.AppVersionHelper
+import com.cfox.kiosksatelliteupdater.server.UpdateCoordinator
+import com.cfox.kiosksatelliteupdater.service.AutoInstallService
+import com.cfox.kiosksatelliteupdater.service.UpdaterForegroundService
+import com.cfox.kiosksatelliteupdater.utils.Logger
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext

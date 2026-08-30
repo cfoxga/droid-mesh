@@ -1,10 +1,10 @@
-package com.cfox.kioskupdater.installer
+package com.cfox.kiosksatelliteupdater.installer
 
 import android.content.Context
 import android.content.pm.PackageInfo
 import android.content.pm.PackageManager
 import android.os.Build
-import com.cfox.kioskupdater.utils.Logger
+import com.cfox.kiosksatelliteupdater.utils.Logger
 
 object AppVersionHelper {
     const val TARGET_PACKAGE = "me.jxl.kiosk_satellite"

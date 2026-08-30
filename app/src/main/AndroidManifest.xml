@@ -18,14 +18,14 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
     <application
-        android:name=".KioskUpdaterApp"
+        android:name=".KioskSatelliteUpdaterApp"
         android:allowBackup="false"
         android:icon="@drawable/ic_notification"
         android:label="@string/app_name"
         android:requestLegacyExternalStorage="true"
         android:roundIcon="@drawable/ic_notification"
         android:supportsRtl="true"
-        android:theme="@style/Theme.KioskUpdater"
+        android:theme="@style/Theme.KioskSatelliteUpdater"
         android:usesCleartextTraffic="true">
 
         <activity
@@ -70,7 +70,7 @@
         <!-- FileProvider for APK dispatch -->
         <provider
             android:name="androidx.core.content.FileProvider"
-            android:authorities="com.cfox.kioskupdater.fileprovider"
+            android:authorities="com.cfox.kiosksatelliteupdater.fileprovider"
             android:exported="false"
             android:grantUriPermissions="true">
             <meta-data

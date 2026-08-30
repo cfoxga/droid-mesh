@@ -1,9 +1,9 @@
-package com.cfox.kioskupdater.service
+package com.cfox.kiosksatelliteupdater.service
 
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import com.cfox.kioskupdater.utils.Logger
+import com.cfox.kiosksatelliteupdater.utils.Logger
 
 class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {

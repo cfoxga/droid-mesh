@@ -4,11 +4,11 @@ plugins {
 }
 
 android {
-    namespace = "com.cfox.kioskupdater"
+    namespace = "com.cfox.kiosksatelliteupdater"
     compileSdk = 34
 
     defaultConfig {
-        applicationId = "com.cfox.kioskupdater"
+        applicationId = "com.cfox.kiosksatelliteupdater"
         minSdk = 28
         targetSdk = 29
         versionCode = 1

@@ -1,9 +1,9 @@
-package com.cfox.kioskupdater.server
+package com.cfox.kiosksatelliteupdater.server
 
 import android.content.Context
-import com.cfox.kioskupdater.installer.AppVersionHelper
-import com.cfox.kioskupdater.service.AutoInstallService
-import com.cfox.kioskupdater.utils.Logger
+import com.cfox.kiosksatelliteupdater.installer.AppVersionHelper
+import com.cfox.kiosksatelliteupdater.service.AutoInstallService
+import com.cfox.kiosksatelliteupdater.utils.Logger
 import fi.iki.elonen.NanoHTTPD
 import kotlinx.coroutines.runBlocking
 import org.json.JSONArray
@@ -77,7 +77,7 @@ class LocalHttpServer(
 
         val json = JSONObject().apply {
             put("status", "ok")
-            put("app", "KioskUpdater")
+            put("app", "Kiosk Satellite Updater")
             put("targetPackage", AppVersionHelper.TARGET_PACKAGE)
             put("targetInstalled", installed.isInstalled)
             put("installedVersionName", installed.versionName ?: JSONObject.NULL)

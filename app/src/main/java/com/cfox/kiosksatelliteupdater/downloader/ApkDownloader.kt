@@ -1,8 +1,8 @@
-package com.cfox.kioskupdater.downloader
+package com.cfox.kiosksatelliteupdater.downloader
 
 import android.content.Context
 import android.os.Environment
-import com.cfox.kioskupdater.utils.Logger
+import com.cfox.kiosksatelliteupdater.utils.Logger
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -53,7 +53,7 @@ class ApkDownloader(
 
             val requestBuilder = Request.Builder()
                 .url(downloadUrl)
-                .header("User-Agent", "KioskUpdater-Android")
+                .header("User-Agent", "KioskSatelliteUpdater-Android")
 
             if (existingLength > 0L) {
                 requestBuilder.header("Range", "bytes=$existingLength-")

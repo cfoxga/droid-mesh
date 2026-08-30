@@ -1,6 +1,6 @@
-package com.cfox.kioskupdater.api
+package com.cfox.kiosksatelliteupdater.api
 
-import com.cfox.kioskupdater.utils.Logger
+import com.cfox.kiosksatelliteupdater.utils.Logger
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -25,7 +25,7 @@ class GitHubReleaseApi(
         val request = Request.Builder()
             .url(url)
             .header("Accept", "application/vnd.github+json")
-            .header("User-Agent", "KioskUpdater-Android")
+            .header("User-Agent", "KioskSatelliteUpdater-Android")
             .build()
 
         try {

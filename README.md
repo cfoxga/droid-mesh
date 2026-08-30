@@ -1,12 +1,12 @@
-# KioskUpdater
+# Kiosk Satellite Updater
 
-A standalone, single-purpose Android 10 updater utility in Kotlin targeting `me.jxl.kiosk_satellite` on unrooted display devices (Meta Portal 10", Portal Mini, Portal Plus, Echo LineageOS).
+A standalone, single-purpose Android 10 updater utility in Kotlin targeting `me.jxl.kiosk_satellite` on unrooted Meta Portal devices (Portal 10", Portal Mini, Portal Plus). Strictly Meta Portal — Echo Show LineageOS ports can be switched into Device Manager mode instead, which covers the same need without this app.
 
 ## Key Characteristics
 
 - **Target SDK**: `29` (Android 10), **Min SDK**: `28` (Android 9 Pie), **Compile SDK**: `34`
 - **Target App**: `me.jxl.kiosk_satellite`
-- **Package**: `com.cfox.kioskupdater`
+- **Package**: `com.cfox.kiosksatelliteupdater`
 - **Headless HTTP Trigger**: Embedded server listening on port `2325`
 - **Auto-Install Engine**: Automated `AccessibilityService` interacting with AOSP / Google Package Installer dialogs
 - **Storage Strategy**: Scoped-storage compliant downloads via `getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)` and `FileProvider`
@@ -61,24 +61,26 @@ A standalone, single-purpose Android 10 updater utility in Kotlin targeting `me.
 
 ## One-Time Device Provisioning via ADB
 
-Run these commands once when installing KioskUpdater on the target Meta Portal or unrooted display device:
+`scripts/kiosk-satellite-portal-setup.sh <serial>` runs this whole sequence in one shot against a
+USB-connected Portal device: installs the latest release APK, applies the four grants below, and
+launches the app. The manual steps, for reference or a non-standard install:
 
 ```bash
-# 1. Install KioskUpdater APK
-adb install -r KioskUpdater.apk
+# 1. Install Kiosk Satellite Updater APK
+adb install -r kiosk-satellite-updater.apk
 
 # 2. Grant Install Unknown Packages permission
-adb shell appops set com.cfox.kioskupdater REQUEST_INSTALL_PACKAGES allow
+adb shell appops set com.cfox.kiosksatelliteupdater REQUEST_INSTALL_PACKAGES allow
 
 # 3. Enable the Accessibility Service permanently
-adb shell settings put secure enabled_accessibility_services com.cfox.kioskupdater/com.cfox.kioskupdater.service.AutoInstallService
+adb shell settings put secure enabled_accessibility_services com.cfox.kiosksatelliteupdater/com.cfox.kiosksatelliteupdater.service.AutoInstallService
 adb shell settings put secure accessibility_enabled 1
 
 # 4. Whitelist from battery optimizations (Doze mode)
-adb shell dumpsys deviceidle whitelist +com.cfox.kioskupdater
+adb shell dumpsys deviceidle whitelist +com.cfox.kiosksatelliteupdater
 
-# 5. Start the background Foreground Service (launches HTTP server on :2325)
-adb shell am startservice -n com.cfox.kioskupdater/.service.UpdaterForegroundService
+# 5. Launch the app (starts the foreground service + HTTP server on :2325)
+adb shell am start -n com.cfox.kiosksatelliteupdater/.MainActivity
 ```
 
 ---

@@ -1,4 +1,4 @@
-package com.cfox.kioskupdater.service
+package com.cfox.kiosksatelliteupdater.service
 
 import android.app.Notification
 import android.app.NotificationChannel
@@ -11,11 +11,11 @@ import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
 import androidx.core.app.NotificationCompat
-import com.cfox.kioskupdater.MainActivity
-import com.cfox.kioskupdater.R
-import com.cfox.kioskupdater.server.LocalHttpServer
-import com.cfox.kioskupdater.server.UpdateCoordinator
-import com.cfox.kioskupdater.utils.Logger
+import com.cfox.kiosksatelliteupdater.MainActivity
+import com.cfox.kiosksatelliteupdater.R
+import com.cfox.kiosksatelliteupdater.server.LocalHttpServer
+import com.cfox.kiosksatelliteupdater.server.UpdateCoordinator
+import com.cfox.kiosksatelliteupdater.utils.Logger
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -29,9 +29,9 @@ class UpdaterForegroundService : Service() {
         const val NOTIFICATION_ID = 1001
         const val PORT = 2325
 
-        const val ACTION_START = "com.cfox.kioskupdater.action.START"
-        const val ACTION_STOP = "com.cfox.kioskupdater.action.STOP"
-        const val ACTION_TRIGGER_UPDATE = "com.cfox.kioskupdater.action.TRIGGER_UPDATE"
+        const val ACTION_START = "com.cfox.kiosksatelliteupdater.action.START"
+        const val ACTION_STOP = "com.cfox.kiosksatelliteupdater.action.STOP"
+        const val ACTION_TRIGGER_UPDATE = "com.cfox.kiosksatelliteupdater.action.TRIGGER_UPDATE"
 
         @Volatile
         var isRunning: Boolean = false
@@ -116,7 +116,7 @@ class UpdaterForegroundService : Service() {
     private fun acquireWakeLock() {
         if (wakeLock == null) {
             val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
-            wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "KioskUpdater::UpdateWakeLock")
+            wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "KioskSatelliteUpdater::UpdateWakeLock")
         }
         if (wakeLock?.isHeld == false) {
             wakeLock?.acquire(10 * 60 * 1000L) // 10 minute timeout
@@ -155,7 +155,7 @@ class UpdaterForegroundService : Service() {
         )
 
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("KioskUpdater (:2325)")
+            .setContentTitle("Kiosk Satellite Updater (:2325)")
             .setContentText(statusText)
             .setSmallIcon(R.drawable.ic_notification)
             .setContentIntent(pendingIntent)

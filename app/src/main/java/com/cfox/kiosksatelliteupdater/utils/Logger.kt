@@ -1,4 +1,4 @@
-package com.cfox.kioskupdater.utils
+package com.cfox.kiosksatelliteupdater.utils
 
 import android.util.Log
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -10,7 +10,7 @@ import java.util.Locale
 import java.util.concurrent.ConcurrentLinkedQueue
 
 object Logger {
-    private const val TAG = "KioskUpdater"
+    private const val TAG = "KioskSatelliteUpdater"
     private val timeFormat = SimpleDateFormat("HH:mm:ss.SSS", Locale.US)
     private val logHistory = ConcurrentLinkedQueue<String>()
     private const val MAX_HISTORY = 100

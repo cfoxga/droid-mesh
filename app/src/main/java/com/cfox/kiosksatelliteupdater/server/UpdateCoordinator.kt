@@ -1,14 +1,14 @@
-package com.cfox.kioskupdater.server
+package com.cfox.kiosksatelliteupdater.server
 
 import android.content.Context
-import com.cfox.kioskupdater.api.GitHubReleaseApi
-import com.cfox.kioskupdater.api.ReleaseInfo
-import com.cfox.kioskupdater.api.UpdateStatus
-import com.cfox.kioskupdater.api.VersionComparison
-import com.cfox.kioskupdater.downloader.ApkDownloader
-import com.cfox.kioskupdater.installer.AppVersionHelper
-import com.cfox.kioskupdater.installer.PackageInstallerDispatcher
-import com.cfox.kioskupdater.utils.Logger
+import com.cfox.kiosksatelliteupdater.api.GitHubReleaseApi
+import com.cfox.kiosksatelliteupdater.api.ReleaseInfo
+import com.cfox.kiosksatelliteupdater.api.UpdateStatus
+import com.cfox.kiosksatelliteupdater.api.VersionComparison
+import com.cfox.kiosksatelliteupdater.downloader.ApkDownloader
+import com.cfox.kiosksatelliteupdater.installer.AppVersionHelper
+import com.cfox.kiosksatelliteupdater.installer.PackageInstallerDispatcher
+import com.cfox.kiosksatelliteupdater.utils.Logger
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob

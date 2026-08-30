@@ -1,4 +1,4 @@
-package com.cfox.kioskupdater.service
+package com.cfox.kiosksatelliteupdater.service
 
 import android.accessibilityservice.AccessibilityService
 import android.content.Intent
@@ -6,8 +6,8 @@ import android.os.Handler
 import android.os.Looper
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
-import com.cfox.kioskupdater.installer.AppVersionHelper
-import com.cfox.kioskupdater.utils.Logger
+import com.cfox.kiosksatelliteupdater.installer.AppVersionHelper
+import com.cfox.kiosksatelliteupdater.utils.Logger
 
 class AutoInstallService : AccessibilityService() {
 

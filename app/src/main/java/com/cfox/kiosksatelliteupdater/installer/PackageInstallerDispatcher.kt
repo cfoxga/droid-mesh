@@ -1,15 +1,15 @@
-package com.cfox.kioskupdater.installer
+package com.cfox.kiosksatelliteupdater.installer
 
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import androidx.core.content.FileProvider
-import com.cfox.kioskupdater.utils.Logger
+import com.cfox.kiosksatelliteupdater.utils.Logger
 import java.io.File
 
 object PackageInstallerDispatcher {
-    private const val FILE_PROVIDER_AUTHORITY = "com.cfox.kioskupdater.fileprovider"
+    private const val FILE_PROVIDER_AUTHORITY = "com.cfox.kiosksatelliteupdater.fileprovider"
 
     /**
      * Creates an installation Intent with FileProvider URI and starts the system PackageInstaller.

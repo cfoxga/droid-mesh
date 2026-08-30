@@ -1,4 +1,4 @@
-package com.cfox.kioskupdater.downloader
+package com.cfox.kiosksatelliteupdater.downloader
 
 data class DownloadProgress(
     val bytesRead: Long,

@@ -15,11 +15,15 @@ import com.cfox.kiosksatelliteupdater.MainActivity
 import com.cfox.kiosksatelliteupdater.R
 import com.cfox.kiosksatelliteupdater.server.LocalHttpServer
 import com.cfox.kiosksatelliteupdater.server.UpdateCoordinator
+import com.cfox.kiosksatelliteupdater.settings.SettingsStore
 import com.cfox.kiosksatelliteupdater.utils.Logger
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 class UpdaterForegroundService : Service() {
@@ -32,6 +36,10 @@ class UpdaterForegroundService : Service() {
         const val ACTION_START = "com.cfox.kiosksatelliteupdater.action.START"
         const val ACTION_STOP = "com.cfox.kiosksatelliteupdater.action.STOP"
         const val ACTION_TRIGGER_UPDATE = "com.cfox.kiosksatelliteupdater.action.TRIGGER_UPDATE"
+
+        // How often the auto-update loop re-checks GitHub while enabled.
+        // Not user-configurable; only the on/off toggle is exposed.
+        const val AUTO_UPDATE_INTERVAL_MS = 6 * 60 * 60 * 1000L
 
         @Volatile
         var isRunning: Boolean = false
@@ -57,6 +65,7 @@ class UpdaterForegroundService : Service() {
     private var httpServer: LocalHttpServer? = null
     private var updateCoordinator: UpdateCoordinator? = null
     private var wakeLock: PowerManager.WakeLock? = null
+    private var autoUpdateJob: Job? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -92,6 +101,11 @@ class UpdaterForegroundService : Service() {
         startForeground(NOTIFICATION_ID, buildNotification("Listening on port $PORT"))
         isRunning = true
 
+        // Re-evaluated on every start (boot, launch, or a settings change
+        // re-pinging the service) so toggling the setting takes effect
+        // without waiting for a restart.
+        manageAutoUpdateLoop()
+
         when (action) {
             ACTION_TRIGGER_UPDATE -> {
                 val force = intent?.getBooleanExtra("force", false) ?: false
@@ -103,6 +117,30 @@ class UpdaterForegroundService : Service() {
         }
 
         return START_STICKY
+    }
+
+    /**
+     * Starts (or stops) the periodic auto-update loop to match the current
+     * SettingsStore value. Idempotent: safe to call from every
+     * onStartCommand without spawning duplicate loops.
+     */
+    private fun manageAutoUpdateLoop() {
+        val enabled = SettingsStore.isAutoUpdateEnabled(applicationContext)
+        if (enabled) {
+            if (autoUpdateJob?.isActive == true) return
+            Logger.i("Auto-update enabled — starting periodic check every ${AUTO_UPDATE_INTERVAL_MS / 3_600_000}h")
+            autoUpdateJob = serviceScope.launch {
+                while (isActive) {
+                    Logger.i("Auto-update: checking for a Kiosk Satellite update")
+                    updateCoordinator?.startUpdateAsync(force = false)
+                    delay(AUTO_UPDATE_INTERVAL_MS)
+                }
+            }
+        } else {
+            if (autoUpdateJob != null) Logger.i("Auto-update disabled — stopping periodic check")
+            autoUpdateJob?.cancel()
+            autoUpdateJob = null
+        }
     }
 
     private fun handleWakeLockForState(state: String) {

@@ -10,6 +10,7 @@ A standalone, single-purpose Android 10 updater utility in Kotlin targeting `me.
 - **Headless HTTP Trigger**: Embedded server listening on port `2325`
 - **Auto-Install Engine**: Automated `AccessibilityService` interacting with AOSP / Google Package Installer dialogs
 - **Storage Strategy**: Scoped-storage compliant downloads via `getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)` and `FileProvider`
+- **Auto-Update**: On by default (toggle in-app). While enabled, the foreground service periodically checks GitHub and installs Kiosk Satellite on its own — installing just the updater is enough to end up with both apps present, no manual `/update` call needed. Toggling it off stops the periodic check; `/update` still works on demand either way.
 
 ---
 
@@ -63,7 +64,9 @@ A standalone, single-purpose Android 10 updater utility in Kotlin targeting `me.
 
 `scripts/kiosk-satellite-portal-setup.sh <serial>` runs this whole sequence in one shot against a
 USB-connected Portal device: installs the latest release APK, applies the four grants below, and
-launches the app. The manual steps, for reference or a non-standard install:
+launches the app. With auto-update on by default, that alone ends up with Kiosk Satellite itself
+installed within one check cycle — no manual `/update` call required. The manual steps, for
+reference or a non-standard install:
 
 ```bash
 # 1. Install Kiosk Satellite Updater APK

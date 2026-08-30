@@ -12,6 +12,7 @@ import com.cfox.kiosksatelliteupdater.installer.AppVersionHelper
 import com.cfox.kiosksatelliteupdater.server.UpdateCoordinator
 import com.cfox.kiosksatelliteupdater.service.AutoInstallService
 import com.cfox.kiosksatelliteupdater.service.UpdaterForegroundService
+import com.cfox.kiosksatelliteupdater.settings.SettingsStore
 import com.cfox.kiosksatelliteupdater.utils.Logger
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -43,6 +44,15 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setupUI() {
+        binding.switchAutoUpdate.isChecked = SettingsStore.isAutoUpdateEnabled(this)
+        binding.switchAutoUpdate.setOnCheckedChangeListener { _, isChecked ->
+            SettingsStore.setAutoUpdateEnabled(this, isChecked)
+            Logger.i("Auto-update ${if (isChecked) "enabled" else "disabled"} by user")
+            // Re-ping the running service so it re-evaluates the loop immediately
+            // instead of waiting for the next natural restart.
+            UpdaterForegroundService.startService(this)
+        }
+
         binding.btnCheck.setOnClickListener {
             checkReleaseInfo()
         }

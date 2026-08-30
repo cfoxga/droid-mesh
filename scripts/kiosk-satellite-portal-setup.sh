@@ -88,7 +88,7 @@ else
 fi
 
 log "setup complete."
-log "NEXT: find the device's IP (Settings > About, or 'adb -s $SERIAL shell ip addr')"
-log "and hit its HTTP API — e.g. curl -X POST http://<portal-ip>:2325/update — to install"
-log "Kiosk Satellite itself. Kiosk Satellite's own ADB permission grants are a separate step,"
-log "not covered by this script."
+log "Auto-update is on by default, so Kiosk Satellite itself should install on its own within"
+log "one check cycle. To force it immediately instead: find the device's IP (Settings > About,"
+log "or 'adb -s $SERIAL shell ip addr') and curl -X POST http://<portal-ip>:2325/update"
+log "Kiosk Satellite's own ADB permission grants are a separate step, not covered by this script."

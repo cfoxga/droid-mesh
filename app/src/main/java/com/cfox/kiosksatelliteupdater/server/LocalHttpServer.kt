@@ -3,6 +3,7 @@ package com.cfox.kiosksatelliteupdater.server
 import android.content.Context
 import com.cfox.kiosksatelliteupdater.installer.AppVersionHelper
 import com.cfox.kiosksatelliteupdater.service.AutoInstallService
+import com.cfox.kiosksatelliteupdater.settings.SettingsStore
 import com.cfox.kiosksatelliteupdater.utils.Logger
 import fi.iki.elonen.NanoHTTPD
 import kotlinx.coroutines.runBlocking
@@ -83,6 +84,7 @@ class LocalHttpServer(
             put("installedVersionName", installed.versionName ?: JSONObject.NULL)
             put("installedVersionCode", installed.versionCode ?: JSONObject.NULL)
             put("accessibilityServiceActive", AutoInstallService.isServiceRunning)
+            put("autoUpdateEnabled", SettingsStore.isAutoUpdateEnabled(context))
             put("updaterState", currentStatus.state)
             put("updaterMessage", currentStatus.message)
             put("progressPercent", currentStatus.progressPercent)

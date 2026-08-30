@@ -1,0 +1,9 @@
+<resources>
+    <string name="app_name">KioskUpdater</string>
+    <string name="accessibility_service_label">Kiosk Auto Installer</string>
+    <string name="accessibility_service_description">Automates package installation prompts for Kiosk Satellite</string>
+    <string name="notification_channel_name">Kiosk Updater Service</string>
+    <string name="notification_channel_description">Keeps local HTTP update trigger server alive on port 2325</string>
+    <string name="notification_title">KioskUpdater Running</string>
+    <string name="notification_text">Listening for update commands on port 2325</string>
+</resources>

@@ -138,6 +138,8 @@ class LocalHttpServer(
 
                 // Peer Mesh Fleet
                 (uri == "/mesh" || uri == "/peers" || uri == "/api/mesh") && method == Method.GET -> handleMesh()
+                (uri == "/api/mesh/library" || uri == "/mesh/library") && method == Method.GET -> handleMeshLibraryGet(session)
+                (uri == "/api/mesh/library" || uri == "/mesh/library") && method == Method.POST -> handleMeshLibraryPost(session)
                 uri == "/api/mesh/config" && method == Method.GET -> handleMeshConfigGet()
                 uri == "/api/mesh/sync-config" && method == Method.POST -> handleMeshConfigSync(session)
                 uri == "/api/mesh/beacon" && (method == Method.POST || method == Method.GET) -> handleMeshBeacon(session)
@@ -574,6 +576,70 @@ class LocalHttpServer(
         return jsonResponse(Response.Status.OK, json)
     }
 
+    private fun handleMeshLibraryGet(session: IHTTPSession): Response {
+        val meshId = session.parms["meshId"] ?: session.parms["mesh_id"] ?: SettingsStore.getLocalMeshId(context)
+        val grouped = meshManager?.getMeshesGrouped()
+        val meshesArray = grouped?.optJSONArray("meshes")
+
+        val libraryList = if (meshesArray != null) {
+            var foundArray: JSONArray? = null
+            for (i in 0 until meshesArray.length()) {
+                val m = meshesArray.getJSONObject(i)
+                if (m.optString("id") == meshId) {
+                    foundArray = m.optJSONArray("app_library")
+                    break
+                }
+            }
+            foundArray ?: JSONArray()
+        } else {
+            val stored = SettingsStore.getMeshAppLibrary(context, meshId)
+            val arr = JSONArray()
+            stored.values.sortedBy { it.appName.lowercase() }.forEach { arr.put(it.toJson()) }
+            arr
+        }
+
+        val json = JSONObject().apply {
+            put("status", "ok")
+            put("mesh_id", meshId)
+            put("library", libraryList)
+        }
+        return jsonResponse(Response.Status.OK, json)
+    }
+
+    private fun handleMeshLibraryPost(session: IHTTPSession): Response {
+        if (!isAuthorized(session)) {
+            return jsonResponse(Response.Status.UNAUTHORIZED, JSONObject().apply {
+                put("status", "error")
+                put("error", "Unauthorized")
+            })
+        }
+
+        val body = parseJsonBody(session)
+        val meshId = body.optString("meshId", body.optString("mesh_id", SettingsStore.getLocalMeshId(context)))
+        val appObj = body.optJSONObject("app") ?: body
+
+        val pkg = appObj.optString("packageName", appObj.optString("package", ""))
+        if (pkg.isBlank()) {
+            return jsonResponse(Response.Status.BAD_REQUEST, JSONObject().apply {
+                put("status", "error")
+                put("error", "Missing packageName")
+            })
+        }
+
+        val config = SettingsStore.MeshAppConfig.fromJson(appObj)
+        val newVer = SettingsStore.setMeshAppConfig(context, meshId, config)
+        meshManager?.syncConfigToMesh()
+
+        val json = JSONObject().apply {
+            put("status", "ok")
+            put("message", "Updated library configuration for ${config.appName}")
+            put("mesh_id", meshId)
+            put("config_version", newVer)
+            put("app", config.toJson())
+        }
+        return jsonResponse(Response.Status.OK, json)
+    }
+
     private fun handleMeshConnect(session: IHTTPSession): Response {
         if (!isAuthorized(session)) {
             return jsonResponse(Response.Status.UNAUTHORIZED, JSONObject().apply {
@@ -716,6 +782,7 @@ class LocalHttpServer(
         val port = body.optInt("port", 2325)
         val tag = body.optString("tag", "")
         val url = body.optString("url", "")
+        val pkg = body.optString("package", body.optString("packageName", ""))
         val force = body.optBoolean("force", true)
 
         if (ip.isBlank()) {
@@ -730,6 +797,7 @@ class LocalHttpServer(
                 val queryParams = mutableListOf("force=$force")
                 if (tag.isNotBlank()) queryParams.add("tag=${URLEncoder.encode(tag, "UTF-8")}")
                 if (url.isNotBlank()) queryParams.add("url=${URLEncoder.encode(url, "UTF-8")}")
+                if (pkg.isNotBlank()) queryParams.add("package=${URLEncoder.encode(pkg, "UTF-8")}")
                 val updateUrl = "http://$ip:$port/update?${queryParams.joinToString("&")}"
 
                 val req = Request.Builder()
@@ -737,7 +805,7 @@ class LocalHttpServer(
                     .post(ByteArray(0).toRequestBody(null, 0, 0))
                     .build()
                 httpClient.newCall(req).execute().close()
-                Logger.i("Dispatched remote peer update to $ip:$port")
+                Logger.i("Dispatched remote peer update to $ip:$port (package=$pkg)")
             } catch (e: Exception) {
                 Logger.e("Error dispatching peer update to $ip:$port", e)
             }

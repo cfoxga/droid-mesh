@@ -27,10 +27,48 @@ object SettingsStore {
     private const val KEY_LOCAL_MESH_ID = "local_mesh_id"
     private const val KEY_LOCAL_MESH_NAME = "local_mesh_name"
     private const val KEY_CROSS_VLAN_SEEDS = "cross_vlan_seeds"
+    private const val KEY_MESH_APP_LIBRARIES = "mesh_app_libraries"
 
     private const val DEFAULT_AUTO_UPDATE_ENABLED = true
     private const val DEFAULT_WEB_SERVER_ENABLED = true
     private const val DEFAULT_WEB_SERVER_PORT = 2325
+
+    data class MeshAppConfig(
+        val packageName: String,
+        val appName: String,
+        val managed: Boolean = false,
+        val autoInstall: Boolean = false,
+        val targetVersion: String = "latest",
+        val autoUpdate: Boolean = false,
+        val isSideloaded: Boolean = false
+    ) {
+        fun toJson(): JSONObject = JSONObject().apply {
+            put("packageName", packageName)
+            put("appName", appName)
+            put("managed", managed)
+            put("autoInstall", autoInstall)
+            put("targetVersion", targetVersion)
+            put("autoUpdate", autoUpdate)
+            put("isSideloaded", isSideloaded)
+        }
+
+        companion object {
+            fun fromJson(json: JSONObject): MeshAppConfig {
+                val pkg = json.optString("packageName", json.optString("package", ""))
+                val name = json.optString("appName", json.optString("name", pkg))
+                val isSideload = if (json.has("isSideloaded")) json.optBoolean("isSideloaded") else com.cfox.droidmesh.installer.AppVersionHelper.isSideloadedApp(pkg)
+                return MeshAppConfig(
+                    packageName = pkg,
+                    appName = if (name.isNotBlank()) name else pkg,
+                    managed = json.optBoolean("managed", false),
+                    autoInstall = json.optBoolean("autoInstall", false),
+                    targetVersion = json.optString("targetVersion", "latest"),
+                    autoUpdate = json.optBoolean("autoUpdate", false),
+                    isSideloaded = isSideload
+                )
+            }
+        }
+    }
 
     data class ConfigImportResult(
         val applied: Boolean,
@@ -40,7 +78,8 @@ object SettingsStore {
         val webServerToggled: Boolean = false,
         val autoUpdateToggled: Boolean = false,
         val passwordChanged: Boolean = false,
-        val seedsChanged: Boolean = false
+        val seedsChanged: Boolean = false,
+        val libraryChanged: Boolean = false
     )
 
     fun interface OnConfigChangeListener {
@@ -301,6 +340,108 @@ object SettingsStore {
         )
     }
 
+    fun getAllMeshAppLibraries(context: Context): JSONObject {
+        val raw = prefs(context).getString(KEY_MESH_APP_LIBRARIES, null)
+        return if (!raw.isNullOrBlank()) {
+            try {
+                JSONObject(raw)
+            } catch (_: Exception) {
+                JSONObject()
+            }
+        } else {
+            JSONObject()
+        }
+    }
+
+    fun getMeshAppLibrary(context: Context, meshId: String): Map<String, MeshAppConfig> {
+        val root = getAllMeshAppLibraries(context)
+        val meshObj = root.optJSONObject(meshId)
+        val result = mutableMapOf<String, MeshAppConfig>()
+
+        // Default base managed apps if not explicitly configured
+        val defaultSatellite = MeshAppConfig(
+            packageName = com.cfox.droidmesh.installer.AppVersionHelper.TARGET_PACKAGE,
+            appName = "Kiosk Satellite",
+            managed = true,
+            autoInstall = true,
+            targetVersion = "latest",
+            autoUpdate = true,
+            isSideloaded = true
+        )
+        val defaultDroidMesh = MeshAppConfig(
+            packageName = "com.cfox.droidmesh",
+            appName = "DroidMesh",
+            managed = true,
+            autoInstall = false,
+            targetVersion = "latest",
+            autoUpdate = true,
+            isSideloaded = true
+        )
+        result[defaultSatellite.packageName] = defaultSatellite
+        result[defaultDroidMesh.packageName] = defaultDroidMesh
+
+        if (meshObj != null) {
+            val keys = meshObj.keys()
+            while (keys.hasNext()) {
+                val pkg = keys.next()
+                val appJson = meshObj.optJSONObject(pkg)
+                if (appJson != null) {
+                    val config = MeshAppConfig.fromJson(appJson)
+                    result[config.packageName] = config
+                }
+            }
+        }
+        return result
+    }
+
+    fun setMeshAppConfig(context: Context, meshId: String, appConfig: MeshAppConfig): Long {
+        val root = getAllMeshAppLibraries(context)
+        val meshObj = root.optJSONObject(meshId) ?: JSONObject()
+        meshObj.put(appConfig.packageName, appConfig.toJson())
+        root.put(meshId, meshObj)
+
+        val ver = maxOf(System.currentTimeMillis(), getConfigVersion(context) + 1L)
+        val editor = prefs(context).edit()
+        editor.putString(KEY_MESH_APP_LIBRARIES, root.toString())
+        editor.putLong(KEY_CONFIG_VERSION, ver)
+        editor.apply()
+
+        notifyListeners(
+            ConfigImportResult(
+                applied = true,
+                oldVersion = ver - 1,
+                newVersion = ver,
+                libraryChanged = true
+            )
+        )
+        return ver
+    }
+
+    fun setMeshAppLibrary(context: Context, meshId: String, library: Map<String, MeshAppConfig>): Long {
+        val root = getAllMeshAppLibraries(context)
+        val meshObj = JSONObject()
+        for ((pkg, config) in library) {
+            meshObj.put(pkg, config.toJson())
+        }
+        root.put(meshId, meshObj)
+
+        val ver = maxOf(System.currentTimeMillis(), getConfigVersion(context) + 1L)
+        val editor = prefs(context).edit()
+        editor.putString(KEY_MESH_APP_LIBRARIES, root.toString())
+        editor.putLong(KEY_CONFIG_VERSION, ver)
+        editor.apply()
+
+        notifyListeners(
+            ConfigImportResult(
+                applied = true,
+                oldVersion = ver - 1,
+                newVersion = ver,
+                libraryChanged = true
+            )
+        )
+        return ver
+    }
+
     fun exportConfigJson(context: Context): JSONObject = JSONObject().apply {
         put("config_version", getConfigVersion(context))
         put("web_server_enabled", isWebServerEnabled(context))
@@ -315,6 +456,7 @@ object SettingsStore {
         val seedsArr = JSONArray()
         getCrossVlanSeeds(context).forEach { seedsArr.put(it) }
         put("cross_vlan_seeds", seedsArr)
+        put("mesh_app_libraries", getAllMeshAppLibraries(context))
     }
 
     fun importConfigJson(context: Context, json: JSONObject): ConfigImportResult {
@@ -335,6 +477,7 @@ object SettingsStore {
         var autoUpdateToggled = false
         var passwordChanged = false
         var seedsChanged = false
+        var libraryChanged = false
 
         if (json.has("web_server_enabled")) {
             val enabled = json.getBoolean("web_server_enabled")
@@ -400,6 +543,19 @@ object SettingsStore {
             }
         }
 
+        // Synchronize mesh app libraries
+        if (json.has("mesh_app_libraries")) {
+            val librariesObj = json.optJSONObject("mesh_app_libraries")
+            if (librariesObj != null) {
+                val currentLibraries = getAllMeshAppLibraries(context).toString()
+                val incomingLibraries = librariesObj.toString()
+                if (currentLibraries != incomingLibraries) {
+                    editor.putString(KEY_MESH_APP_LIBRARIES, incomingLibraries)
+                    libraryChanged = true
+                }
+            }
+        }
+
         editor.putLong(KEY_CONFIG_VERSION, incomingVersion)
         editor.apply()
 
@@ -411,7 +567,8 @@ object SettingsStore {
             webServerToggled = webServerToggled,
             autoUpdateToggled = autoUpdateToggled,
             passwordChanged = passwordChanged,
-            seedsChanged = seedsChanged
+            seedsChanged = seedsChanged,
+            libraryChanged = libraryChanged
         )
 
         notifyListeners(result)

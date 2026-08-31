@@ -140,4 +140,38 @@ class SettingsStoreTest {
         assertTrue(SettingsStore.validateToken(mockContext, tokenOnNodeA))
         assertTrue(SettingsStore.verifyPassword(mockContext, "superSecretKey"))
     }
+
+    // [PROGRAMMATIC] APP-TEST-003: Mesh App Library persistence and synchronization
+    @Test
+    fun testMeshAppLibraryPersistenceAndSync() {
+        val appConfig = SettingsStore.MeshAppConfig(
+            packageName = "com.disney.disneyplus",
+            appName = "Disney+",
+            managed = true,
+            autoInstall = true,
+            targetVersion = "latest",
+            autoUpdate = false,
+            isSideloaded = false
+        )
+        SettingsStore.setMeshAppConfig(mockContext, "googletv", appConfig)
+
+        val library = SettingsStore.getMeshAppLibrary(mockContext, "googletv")
+        assertTrue(library.containsKey("com.disney.disneyplus"))
+        assertEquals("Disney+", library["com.disney.disneyplus"]?.appName)
+        assertTrue(library["com.disney.disneyplus"]?.managed == true)
+        assertTrue(library["com.disney.disneyplus"]?.autoInstall == true)
+
+        val exported = SettingsStore.exportConfigJson(mockContext)
+        assertTrue(exported.has("mesh_app_libraries"))
+
+        // Reset and import on node B
+        inMemoryPrefs.clear()
+        val importResult = SettingsStore.importConfigJson(mockContext, exported)
+        assertTrue(importResult.applied)
+        assertTrue(importResult.libraryChanged)
+
+        val importedLibrary = SettingsStore.getMeshAppLibrary(mockContext, "googletv")
+        assertTrue(importedLibrary.containsKey("com.disney.disneyplus"))
+        assertEquals(true, importedLibrary["com.disney.disneyplus"]?.managed)
+    }
 }

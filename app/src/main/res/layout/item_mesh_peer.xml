@@ -162,14 +162,67 @@
                 android:layout_marginTop="6dp"
                 android:orientation="vertical">
 
-                <TextView
-                    android:layout_width="wrap_content"
+                <LinearLayout
+                    android:id="@+id/layoutPeerAppsHeader"
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:fontFamily="@font/rubik"
-                    android:text="INSTALLED APPS"
-                    android:textColor="@color/ks_outline"
-                    android:textSize="11sp"
-                    android:textStyle="bold" />
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal"
+                    android:paddingVertical="4dp">
+
+                    <TextView
+                        android:id="@+id/tvPeerAppsLabel"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:fontFamily="@font/rubik"
+                        android:text="INSTALLED APPS"
+                        android:textColor="@color/ks_outline"
+                        android:textSize="11sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/tvPeerAppsCountBadge"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginEnd="6dp"
+                        android:background="@drawable/bg_badge_pill"
+                        android:backgroundTint="@color/ks_teal_container"
+                        android:fontFamily="@font/rubik"
+                        android:paddingHorizontal="8dp"
+                        android:paddingVertical="2dp"
+                        android:text="0 Managed"
+                        android:textColor="@color/ks_teal"
+                        android:textSize="10sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/tvPeerAppsActionBadge"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginEnd="8dp"
+                        android:background="@drawable/bg_badge_pill"
+                        android:backgroundTint="@color/ks_rust_container"
+                        android:fontFamily="@font/rubik"
+                        android:paddingHorizontal="8dp"
+                        android:paddingVertical="2dp"
+                        android:text="Update Needed"
+                        android:textColor="@color/ks_rust"
+                        android:textSize="10sp"
+                        android:textStyle="bold"
+                        android:visibility="gone" />
+
+                    <TextView
+                        android:id="@+id/tvPeerAppsChevron"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:fontFamily="@font/rubik"
+                        android:text="▼"
+                        android:textColor="@color/ks_outline"
+                        android:textSize="10sp" />
+                </LinearLayout>
 
                 <LinearLayout
                     android:id="@+id/layoutPeerApps"
@@ -179,7 +232,8 @@
                     android:background="@drawable/bg_dropdown_box"
                     android:orientation="vertical"
                     android:paddingHorizontal="10dp"
-                    android:paddingVertical="6dp" />
+                    android:paddingVertical="6dp"
+                    android:visibility="gone" />
             </LinearLayout>
 
             <!-- Row 4: Status Message / Last seen -->

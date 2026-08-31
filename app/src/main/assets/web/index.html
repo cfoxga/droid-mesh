@@ -783,6 +783,40 @@ input:checked + .slider:before {
         </div>
       </div>
 
+      <!-- App Library for Selected Mesh -->
+      <div class="card" style="margin-bottom: 20px;">
+        <div class="card-header">
+          <div class="card-title">
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+            App Library
+            <span id="meshLibraryBadge" class="badge badge-teal" style="font-size: 11px; margin-left: 6px;">Loading...</span>
+          </div>
+          <span style="font-size: 12px; color: var(--text-secondary);">Superset of apps in this mesh partition</span>
+        </div>
+        <div style="overflow-x: auto;">
+          <table style="width: 100%; border-collapse: collapse; text-align: left; font-size: 13px;">
+            <thead>
+              <tr style="border-bottom: 1px solid var(--border-subtle); color: var(--text-muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px;">
+                <th style="padding: 10px 12px;">App Name</th>
+                <th style="padding: 10px 12px; text-align: center;">Managed</th>
+                <th style="padding: 10px 12px; text-align: center;">Auto Install</th>
+                <th style="padding: 10px 12px;">Target Version</th>
+                <th style="padding: 10px 12px; text-align: center;">Auto Update</th>
+              </tr>
+            </thead>
+            <tbody id="meshLibraryTableBody">
+              <tr>
+                <td colspan="5" style="text-align: center; color: var(--text-muted); padding: 24px;">Loading App Library...</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div style="font-size: 13px; font-weight: 600; text-transform: uppercase; color: var(--text-muted); margin-bottom: 12px; letter-spacing: 0.5px;">
+        Mesh Nodes
+      </div>
+
       <div id="meshPeerGrid" class="grid-2">
         <div class="card" style="text-align: center; color: var(--text-muted); padding: 40px;">
           Scanning network for mesh nodes...
@@ -946,7 +980,8 @@ let state = {
   selectedMeshId: null,
   currentTab: 'mesh',
   logs: [],
-  initialLoaded: false
+  initialLoaded: false,
+  peerAppsExpanded: {}
 };
 
 // Helper
@@ -1340,12 +1375,21 @@ function renderSidebarMeshes() {
   });
 }
 
+function isVersionMismatch(installedVersion, targetVersion) {
+  if (!targetVersion || targetVersion === 'latest') return false;
+  if (!installedVersion) return true;
+  const cleanInst = String(installedVersion).trim().replace(/^v/, '').split(/[-+]/)[0];
+  const cleanTarget = String(targetVersion).trim().replace(/^v/, '').split(/[-+]/)[0];
+  return cleanInst !== cleanTarget;
+}
+
 function renderCurrentMeshView() {
   const currentMesh = state.meshes.find(m => m.id === state.selectedMeshId) || {
     id: state.selectedMeshId || state.localMeshId,
     name: state.selectedMeshId === state.localMeshId ? state.localMeshName : state.selectedMeshId,
     is_local: state.selectedMeshId === state.localMeshId,
-    peers: state.peers.filter(p => (p.meshId || p.mesh_id || 'meta-portals') === state.selectedMeshId)
+    peers: state.peers.filter(p => (p.meshId || p.mesh_id || 'meta-portals') === state.selectedMeshId),
+    app_library: []
   };
 
   const titleEl = document.getElementById('meshViewTitle');
@@ -1375,10 +1419,103 @@ function renderCurrentMeshView() {
     updateAllBtn.textContent = `Update All in ${currentMesh.name}`;
   }
 
-  renderMeshPeers(currentMesh.peers || []);
+  renderMeshAppLibrary(currentMesh);
+  renderMeshPeers(currentMesh.peers || [], currentMesh.app_library || []);
 }
 
-function renderMeshPeers(peers) {
+function renderMeshAppLibrary(currentMesh) {
+  const tbody = document.getElementById('meshLibraryTableBody');
+  const countBadge = document.getElementById('meshLibraryBadge');
+  if (!tbody) return;
+
+  const library = currentMesh.app_library || [];
+  if (countBadge) {
+    countBadge.textContent = `${library.length} App${library.length === 1 ? '' : 's'}`;
+  }
+
+  if (library.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="5" style="text-align: center; color: var(--text-muted); padding: 24px;">No apps detected in this mesh.</td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = library.map(app => {
+    const isSideloaded = app.isSideloaded !== false;
+    const targetVer = app.targetVersion || 'latest';
+
+    // Releases options for target version selector
+    let versionOptions = `<option value="latest" ${targetVer === 'latest' ? 'selected' : ''}>Latest</option>`;
+    if (state.releases && state.releases.length > 0) {
+      state.releases.slice(0, 10).forEach(r => {
+        versionOptions += `<option value="${escapeHtml(r.tagName)}" ${targetVer === r.tagName ? 'selected' : ''}>${escapeHtml(r.tagName)}</option>`;
+      });
+    } else if (targetVer && targetVer !== 'latest') {
+      versionOptions += `<option value="${escapeHtml(targetVer)}" selected>${escapeHtml(targetVer)}</option>`;
+    }
+
+    return `
+      <tr style="border-bottom: 1px solid rgba(255, 255, 255, 0.04);">
+        <td style="padding: 10px 12px;">
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <span style="font-weight: 500; color: var(--text-primary); font-size: 13px;">${escapeHtml(app.appName)}</span>
+            ${isSideloaded ? '<span class="badge badge-teal" style="font-size: 10px; padding: 1px 6px;">Sideloaded</span>' : '<span class="badge badge-gray" style="font-size: 10px; padding: 1px 6px;">Store App</span>'}
+          </div>
+          <div style="font-size: 11px; color: var(--text-muted); font-family: monospace; margin-top: 1px;">${escapeHtml(app.packageName)}</div>
+        </td>
+        <td style="padding: 10px 12px; text-align: center;">
+          <input type="checkbox" style="width: 16px; height: 16px; accent-color: var(--teal); cursor: pointer;"
+            ${app.managed ? 'checked' : ''}
+            onchange="updateLibraryApp('${currentMesh.id}', '${app.packageName}', { managed: this.checked })">
+        </td>
+        <td style="padding: 10px 12px; text-align: center;">
+          <input type="checkbox" style="width: 16px; height: 16px; accent-color: var(--teal); cursor: pointer;"
+            ${app.autoInstall ? 'checked' : ''}
+            ${!app.managed ? 'disabled style="opacity: 0.3; cursor: not-allowed;"' : ''}
+            onchange="updateLibraryApp('${currentMesh.id}', '${app.packageName}', { autoInstall: this.checked })">
+        </td>
+        <td style="padding: 10px 12px;">
+          ${isSideloaded ? `
+            <select class="field" style="padding: 4px 8px; font-size: 12px; max-width: 160px;"
+              ${!app.managed ? 'disabled style="opacity: 0.4; cursor: not-allowed;"' : ''}
+              onchange="updateLibraryApp('${currentMesh.id}', '${app.packageName}', { targetVersion: this.value })">
+              ${versionOptions}
+            </select>
+          ` : `<span style="color: var(--text-muted); font-size: 12px;">N/A (Store App)</span>`}
+        </td>
+        <td style="padding: 10px 12px; text-align: center;">
+          ${isSideloaded ? `
+            <input type="checkbox" style="width: 16px; height: 16px; accent-color: var(--teal); cursor: pointer;"
+              ${app.autoUpdate ? 'checked' : ''}
+              ${!app.managed ? 'disabled style="opacity: 0.3; cursor: not-allowed;"' : ''}
+              onchange="updateLibraryApp('${currentMesh.id}', '${app.packageName}', { autoUpdate: this.checked })">
+          ` : `<span style="color: var(--text-muted); font-size: 12px;">--</span>`}
+        </td>
+      </tr>
+    `;
+  }).join('');
+}
+
+async function updateLibraryApp(meshId, packageName, patch) {
+  const currentMesh = state.meshes.find(m => m.id === meshId);
+  const existing = (currentMesh?.app_library || []).find(a => a.packageName === packageName) || { packageName, appName: packageName };
+  const updated = { ...existing, ...patch };
+
+  try {
+    await apiCall('/api/mesh/library', {
+      method: 'POST',
+      body: JSON.stringify({ meshId, app: updated })
+    });
+    await fetchMeshInfo();
+  } catch (e) {
+    alert('Failed to update library configuration: ' + e.message);
+  }
+}
+
+function togglePeerApps(peerId) {
+  state.peerAppsExpanded[peerId] = !state.peerAppsExpanded[peerId];
+  renderCurrentMeshView();
+}
+
+function renderMeshPeers(peers, library) {
   const container = document.getElementById('meshPeerGrid');
   if (!container) return;
   container.innerHTML = '';
@@ -1388,6 +1525,11 @@ function renderMeshPeers(peers) {
     return;
   }
 
+  const libraryMap = {};
+  (library || []).forEach(app => {
+    libraryMap[app.packageName] = app;
+  });
+
   peers.forEach(peer => {
     const card = document.createElement('div');
     card.className = 'card';
@@ -1396,24 +1538,68 @@ function renderMeshPeers(peers) {
     const badgeClass = isOnline ? (peer.updaterState === 'IDLE' ? 'badge-sage' : 'badge-teal') : 'badge-gray';
     const stateText = isOnline ? (peer.updaterState || 'ONLINE') : 'OFFLINE';
 
-    const apps = peer.installedApps || [];
-    let appsHtml = '';
-    if (apps.length > 0) {
-      appsHtml = apps.map(app => `
-        <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; padding: 3px 0;">
-          <span style="font-weight: 500; color: var(--text-primary); font-size: 13px;">${escapeHtml(app.appName || app.packageName)}</span>
-          <span class="badge badge-teal" style="font-size: 11px; padding: 2px 6px;">${app.versionName ? `v${escapeHtml(app.versionName)}` : (app.versionCode ? `build ${escapeHtml(app.versionCode)}` : 'Installed')}</span>
+    const rawApps = peer.installedApps || [];
+    // Only show apps that have been marked as managed in the library
+    const managedApps = rawApps.filter(app => libraryMap[app.packageName]?.managed);
+
+    // Calculate out of date apps and missing auto-install apps
+    const outOfDateApps = managedApps.filter(app => {
+      const cfg = libraryMap[app.packageName];
+      return cfg && cfg.isSideloaded && cfg.targetVersion && isVersionMismatch(app.versionName, cfg.targetVersion);
+    });
+
+    const installedPkgSet = new Set(rawApps.map(a => a.packageName));
+    const missingApps = (library || []).filter(libApp => libApp.managed && libApp.autoInstall && !installedPkgSet.has(libApp.packageName));
+
+    const isExpanded = !!state.peerAppsExpanded[peer.id];
+
+    let appsListHtml = '';
+    if (managedApps.length === 0 && missingApps.length === 0) {
+      appsListHtml = `<span style="color: var(--text-muted); font-size: 12px; padding: 4px 0;">No managed apps installed</span>`;
+    } else {
+      const installedRows = managedApps.map(app => {
+        const cfg = libraryMap[app.packageName];
+        const isSideloaded = cfg ? cfg.isSideloaded : false;
+        const needsUpdate = cfg && cfg.isSideloaded && cfg.targetVersion && isVersionMismatch(app.versionName, cfg.targetVersion);
+
+        return `
+          <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; padding: 4px 0; border-bottom: 1px solid rgba(255,255,255,0.03);">
+            <div style="display: flex; flex-direction: column;">
+              <span style="font-weight: 500; color: var(--text-primary); font-size: 13px;">${escapeHtml(app.appName || app.packageName)}</span>
+              <span style="font-size: 11px; color: var(--text-muted); font-family: monospace;">${escapeHtml(app.packageName)}</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 6px;">
+              <span class="badge ${needsUpdate ? 'badge-rust' : 'badge-teal'}" style="font-size: 11px; padding: 2px 6px;">
+                ${app.versionName ? `v${escapeHtml(app.versionName)}` : (app.versionCode ? `build ${escapeHtml(app.versionCode)}` : 'Installed')}
+              </span>
+              ${needsUpdate && isSideloaded ? `
+                <button class="btn btn-primary btn-sm" style="font-size: 11px; padding: 2px 8px;" onclick="triggerAppUpdate('${peer.ip}', ${peer.port}, '${app.packageName}', '${cfg.targetVersion}')">
+                  Update
+                </button>
+              ` : ''}
+            </div>
+          </div>
+        `;
+      }).join('');
+
+      const missingRows = missingApps.map(app => `
+        <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; padding: 4px 0; border-bottom: 1px solid rgba(255,255,255,0.03);">
+          <div style="display: flex; flex-direction: column;">
+            <span style="font-weight: 500; color: var(--rust); font-size: 13px;">${escapeHtml(app.appName || app.packageName)}</span>
+            <span style="font-size: 11px; color: var(--text-muted); font-family: monospace;">${escapeHtml(app.packageName)} (Missing)</span>
+          </div>
+          <div style="display: flex; align-items: center; gap: 6px;">
+            <span class="badge badge-rust" style="font-size: 11px; padding: 2px 6px;">Not Installed</span>
+            ${app.isSideloaded ? `
+              <button class="btn btn-primary btn-sm" style="font-size: 11px; padding: 2px 8px;" onclick="triggerAppUpdate('${peer.ip}', ${peer.port}, '${app.packageName}', '${app.targetVersion}')">
+                Install
+              </button>
+            ` : ''}
+          </div>
         </div>
       `).join('');
-    } else if (peer.targetInstalled && peer.installedVersionName) {
-      appsHtml = `
-        <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; padding: 3px 0;">
-          <span style="font-weight: 500; color: var(--text-primary); font-size: 13px;">Kiosk Satellite</span>
-          <span class="badge badge-teal" style="font-size: 11px; padding: 2px 6px;">v${escapeHtml(peer.installedVersionName)}</span>
-        </div>
-      `;
-    } else {
-      appsHtml = `<span style="color: var(--text-muted); font-size: 12px;">No user apps installed</span>`;
+
+      appsListHtml = installedRows + missingRows;
     }
 
     card.innerHTML = `
@@ -1434,9 +1620,17 @@ function renderMeshPeers(peers) {
           <span class="kv-val">${peer.adbEnabled ? '<span style="color:var(--sage)">Enabled</span>' : '<span style="color:var(--rust)">Disabled</span>'}</span>
         </div>
         <div class="kv-row" style="flex-direction: column; align-items: flex-start; gap: 6px; border-bottom: 1px solid rgba(255, 255, 255, 0.04); padding-bottom: 8px;">
-          <span class="kv-key" style="font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">Installed Apps</span>
-          <div style="display: flex; flex-direction: column; gap: 2px; width: 100%; background: var(--bg-surface-elevated); padding: 8px 10px; border-radius: var(--radius-sm); border: 1px solid var(--border-subtle);">
-            ${appsHtml}
+          <div onclick="togglePeerApps('${peer.id}')" style="cursor: pointer; display: flex; align-items: center; justify-content: space-between; width: 100%; user-select: none;">
+            <span class="kv-key" style="font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">Installed Apps</span>
+            <div style="display: flex; align-items: center; gap: 6px;">
+              <span class="badge badge-teal" style="font-size: 10px; padding: 1px 6px;">${managedApps.length} Installed</span>
+              ${outOfDateApps.length > 0 ? `<span class="badge badge-rust" style="font-size: 10px; padding: 1px 6px;">${outOfDateApps.length} Update Needed</span>` : ''}
+              ${missingApps.length > 0 ? `<span class="badge badge-ochre" style="font-size: 10px; padding: 1px 6px;">${missingApps.length} Missing</span>` : ''}
+              <span style="color: var(--text-muted); font-size: 10px; margin-left: 2px;">${isExpanded ? '▲' : '▼'}</span>
+            </div>
+          </div>
+          <div style="display: ${isExpanded ? 'flex' : 'none'}; flex-direction: column; gap: 2px; width: 100%; background: var(--bg-surface-elevated); padding: 8px 10px; border-radius: var(--radius-sm); border: 1px solid var(--border-subtle); margin-top: 4px;">
+            ${appsListHtml}
           </div>
         </div>
         <div class="kv-row">
@@ -1453,6 +1647,23 @@ function renderMeshPeers(peers) {
     `;
     container.appendChild(card);
   });
+}
+
+async function triggerAppUpdate(ip, port, packageName, targetVersion) {
+  try {
+    const payload = { ip, port, force: true, packageName, package: packageName };
+    if (targetVersion && targetVersion !== 'latest') {
+      payload.tag = targetVersion;
+    }
+    const res = await apiCall('/api/peers/update', {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
+    alert(res.message || `Update sequence dispatched for ${packageName} to ${ip}`);
+    setTimeout(fetchMeshInfo, 1500);
+  } catch (e) {
+    alert(`Failed to update ${packageName} on ${ip}: ` + e.message);
+  }
 }
 
 async function triggerBeacon() {

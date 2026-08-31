@@ -676,6 +676,28 @@ class MeshDiscoveryManager(
                 val peersJson = JSONArray()
                 peers.forEach { peersJson.put(it.toJson()) }
                 put("peers", peersJson)
+
+                val storedLibrary = SettingsStore.getMeshAppLibrary(context, mId).toMutableMap()
+                for (p in peers) {
+                    for (app in p.installedApps) {
+                        if (!storedLibrary.containsKey(app.packageName)) {
+                            storedLibrary[app.packageName] = SettingsStore.MeshAppConfig(
+                                packageName = app.packageName,
+                                appName = if (app.appName.isNotBlank()) app.appName else app.packageName,
+                                managed = false,
+                                autoInstall = false,
+                                targetVersion = "latest",
+                                autoUpdate = false,
+                                isSideloaded = com.cfox.droidmesh.installer.AppVersionHelper.isSideloadedApp(app.packageName)
+                            )
+                        }
+                    }
+                }
+                val libraryJson = JSONArray()
+                storedLibrary.values.sortedBy { it.appName.lowercase() }.forEach {
+                    libraryJson.put(it.toJson())
+                }
+                put("app_library", libraryJson)
             }
             meshesArray.put(mObj)
         }

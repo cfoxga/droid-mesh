@@ -64,6 +64,7 @@ class MainActivity : AppCompatActivity() {
     private var currentTab: NavTab = NavTab.MESH
     private var selectedMeshId: String? = null
     private var lastGroupedData: JSONObject? = null
+    private val peerAppsExpandedState = mutableMapOf<String, Boolean>()
 
     private val httpClient = OkHttpClient.Builder()
         .connectTimeout(6, TimeUnit.SECONDS)
@@ -313,10 +314,116 @@ class MainActivity : AppCompatActivity() {
         val allPeers = UpdaterForegroundService.activeMeshManager?.peersFlow?.value ?: emptyList()
         val meshPeers = allPeers.filter { (it.meshId) == activeMeshId }
 
-        renderMeshPeerCards(meshPeers)
+        renderMeshAppLibrary(activeMeshId, meshPeers)
+        renderMeshPeerCards(meshPeers, activeMeshId)
     }
 
-    private fun renderMeshPeerCards(peers: List<PeerNode>) {
+    private fun renderMeshAppLibrary(meshId: String, meshPeers: List<PeerNode>) {
+        binding.layoutMeshAppLibrary.removeAllViews()
+
+        val storedLibrary = SettingsStore.getMeshAppLibrary(this, meshId).toMutableMap()
+        for (p in meshPeers) {
+            for (app in p.installedApps) {
+                if (!storedLibrary.containsKey(app.packageName)) {
+                    storedLibrary[app.packageName] = SettingsStore.MeshAppConfig(
+                        packageName = app.packageName,
+                        appName = if (app.appName.isNotBlank()) app.appName else app.packageName,
+                        managed = false,
+                        autoInstall = false,
+                        targetVersion = "latest",
+                        autoUpdate = false,
+                        isSideloaded = AppVersionHelper.isSideloadedApp(app.packageName)
+                    )
+                }
+            }
+        }
+
+        val libraryList = storedLibrary.values.sortedBy { it.appName.lowercase() }
+        binding.tvMeshLibraryAppCount.text = "${libraryList.size} Apps"
+
+        if (libraryList.isEmpty()) {
+            val emptyTv = TextView(this).apply {
+                text = "No apps discovered in this mesh partition."
+                setTextColor(getColor(R.color.ks_outline))
+                textSize = 12f
+                setPadding(0, 8, 0, 8)
+            }
+            binding.layoutMeshAppLibrary.addView(emptyTv)
+            return
+        }
+
+        val inflater = layoutInflater
+        for (app in libraryList) {
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = android.view.Gravity.CENTER_VERTICAL
+                setPadding(0, 8, 0, 8)
+            }
+
+            val infoLayout = LinearLayout(this).apply {
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                orientation = LinearLayout.VERTICAL
+            }
+
+            val titleLayout = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = android.view.Gravity.CENTER_VERTICAL
+            }
+
+            val nameTv = TextView(this).apply {
+                text = app.appName
+                setTextColor(getColor(R.color.ks_on_surface))
+                textSize = 13f
+                typeface = android.graphics.Typeface.DEFAULT_BOLD
+            }
+            titleLayout.addView(nameTv)
+
+            val typeBadge = TextView(this).apply {
+                text = if (app.isSideloaded) "Sideloaded" else "Store App"
+                setTextColor(if (app.isSideloaded) getColor(R.color.ks_teal) else getColor(R.color.ks_outline))
+                background = ContextCompat.getDrawable(this@MainActivity, R.drawable.bg_badge_pill)
+                backgroundTintList = ContextCompat.getColorStateList(
+                    this@MainActivity,
+                    if (app.isSideloaded) R.color.ks_teal_container else R.color.ks_surface_highest
+                )
+                setPadding(12, 2, 12, 2)
+                textSize = 9f
+                setPaddingRelative(12, 2, 12, 2)
+                val params = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+                params.marginStart = 12
+                layoutParams = params
+            }
+            titleLayout.addView(typeBadge)
+            infoLayout.addView(titleLayout)
+
+            val pkgTv = TextView(this).apply {
+                text = app.packageName
+                setTextColor(getColor(R.color.ks_outline))
+                textSize = 10f
+            }
+            infoLayout.addView(pkgTv)
+            row.addView(infoLayout)
+
+            // Managed Checkbox
+            val chkManaged = android.widget.CheckBox(this).apply {
+                text = "Managed"
+                isChecked = app.managed
+                setTextColor(getColor(R.color.ks_on_surface_variant))
+                textSize = 11f
+                setOnCheckedChangeListener { _, isChecked ->
+                    val updated = app.copy(managed = isChecked)
+                    SettingsStore.setMeshAppConfig(this@MainActivity, meshId, updated)
+                    UpdaterForegroundService.activeMeshManager?.syncConfigToMesh()
+                    renderCurrentMeshView()
+                }
+            }
+            row.addView(chkManaged)
+
+            binding.layoutMeshAppLibrary.addView(row)
+        }
+    }
+
+    private fun renderMeshPeerCards(peers: List<PeerNode>, activeMeshId: String) {
         binding.layoutMeshPeers.removeAllViews()
 
         if (peers.isEmpty()) {
@@ -331,7 +438,9 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
+        val library = SettingsStore.getMeshAppLibrary(this, activeMeshId)
         val inflater = layoutInflater
+
         for (peer in peers) {
             val itemBinding = ItemMeshPeerBinding.inflate(inflater, binding.layoutMeshPeers, false)
 
@@ -373,62 +482,98 @@ class MainActivity : AppCompatActivity() {
                 itemBinding.tvPeerAdbStatus.setTextColor(getColor(R.color.ks_rust))
             }
 
+            // Only show apps that have been marked as managed in the library
+            val managedApps = peer.installedApps.filter { library[it.packageName]?.managed == true }
+
+            val outOfDateApps = managedApps.filter { app ->
+                val cfg = library[app.packageName]
+                cfg != null && cfg.isSideloaded && cfg.targetVersion.isNotBlank() && AppVersionHelper.isVersionMismatch(app.versionName, cfg.targetVersion)
+            }
+
+            itemBinding.tvPeerAppsCountBadge.text = "${managedApps.size} Installed"
+            if (outOfDateApps.isNotEmpty()) {
+                itemBinding.tvPeerAppsActionBadge.visibility = View.VISIBLE
+                itemBinding.tvPeerAppsActionBadge.text = "${outOfDateApps.size} Update Needed"
+            } else {
+                itemBinding.tvPeerAppsActionBadge.visibility = View.GONE
+            }
+
+            // Collapsible container setup
+            val isExpanded = peerAppsExpandedState[peer.id] ?: false
+            itemBinding.layoutPeerApps.visibility = if (isExpanded) View.VISIBLE else View.GONE
+            itemBinding.tvPeerAppsChevron.text = if (isExpanded) "▲" else "▼"
+
+            itemBinding.layoutPeerAppsHeader.setOnClickListener {
+                val nextState = !(peerAppsExpandedState[peer.id] ?: false)
+                peerAppsExpandedState[peer.id] = nextState
+                itemBinding.layoutPeerApps.visibility = if (nextState) View.VISIBLE else View.GONE
+                itemBinding.tvPeerAppsChevron.text = if (nextState) "▲" else "▼"
+            }
+
             itemBinding.layoutPeerApps.removeAllViews()
-            val apps = peer.installedApps
-            if (apps.isNotEmpty()) {
-                for (app in apps) {
+            if (managedApps.isNotEmpty()) {
+                for (app in managedApps) {
+                    val cfg = library[app.packageName]
+                    val isSideloaded = cfg?.isSideloaded ?: AppVersionHelper.isSideloadedApp(app.packageName)
+                    val needsUpdate = cfg != null && cfg.isSideloaded && cfg.targetVersion.isNotBlank() && AppVersionHelper.isVersionMismatch(app.versionName, cfg.targetVersion)
+
                     val appRow = LinearLayout(this).apply {
                         orientation = LinearLayout.HORIZONTAL
                         gravity = android.view.Gravity.CENTER_VERTICAL
                         setPadding(0, 4, 0, 4)
                     }
 
-                    val nameTv = TextView(this).apply {
+                    val infoLayout = LinearLayout(this).apply {
                         layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                        orientation = LinearLayout.VERTICAL
+                    }
+
+                    val nameTv = TextView(this).apply {
                         text = app.appName.ifBlank { app.packageName }
                         setTextColor(getColor(R.color.ks_on_surface))
                         textSize = 13f
                     }
+                    infoLayout.addView(nameTv)
 
                     val verPill = TextView(this).apply {
                         text = if (!app.versionName.isNullOrBlank()) "v${app.versionName}" else if (app.versionCode != null) "build ${app.versionCode}" else "Installed"
-                        setTextColor(getColor(R.color.ks_teal))
+                        setTextColor(if (needsUpdate) getColor(R.color.ks_rust) else getColor(R.color.ks_teal))
                         background = ContextCompat.getDrawable(this@MainActivity, R.drawable.bg_badge_pill)
-                        backgroundTintList = ContextCompat.getColorStateList(this@MainActivity, R.color.ks_teal_container)
+                        backgroundTintList = ContextCompat.getColorStateList(
+                            this@MainActivity,
+                            if (needsUpdate) R.color.ks_rust_container else R.color.ks_teal_container
+                        )
                         setPadding(16, 4, 16, 4)
                         textSize = 11f
                     }
 
-                    appRow.addView(nameTv)
+                    appRow.addView(infoLayout)
                     appRow.addView(verPill)
+
+                    if (needsUpdate && isSideloaded) {
+                        val updateBtn = com.google.android.material.button.MaterialButton(
+                            this,
+                            null,
+                            com.google.android.material.R.attr.materialButtonStyle
+                        ).apply {
+                            text = "Update"
+                            textSize = 10f
+                            setPadding(8, 2, 8, 2)
+                            val params = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+                            params.marginStart = 8
+                            layoutParams = params
+                            setOnClickListener {
+                                triggerRemoteAppUpdate(peer, app.packageName, cfg?.targetVersion ?: "latest")
+                            }
+                        }
+                        appRow.addView(updateBtn)
+                    }
+
                     itemBinding.layoutPeerApps.addView(appRow)
                 }
-            } else if (peer.targetInstalled && !peer.installedVersionName.isNullOrBlank()) {
-                val appRow = LinearLayout(this).apply {
-                    orientation = LinearLayout.HORIZONTAL
-                    gravity = android.view.Gravity.CENTER_VERTICAL
-                    setPadding(0, 4, 0, 4)
-                }
-                val nameTv = TextView(this).apply {
-                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-                    text = "Kiosk Satellite"
-                    setTextColor(getColor(R.color.ks_on_surface))
-                    textSize = 13f
-                }
-                val verPill = TextView(this).apply {
-                    text = "v${peer.installedVersionName}"
-                    setTextColor(getColor(R.color.ks_teal))
-                    background = ContextCompat.getDrawable(this@MainActivity, R.drawable.bg_badge_pill)
-                    backgroundTintList = ContextCompat.getColorStateList(this@MainActivity, R.color.ks_teal_container)
-                    setPadding(16, 4, 16, 4)
-                    textSize = 11f
-                }
-                appRow.addView(nameTv)
-                appRow.addView(verPill)
-                itemBinding.layoutPeerApps.addView(appRow)
             } else {
                 val noAppsTv = TextView(this).apply {
-                    text = "No user apps reported"
+                    text = "No managed apps installed"
                     setTextColor(getColor(R.color.ks_outline))
                     textSize = 12f
                 }
@@ -451,6 +596,33 @@ class MainActivity : AppCompatActivity() {
             }
 
             binding.layoutMeshPeers.addView(itemBinding.root)
+        }
+    }
+
+    private fun triggerRemoteAppUpdate(peer: PeerNode, packageName: String, targetVersion: String) {
+        lifecycleScope.launch(Dispatchers.IO) {
+            try {
+                val queryParams = mutableListOf("force=true")
+                if (targetVersion.isNotBlank() && targetVersion != "latest") {
+                    queryParams.add("tag=${java.net.URLEncoder.encode(targetVersion, "UTF-8")}")
+                }
+                queryParams.add("package=${java.net.URLEncoder.encode(packageName, "UTF-8")}")
+                val updateUrl = "http://${peer.ip}:${peer.port}/update?${queryParams.joinToString("&")}"
+
+                val req = Request.Builder()
+                    .url(updateUrl)
+                    .post(ByteArray(0).toRequestBody(null, 0, 0))
+                    .build()
+                httpClient.newCall(req).execute().close()
+
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(this@MainActivity, "Update dispatched for $packageName to ${peer.deviceModel}", Toast.LENGTH_SHORT).show()
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(this@MainActivity, "Failed to update $packageName: ${e.message}", Toast.LENGTH_SHORT).show()
+                }
+            }
         }
     }
 

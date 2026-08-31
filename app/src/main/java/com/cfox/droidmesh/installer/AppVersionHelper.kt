@@ -22,6 +22,28 @@ object AppVersionHelper {
         val versionCode: Long?
     )
 
+    fun isSideloadedApp(packageName: String): Boolean {
+        return packageName == TARGET_PACKAGE ||
+               packageName == "com.cfox.droidmesh" ||
+               packageName == "com.cfoxga.foxtvagent" ||
+               packageName == "com.cfoxga.hamgoogletv" ||
+               packageName == "com.cfoxga.mpttv" ||
+               packageName.startsWith("com.cfox") ||
+               packageName.startsWith("me.jxl")
+    }
+
+    fun isVersionMismatch(installedVersionName: String?, targetVersion: String): Boolean {
+        if (targetVersion.equals("latest", ignoreCase = true)) {
+            return false
+        }
+        if (installedVersionName.isNullOrBlank()) {
+            return true
+        }
+        val cleanInstalled = installedVersionName.trim().removePrefix("v").substringBefore("-").substringBefore("+")
+        val cleanTarget = targetVersion.trim().removePrefix("v").substringBefore("-").substringBefore("+")
+        return cleanInstalled != cleanTarget
+    }
+
     fun getUserInstalledApps(context: Context): List<InstalledAppInfo> {
         val pm = context.packageManager ?: return emptyList()
         val installedApps = mutableListOf<InstalledAppInfo>()

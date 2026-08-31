@@ -115,4 +115,18 @@ class AppVersionHelperTest {
         assertEquals("2026.8.107", deserialized.installedApps[0].versionName)
         assertEquals("com.cfox.droidmesh", deserialized.installedApps[1].packageName)
     }
+
+    // [PROGRAMMATIC] APP-TEST-004: Version mismatch and sideloaded app identification
+    @Test
+    fun testVersionMismatchAndSideloadedCheck() {
+        assertTrue(AppVersionHelper.isSideloadedApp("me.jxl.kiosk_satellite"))
+        assertTrue(AppVersionHelper.isSideloadedApp("com.cfox.droidmesh"))
+        assertFalse(AppVersionHelper.isSideloadedApp("com.disney.disneyplus"))
+
+        assertFalse(AppVersionHelper.isVersionMismatch("2026.8.107", "latest"))
+        assertFalse(AppVersionHelper.isVersionMismatch("2026.8.107", "2026.8.107"))
+        assertFalse(AppVersionHelper.isVersionMismatch("v2026.8.107", "2026.8.107"))
+        assertTrue(AppVersionHelper.isVersionMismatch("2026.8.106", "2026.8.107"))
+        assertTrue(AppVersionHelper.isVersionMismatch(null, "2026.8.107"))
+    }
 }

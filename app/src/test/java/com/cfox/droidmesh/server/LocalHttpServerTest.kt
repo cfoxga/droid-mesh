@@ -113,6 +113,15 @@ class LocalHttpServerTest {
         params: Map<String, String> = emptyMap(),
         postBody: String? = null
     ): NanoHTTPD.IHTTPSession {
+        val cleanUri = if (uri.contains("?")) uri.substringBefore("?") else uri
+        val queryParams = params.toMutableMap()
+        if (uri.contains("?")) {
+            val queryStr = uri.substringAfter("?")
+            queryStr.split("&").forEach {
+                val kv = it.split("=")
+                if (kv.size == 2) queryParams[kv[0]] = kv[1]
+            }
+        }
         val mutableHeaders = headers.toMutableMap()
         val bodyBytes = postBody?.toByteArray(Charsets.UTF_8)
         if (bodyBytes != null) {
@@ -120,10 +129,10 @@ class LocalHttpServerTest {
         }
         val cookies = server.CookieHandler(mutableHeaders)
         return mock {
-            whenever(it.uri).thenReturn(uri)
+            whenever(it.uri).thenReturn(cleanUri)
             whenever(it.method).thenReturn(method)
             whenever(it.headers).thenReturn(mutableHeaders)
-            whenever(it.parms).thenReturn(params)
+            whenever(it.parms).thenReturn(queryParams)
             whenever(it.cookies).thenReturn(cookies)
             whenever(it.remoteIpAddress).thenReturn("192.168.40.100")
             if (bodyBytes != null) {
@@ -274,5 +283,36 @@ class LocalHttpServerTest {
         assertTrue(SettingsStore.isPasswordSet(mockContext))
         assertTrue(SettingsStore.getCrossVlanSeeds(mockContext).contains("192.168.50.64:2326"))
         assertEquals(2000000000000L, SettingsStore.getConfigVersion(mockContext))
+    }
+
+    // [PROGRAMMATIC] API-TEST-005: Mesh Library GET and POST endpoints
+    @Test
+    fun testMeshLibraryGetAndPostEndpoints() {
+        // 1. GET initial library
+        val getSession = mockSession("/api/mesh/library?meshId=meta-portals")
+        val getRes = server.serve(getSession)
+        assertEquals(NanoHTTPD.Response.Status.OK, getRes.status)
+
+        // 2. POST update app config
+        val postPayload = JSONObject().apply {
+            put("meshId", "meta-portals")
+            put("packageName", "com.cfox.droidmesh")
+            put("appName", "DroidMesh")
+            put("managed", true)
+            put("autoInstall", true)
+            put("targetVersion", "latest")
+            put("autoUpdate", true)
+            put("isSideloaded", true)
+        }
+        val postSession = mockSession(
+            uri = "/api/mesh/library",
+            method = NanoHTTPD.Method.POST,
+            postBody = postPayload.toString()
+        )
+        val postRes = server.serve(postSession)
+        assertEquals(NanoHTTPD.Response.Status.OK, postRes.status)
+
+        val lib = SettingsStore.getMeshAppLibrary(mockContext, "meta-portals")
+        assertTrue(lib["com.cfox.droidmesh"]?.autoInstall == true)
     }
 }

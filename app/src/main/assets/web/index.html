@@ -27,13 +27,20 @@
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
+html, body {
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
+  margin: 0;
+  padding: 0;
+}
+
 body {
   background-color: var(--bg-app);
   color: var(--text-primary);
   font-family: var(--font-family);
   font-size: 14px;
   line-height: 1.5;
-  min-height: 100vh;
   display: flex;
 }
 
@@ -41,18 +48,31 @@ body {
 .app-container {
   display: flex;
   width: 100vw;
-  min-height: 100vh;
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
 }
 
 /* Sidebar */
 .sidebar {
   width: 250px;
+  height: 100%;
   background-color: var(--bg-surface);
   border-right: 1px solid var(--border-subtle);
   display: flex;
   flex-direction: column;
   padding: 20px 14px;
   flex-shrink: 0;
+  overflow: hidden;
+}
+
+.sidebar-scroll {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding-right: 2px;
 }
 
 .brand {
@@ -61,7 +81,8 @@ body {
   gap: 12px;
   padding: 0 8px 18px 8px;
   border-bottom: 1px solid var(--border-subtle);
-  margin-bottom: 18px;
+  margin-bottom: 14px;
+  flex-shrink: 0;
 }
 
 .brand-icon {
@@ -141,6 +162,8 @@ body {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  flex-shrink: 0;
+  margin-top: auto;
 }
 
 .device-badge {
@@ -502,9 +525,11 @@ input:checked + .slider:before {
 
 /* Responsive */
 @media (max-width: 800px) {
-  body { flex-direction: column; }
-  .sidebar { width: 100%; border-right: none; border-bottom: 1px solid var(--border-subtle); }
-  .main-content { padding: 20px 16px; }
+  html, body { height: auto; overflow: auto; }
+  .app-container { flex-direction: column; height: auto; overflow: visible; }
+  .sidebar { width: 100%; height: auto; border-right: none; border-bottom: 1px solid var(--border-subtle); overflow: visible; }
+  .sidebar-scroll { overflow-y: visible; }
+  .main-content { padding: 20px 16px; height: auto; overflow-y: visible; }
   .grid-2, .grid-3 { grid-template-columns: 1fr; }
 }
 </style>
@@ -573,46 +598,48 @@ input:checked + .slider:before {
       </div>
       <div>
         <div class="brand-title">DroidMesh</div>
-        <div class="brand-subtitle">Fleet Companion</div>
+        <div class="brand-subtitle" id="brandDeviceSubtitle">Portal Unit</div>
       </div>
     </div>
 
-    <div style="font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--text-muted); padding: 4px 8px 6px 8px; letter-spacing: 0.5px;">
-      Fleet Meshes
-    </div>
-    <div id="sidebarMeshList" class="nav-list" style="flex-grow: 0; margin-bottom: 8px;">
-      <!-- Populated dynamically -->
-      <button class="nav-item active" onclick="switchTab('mesh')">
-        <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/></svg>
-        <span>Loading Meshes...</span>
-      </button>
-    </div>
+    <div class="sidebar-scroll">
+      <div style="font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--text-muted); padding: 4px 8px 6px 8px; letter-spacing: 0.5px;">
+        Fleet Meshes
+      </div>
+      <div id="sidebarMeshList" class="nav-list" style="flex-grow: 0; margin-bottom: 8px;">
+        <!-- Populated dynamically -->
+        <button class="nav-item active" onclick="switchTab('mesh')">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/></svg>
+          <span>Loading Meshes...</span>
+        </button>
+      </div>
 
-    <button class="nav-item" onclick="showConnectModal(true)" style="color: var(--teal); font-size: 13px; margin-bottom: 14px; border: 1px dashed var(--border-subtle);">
-      <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-      Connect Cross-VLAN
-    </button>
+      <button class="nav-item" onclick="showConnectModal(true)" style="color: var(--teal); font-size: 13px; margin-bottom: 14px; border: 1px dashed var(--border-subtle);">
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        Connect Cross-VLAN
+      </button>
 
-    <div style="font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--text-muted); padding: 4px 8px 6px 8px; letter-spacing: 0.5px;">
-      Device Control
+      <div style="font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--text-muted); padding: 4px 8px 6px 8px; letter-spacing: 0.5px;">
+        Device Control
+      </div>
+      <nav class="nav-list">
+        <button id="nav-item-overview" class="nav-item" onclick="switchTab('overview')">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+          Overview
+        </button>
+        <button id="nav-item-settings" class="nav-item" onclick="switchTab('settings')">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+          Settings
+        </button>
+        <button id="nav-item-logs" class="nav-item" onclick="switchTab('logs')">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+          Logs Console
+        </button>
+      </nav>
     </div>
-    <nav class="nav-list">
-      <button id="nav-item-overview" class="nav-item" onclick="switchTab('overview')">
-        <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
-        Overview
-      </button>
-      <button id="nav-item-settings" class="nav-item" onclick="switchTab('settings')">
-        <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-        Settings
-      </button>
-      <button id="nav-item-logs" class="nav-item" onclick="switchTab('logs')">
-        <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
-        Logs Console
-      </button>
-    </nav>
 
     <div class="sidebar-foot">
-      <div class="device-badge" id="sidebarDeviceName">Loading device...</div>
+      <div class="device-badge" id="sidebarVersion">Loading version...</div>
       <button id="authBtn" class="btn btn-secondary btn-sm" onclick="handleAuthAction()" style="width: 100%;">
         Log Out
       </button>
@@ -1205,9 +1232,19 @@ async function refreshStatus(forceReleases = false) {
     const status = await apiCall('/api/status');
     state.status = status;
 
-    // Sidebar device name
-    document.getElementById('sidebarDeviceName').textContent = status.deviceModel ? `${status.deviceModel} (${status.ip || '127.0.0.1'})` : 'Portal Unit';
-    document.getElementById('telemetryModelBadge').textContent = status.deviceModel || 'Portal';
+    // Sidebar brand device subtitle and version
+    const brandSub = document.getElementById('brandDeviceSubtitle');
+    if (brandSub) {
+      brandSub.textContent = status.deviceModel || 'Portal Unit';
+    }
+    const verBadge = document.getElementById('sidebarVersion');
+    if (verBadge) {
+      verBadge.textContent = status.version ? (status.version.startsWith('v') ? status.version : `v${status.version}`) : 'v0.0.1';
+    }
+    const modelBadge = document.getElementById('telemetryModelBadge');
+    if (modelBadge) {
+      modelBadge.textContent = status.deviceModel || 'Portal';
+    }
 
     // Target App
     const targetBadge = document.getElementById('targetInstallBadge');

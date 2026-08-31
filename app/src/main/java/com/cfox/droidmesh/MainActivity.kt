@@ -78,9 +78,7 @@ class MainActivity : AppCompatActivity() {
 
         applyImmersiveMode()
 
-        ViewCompat.setOnApplyWindowInsetsListener(binding.rootLayout) { v, insets ->
-            val systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
-            v.setPadding(systemBars.left, systemBars.top, systemBars.right, systemBars.bottom)
+        ViewCompat.setOnApplyWindowInsetsListener(binding.rootLayout) { _, insets ->
             insets
         }
 
@@ -141,7 +139,8 @@ class MainActivity : AppCompatActivity() {
     // ==================== NAVIGATION ====================
 
     private fun setupNavigation() {
-        binding.tvSidebarDeviceName.text = CpuStatsHelper.getDeviceName(this)
+        binding.tvSidebarDeviceSubtitle.text = CpuStatsHelper.getDeviceName(this)
+        binding.tvSidebarVersion.text = "v${BuildConfig.VERSION_NAME}"
 
         binding.btnSidebarConnectVlan.setOnClickListener {
             showConnectVlanDialog()

@@ -50,17 +50,20 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:fontFamily="@font/rubik"
+                    android:includeFontPadding="false"
                     android:text="DroidMesh"
                     android:textColor="@color/ks_on_surface"
                     android:textSize="17sp"
                     android:textStyle="bold" />
 
                 <TextView
+                    android:id="@+id/tvSidebarDeviceSubtitle"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="1dp"
+                    android:layout_marginTop="0dp"
                     android:fontFamily="@font/rubik"
-                    android:text="Fleet Companion"
+                    android:includeFontPadding="false"
+                    android:text="Portal Unit"
                     android:textColor="@color/ks_teal"
                     android:textSize="11sp"
                     android:textStyle="bold" />
@@ -345,12 +348,12 @@
             </LinearLayout>
 
             <TextView
-                android:id="@+id/tvSidebarDeviceName"
+                android:id="@+id/tvSidebarVersion"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="2dp"
                 android:fontFamily="@font/rubik"
-                android:text="PortalMini (127.0.0.1)"
+                android:text="v0.0.1"
                 android:textColor="@color/ks_outline"
                 android:textSize="11sp" />
         </LinearLayout>

@@ -1,6 +1,7 @@
 package com.cfox.droidmesh.server
 
 import android.content.Context
+import com.cfox.droidmesh.BuildConfig
 import com.cfox.droidmesh.api.ReleaseInfo
 import com.cfox.droidmesh.installer.AppVersionHelper
 import com.cfox.droidmesh.mesh.MeshDiscoveryManager
@@ -347,6 +348,8 @@ class LocalHttpServer(
         val json = JSONObject().apply {
             put("status", "ok")
             put("app", "DroidMesh")
+            put("version", BuildConfig.VERSION_NAME)
+            put("versionCode", BuildConfig.VERSION_CODE)
             put("targetPackage", AppVersionHelper.TARGET_PACKAGE)
             put("targetInstalled", installed.isInstalled)
             put("installedVersionName", installed.versionName ?: JSONObject.NULL)

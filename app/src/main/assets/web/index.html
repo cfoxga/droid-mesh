@@ -1,0 +1,1298 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>DroidMesh Administration</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjNWRhM2E2IiBzdHJva2Utd2lkdGg9IjIiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIgc3Ryb2tlLWxpbmVqb2luPSJyb3VuZCI+PGNpcmNsZSBjeD0iMTIiIGN5PSIxMiIgcj0iMTAiLz48cGF0aCBkPSJtNC45MyA0LjkzIDQuMjQgNC4yNCIvPjxwYXRoIGQ9Im0xNC44MyAxNC44MyA0LjI0IDQuMjQiLz48cGF0aCBkPSJtMTQuODMgOS4xNyA0LjI0LTQuMjQiLz48cGF0aCBkPSJtNC45MyAxOS4wNyA0LjI0LTQuMjQiLz48L3N2Zz4=">
+<style>
+:root {
+  --bg-app: #121314;
+  --bg-surface: #1e2022;
+  --bg-surface-elevated: #282a2d;
+  --bg-input: #151618;
+  --border-subtle: #2d3034;
+  --border-focus: #5da3a6;
+  --text-primary: #f0f1f2;
+  --text-secondary: #9aa0a6;
+  --text-muted: #6e737a;
+  --sage: #749c6f;
+  --teal: #5da3a6;
+  --ochre: #ce9c3e;
+  --rust: #d97e4c;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  background-color: var(--bg-app);
+  color: var(--text-primary);
+  font-family: var(--font-family);
+  font-size: 14px;
+  line-height: 1.5;
+  min-height: 100vh;
+  display: flex;
+}
+
+/* App Shell */
+.app-container {
+  display: flex;
+  width: 100vw;
+  min-height: 100vh;
+}
+
+/* Sidebar */
+.sidebar {
+  width: 250px;
+  background-color: var(--bg-surface);
+  border-right: 1px solid var(--border-subtle);
+  display: flex;
+  flex-direction: column;
+  padding: 20px 14px;
+  flex-shrink: 0;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 8px 18px 8px;
+  border-bottom: 1px solid var(--border-subtle);
+  margin-bottom: 18px;
+}
+
+.brand-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-sm);
+  background: linear-gradient(135deg, var(--teal), var(--sage));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.brand-icon svg {
+  width: 20px;
+  height: 20px;
+  stroke: #fff;
+}
+
+.brand-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.brand-subtitle {
+  font-size: 11px;
+  color: var(--teal);
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+.nav-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex-grow: 1;
+}
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  text-decoration: none;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  font-weight: 500;
+  border: none;
+  background: transparent;
+  width: 100%;
+  text-align: left;
+  font-size: 14px;
+}
+
+.nav-item:hover {
+  background-color: rgba(255, 255, 255, 0.05);
+  color: var(--text-primary);
+}
+
+.nav-item.active {
+  background-color: var(--bg-surface-elevated);
+  color: var(--teal);
+  border-left: 3px solid var(--teal);
+}
+
+.nav-item svg {
+  width: 18px;
+  height: 18px;
+  stroke: currentColor;
+}
+
+.sidebar-foot {
+  padding-top: 14px;
+  border-top: 1px solid var(--border-subtle);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.device-badge {
+  font-size: 12px;
+  color: var(--text-muted);
+  padding: 0 4px;
+  word-break: break-all;
+}
+
+/* Main Content */
+.main-content {
+  flex-grow: 1;
+  overflow-y: auto;
+  padding: 28px 36px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  max-width: 1200px;
+}
+
+.header-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-bottom: 12px;
+}
+
+.header-bar h1 {
+  font-size: 22px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.header-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+/* Tab Panels */
+.tab-pane {
+  display: none;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.tab-pane.active {
+  display: flex;
+}
+
+/* Grid & Cards */
+.grid-2 {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+  gap: 18px;
+}
+
+.grid-3 {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 16px;
+}
+
+.card {
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.card-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.card-title svg {
+  width: 16px;
+  height: 16px;
+  stroke: var(--teal);
+}
+
+/* Key-Value Lists */
+.kv-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.kv-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 13px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+  padding-bottom: 6px;
+}
+
+.kv-row:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.kv-key {
+  color: var(--text-secondary);
+}
+
+.kv-val {
+  color: var(--text-primary);
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Badges & Status */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 8px;
+  border-radius: 9999px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.badge-sage { background-color: rgba(116, 156, 111, 0.2); color: var(--sage); border: 1px solid var(--sage); }
+.badge-teal { background-color: rgba(93, 163, 166, 0.2); color: var(--teal); border: 1px solid var(--teal); }
+.badge-ochre { background-color: rgba(206, 156, 62, 0.2); color: var(--ochre); border: 1px solid var(--ochre); }
+.badge-rust { background-color: rgba(217, 126, 76, 0.2); color: var(--rust); border: 1px solid var(--rust); }
+.badge-gray { background-color: rgba(154, 160, 166, 0.15); color: var(--text-secondary); border: 1px solid var(--border-subtle); }
+
+/* Buttons & Inputs */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  border: 1px solid transparent;
+  text-decoration: none;
+}
+
+.btn-primary {
+  background-color: var(--teal);
+  color: #121314;
+  font-weight: 600;
+}
+.btn-primary:hover {
+  background-color: #6eb7ba;
+}
+
+.btn-secondary {
+  background-color: var(--bg-surface-elevated);
+  border-color: var(--border-subtle);
+  color: var(--text-primary);
+}
+.btn-secondary:hover {
+  background-color: #33363a;
+  border-color: var(--text-muted);
+}
+
+.btn-danger {
+  background-color: rgba(217, 126, 76, 0.15);
+  color: var(--rust);
+  border-color: var(--rust);
+}
+.btn-danger:hover {
+  background-color: rgba(217, 126, 76, 0.3);
+}
+
+.btn-sm {
+  padding: 4px 10px;
+  font-size: 12px;
+}
+
+.btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.field {
+  width: 100%;
+  padding: 9px 12px;
+  background-color: var(--bg-input);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: 13px;
+  outline: none;
+  transition: border-color 0.15s ease;
+}
+
+.field:focus {
+  border-color: var(--border-focus);
+}
+
+.field-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.field-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+/* Switch */
+.switch-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  user-select: none;
+}
+
+.switch {
+  position: relative;
+  display: inline-block;
+  width: 44px;
+  height: 24px;
+}
+
+.switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.slider {
+  position: absolute;
+  cursor: pointer;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background-color: var(--bg-input);
+  border: 1px solid var(--border-subtle);
+  transition: .2s;
+  border-radius: 24px;
+}
+
+.slider:before {
+  position: absolute;
+  content: "";
+  height: 16px;
+  width: 16px;
+  left: 3px;
+  bottom: 3px;
+  background-color: var(--text-muted);
+  transition: .2s;
+  border-radius: 50%;
+}
+
+input:checked + .slider {
+  background-color: var(--teal);
+  border-color: var(--teal);
+}
+
+input:checked + .slider:before {
+  transform: translateX(20px);
+  background-color: #121314;
+}
+
+/* Banner */
+.banner {
+  padding: 12px 16px;
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 13px;
+}
+
+.banner-ochre {
+  background-color: rgba(206, 156, 62, 0.12);
+  border: 1px solid var(--ochre);
+  color: var(--ochre);
+}
+
+.banner-sage {
+  background-color: rgba(116, 156, 111, 0.12);
+  border: 1px solid var(--sage);
+  color: var(--sage);
+}
+
+.banner-rust {
+  background-color: rgba(217, 126, 76, 0.12);
+  border: 1px solid var(--rust);
+  color: var(--rust);
+}
+
+.banner-teal {
+  background-color: rgba(93, 163, 166, 0.12);
+  border: 1px solid var(--teal);
+  color: var(--teal);
+}
+
+/* Console Logs */
+.log-container {
+  background-color: #0b0c0d;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 14px;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  font-size: 12px;
+  color: #cfd3d8;
+  height: 520px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  line-height: 1.6;
+}
+
+/* Modal */
+.modal-backdrop {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background-color: rgba(0, 0, 0, 0.75);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  backdrop-filter: blur(4px);
+}
+
+.modal-card {
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  padding: 28px;
+  width: 100%;
+  max-width: 400px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.hidden { display: none !important; }
+
+/* Responsive */
+@media (max-width: 800px) {
+  body { flex-direction: column; }
+  .sidebar { width: 100%; border-right: none; border-bottom: 1px solid var(--border-subtle); }
+  .main-content { padding: 20px 16px; }
+  .grid-2, .grid-3 { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+
+<!-- Login Modal -->
+<div id="loginModal" class="modal-backdrop hidden">
+  <div class="modal-card">
+    <div style="text-align: center;">
+      <div class="brand-icon" style="margin: 0 auto 12px auto; width: 44px; height: 44px;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="10"/><path d="m4.93 4.93 4.24 4.24"/><path d="m14.83 14.83 4.24 4.24"/><path d="m14.83 9.17 4.24-4.24"/><path d="m4.93 19.07 4.24-4.24"/>
+        </svg>
+      </div>
+      <h2 style="font-size: 18px; font-weight: 600;">DroidMesh Admin Login</h2>
+      <p style="color: var(--text-secondary); font-size: 13px; margin-top: 4px;">Enter your admin password to manage this device.</p>
+    </div>
+    <form id="loginForm" onsubmit="handleLogin(event)" style="display: flex; flex-direction: column; gap: 14px;">
+      <div class="field-group">
+        <label class="field-label" for="loginPassword">Password</label>
+        <input id="loginPassword" class="field" type="password" placeholder="Admin Password" autofocus required autocomplete="current-password">
+      </div>
+      <div id="loginError" class="banner banner-rust hidden"></div>
+      <button type="submit" class="btn btn-primary" style="width: 100%; padding: 10px;">Authenticate</button>
+    </form>
+  </div>
+</div>
+
+<div class="app-container">
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="10"/><path d="m4.93 4.93 4.24 4.24"/><path d="m14.83 14.83 4.24 4.24"/><path d="m14.83 9.17 4.24-4.24"/><path d="m4.93 19.07 4.24-4.24"/>
+        </svg>
+      </div>
+      <div>
+        <div class="brand-title">DroidMesh</div>
+        <div class="brand-subtitle">Portal Companion</div>
+      </div>
+    </div>
+
+    <nav class="nav-list">
+      <button class="nav-item active" onclick="switchTab('overview')">
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+        Overview
+      </button>
+      <button class="nav-item" onclick="switchTab('mesh')">
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/></svg>
+        Fleet Mesh
+      </button>
+      <button class="nav-item" onclick="switchTab('settings')">
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        Settings
+      </button>
+      <button class="nav-item" onclick="switchTab('logs')">
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+        Logs Console
+      </button>
+    </nav>
+
+    <div class="sidebar-foot">
+      <div class="device-badge" id="sidebarDeviceName">Loading device...</div>
+      <button id="authBtn" class="btn btn-secondary btn-sm" onclick="handleAuthAction()" style="width: 100%;">
+        Log Out
+      </button>
+    </div>
+  </aside>
+
+  <!-- Main Content Area -->
+  <main class="main-content">
+    
+    <!-- Global Security Notice Banner (shown if no password set) -->
+    <div id="noPasswordBanner" class="banner banner-ochre hidden">
+      <div>
+        <strong>Security Warning:</strong> No admin password configured. Port 2325 is currently accessible to all LAN clients.
+      </div>
+      <button class="btn btn-primary btn-sm" onclick="switchTab('settings')">Set Password</button>
+    </div>
+
+    <!-- TAB: OVERVIEW -->
+    <section id="tab-overview" class="tab-pane active">
+      <div class="header-bar">
+        <h1>System Overview</h1>
+        <div class="header-actions">
+          <button class="btn btn-secondary btn-sm" onclick="refreshStatus(true)">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+            Refresh
+          </button>
+        </div>
+      </div>
+
+      <!-- Quick Status Cards -->
+      <div class="grid-3">
+        <!-- Target App Status -->
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">
+              <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>
+              Kiosk Satellite
+            </div>
+            <span id="targetInstallBadge" class="badge badge-gray">Checking...</span>
+          </div>
+          <div class="kv-list">
+            <div class="kv-row">
+              <span class="kv-key">Installed</span>
+              <span class="kv-val" id="valInstalledVersion">--</span>
+            </div>
+            <div class="kv-row">
+              <span class="kv-key">Latest Release</span>
+              <span class="kv-val" id="valLatestVersion">--</span>
+            </div>
+            <div class="kv-row">
+              <span class="kv-key">Auto-Update</span>
+              <span class="kv-val" id="valAutoUpdate">--</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Service Status -->
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">
+              <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+              DroidMesh Services
+            </div>
+            <span id="updaterStateBadge" class="badge badge-sage">IDLE</span>
+          </div>
+          <div class="kv-list">
+            <div class="kv-row">
+              <span class="kv-key">Accessibility</span>
+              <span class="kv-val" id="valA11y">--</span>
+            </div>
+            <div class="kv-row">
+              <span class="kv-key">Network ADB (:5555)</span>
+              <span class="kv-val" id="valAdb">--</span>
+            </div>
+            <div class="kv-row">
+              <span class="kv-key">HTTP Server</span>
+              <span class="kv-val" id="valHttpPort">Port 2325</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- System Vitals -->
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">
+              <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 20V10"/><path d="M12 20V4"/><path d="M6 20v-6"/></svg>
+              Device Telemetry
+            </div>
+            <span class="badge badge-teal" id="telemetryModelBadge">Portal</span>
+          </div>
+          <div class="kv-list">
+            <div class="kv-row">
+              <span class="kv-key">CPU Usage</span>
+              <span class="kv-val" id="valCpuUsage">--</span>
+            </div>
+            <div class="kv-row">
+              <span class="kv-key">Temperature</span>
+              <span class="kv-val" id="valCpuTemp">--</span>
+            </div>
+            <div class="kv-row">
+              <span class="kv-key">IP Address</span>
+              <span class="kv-val" id="valIpAddress">--</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Actions & Update Controls -->
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+            Deployment & OTA Controls
+          </div>
+        </div>
+
+        <div style="display: flex; flex-wrap: wrap; gap: 14px; align-items: flex-end;">
+          <div class="field-group" style="min-width: 240px; flex-grow: 1;">
+            <label class="field-label" for="selectRelease">Target Release Version</label>
+            <select id="selectRelease" class="field">
+              <option value="">Fetching available versions...</option>
+            </select>
+          </div>
+
+          <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px;">
+            <input type="checkbox" id="chkForceUpdate" style="width: 16px; height: 16px; accent-color: var(--teal);">
+            <label for="chkForceUpdate" style="font-size: 13px; color: var(--text-secondary); cursor: pointer;">Force Reinstall</label>
+          </div>
+
+          <button id="btnTriggerUpdate" class="btn btn-primary" onclick="triggerUpdate()">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            Install on This Device
+          </button>
+
+          <button id="btnToggleAdb" class="btn btn-secondary" onclick="toggleAdb()">
+            Toggle Network ADB
+          </button>
+        </div>
+
+        <div id="updateStatusMsg" class="banner banner-teal hidden" style="margin-top: 6px;"></div>
+      </div>
+    </section>
+
+    <!-- TAB: MESH FLEET -->
+    <section id="tab-mesh" class="tab-pane">
+      <div class="header-bar">
+        <div>
+          <h1>Fleet Mesh Network</h1>
+          <p style="color: var(--text-secondary); font-size: 13px; margin-top: 2px;">
+            UDP multicast discovery on port 23250 across subnet.
+          </p>
+        </div>
+        <div class="header-actions">
+          <button class="btn btn-secondary btn-sm" onclick="triggerBeacon()">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M2 12h20"/></svg>
+            Broadcast Beacon
+          </button>
+          <button class="btn btn-primary btn-sm" onclick="triggerUpdateAll()">
+            Update All Fleet Units
+          </button>
+        </div>
+      </div>
+
+      <div id="meshPeerGrid" class="grid-2">
+        <div class="card" style="text-align: center; color: var(--text-muted); padding: 40px;">
+          Scanning local network for active DroidMesh nodes...
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB: SETTINGS -->
+    <section id="tab-settings" class="tab-pane">
+      <div class="header-bar">
+        <h1>Application Settings</h1>
+      </div>
+
+      <div class="grid-2">
+        <!-- General Preferences -->
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">
+              <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+              Auto-Update Engine
+            </div>
+          </div>
+          <p style="color: var(--text-secondary); font-size: 13px;">
+            When enabled, DroidMesh continuously checks for new Kiosk Satellite releases and automatically performs headless silent installations.
+          </p>
+          <label class="switch-label">
+            <span style="font-weight: 500;">Enable Automatic Background Updates</span>
+            <div class="switch">
+              <input type="checkbox" id="settingAutoUpdate" onchange="saveAutoUpdateSetting()">
+              <span class="slider"></span>
+            </div>
+          </label>
+        </div>
+
+        <!-- Web Admin Password -->
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">
+              <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+              Web Admin Password
+            </div>
+            <span id="passwordStatusBadge" class="badge badge-ochre">Not Configured</span>
+          </div>
+          <p style="color: var(--text-secondary); font-size: 13px;">
+            Protects the web administration UI on port 2325 and all mutating REST APIs.
+          </p>
+          <form onsubmit="handlePasswordChange(event)" style="display: flex; flex-direction: column; gap: 12px;">
+            <div class="field-group" id="groupCurrentPassword">
+              <label class="field-label" for="pwdCurrent">Current Password</label>
+              <input id="pwdCurrent" class="field" type="password" placeholder="Current Admin Password" autocomplete="current-password">
+            </div>
+            <div class="field-group">
+              <label class="field-label" for="pwdNew">New Password</label>
+              <input id="pwdNew" class="field" type="password" placeholder="Enter New Password (leave blank to remove)" autocomplete="new-password">
+            </div>
+            <div class="field-group">
+              <label class="field-label" for="pwdConfirm">Confirm New Password</label>
+              <input id="pwdConfirm" class="field" type="password" placeholder="Confirm New Password" autocomplete="new-password">
+            </div>
+            <div id="pwdMsg" class="banner hidden"></div>
+            <button type="submit" class="btn btn-primary" style="align-self: flex-start;">Save Password</button>
+          </form>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB: LOGS CONSOLE -->
+    <section id="tab-logs" class="tab-pane">
+      <div class="header-bar">
+        <div>
+          <h1>Runtime Logs</h1>
+          <span id="logsCountBadge" style="color: var(--text-muted); font-size: 12px;">0 entries</span>
+        </div>
+        <div class="header-actions">
+          <button class="btn btn-secondary btn-sm" onclick="copyLogs()">Copy Logs</button>
+          <button class="btn btn-danger btn-sm" onclick="clearLogs()">Clear</button>
+          <button class="btn btn-primary btn-sm" onclick="fetchLogs()">Refresh</button>
+        </div>
+      </div>
+
+      <div style="display: flex; gap: 10px; align-items: center;">
+        <input id="logFilter" class="field" type="text" placeholder="Filter logs (e.g. error, update, mesh)..." oninput="applyLogFilter()">
+        <label style="display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-secondary); cursor: pointer; white-space: nowrap;">
+          <input type="checkbox" id="chkAutoScroll" checked style="accent-color: var(--teal);"> Auto-scroll
+        </label>
+      </div>
+
+      <div id="logConsole" class="log-container">Loading logs...</div>
+    </section>
+
+  </main>
+</div>
+
+<script>
+let state = {
+  token: localStorage.getItem('dm_token') || '',
+  authRequired: false,
+  status: null,
+  releases: [],
+  peers: [],
+  logs: [],
+  pollTimer: null
+};
+
+// API Helper
+async function apiCall(endpoint, options = {}) {
+  const headers = { 'Content-Type': 'application/json', ...(options.headers || {}) };
+  if (state.token) {
+    headers['Authorization'] = `Bearer ${state.token}`;
+  }
+
+  try {
+    const res = await fetch(endpoint, { credentials: 'same-origin', credentials: 'include', ...options, headers });
+    if (res.status === 401) {
+      showLoginModal(true);
+      throw new Error('Authentication required');
+    }
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok && data.error) {
+      throw new Error(data.error || `HTTP ${res.status}`);
+    }
+    return data;
+  } catch (err) {
+    console.error(`API ${endpoint} error:`, err);
+    throw err;
+  }
+}
+
+// Tab Switching
+function switchTab(tabId) {
+  document.querySelectorAll('.tab-pane').forEach(el => el.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
+
+  const pane = document.getElementById(`tab-${tabId}`);
+  if (pane) pane.classList.add('active');
+
+  const btnIndex = ['overview', 'mesh', 'settings', 'logs'].indexOf(tabId);
+  if (btnIndex >= 0) {
+    document.querySelectorAll('.nav-item')[btnIndex].classList.add('active');
+  }
+
+  if (tabId === 'logs') {
+    fetchLogs();
+  } else if (tabId === 'mesh') {
+    fetchPeers();
+  }
+}
+
+// Authentication
+async function checkAuthStatus() {
+  try {
+    const auth = await apiCall('/api/auth/status');
+    state.authRequired = auth.passwordSet;
+
+    const noPwdBanner = document.getElementById('noPasswordBanner');
+    const pwdBadge = document.getElementById('passwordStatusBadge');
+    const groupCurrent = document.getElementById('groupCurrentPassword');
+    const authBtn = document.getElementById('authBtn');
+
+    if (auth.passwordSet) {
+      noPwdBanner.classList.add('hidden');
+      pwdBadge.className = 'badge badge-sage';
+      pwdBadge.textContent = 'Active & Protected';
+      if (groupCurrent) groupCurrent.style.display = 'flex';
+      authBtn.style.display = 'block';
+
+      if (!auth.authenticated && !state.token) {
+        showLoginModal(true);
+      } else {
+        showLoginModal(false);
+      }
+    } else {
+      noPwdBanner.classList.remove('hidden');
+      pwdBadge.className = 'badge badge-ochre';
+      pwdBadge.textContent = 'Not Configured';
+      if (groupCurrent) groupCurrent.style.display = 'none';
+      authBtn.style.display = 'none';
+      showLoginModal(false);
+    }
+  } catch (e) {
+    console.warn('Auth check fallback:', e);
+  }
+}
+
+function showLoginModal(show) {
+  const modal = document.getElementById('loginModal');
+  if (show) {
+    modal.classList.remove('hidden');
+    document.getElementById('loginPassword').focus();
+  } else {
+    modal.classList.add('hidden');
+  }
+}
+
+async function handleLogin(e) {
+  e.preventDefault();
+  const password = document.getElementById('loginPassword').value;
+  const errEl = document.getElementById('loginError');
+  errEl.classList.add('hidden');
+
+  try {
+    const res = await apiCall('/api/login', {
+      method: 'POST',
+      body: JSON.stringify({ password })
+    });
+    if (res.token) {
+      state.token = res.token;
+      localStorage.setItem('dm_token', res.token);
+      showLoginModal(false);
+      refreshStatus(true);
+    }
+  } catch (err) {
+    errEl.textContent = err.message || 'Invalid admin password';
+    errEl.classList.remove('hidden');
+  }
+}
+
+function handleAuthAction() {
+  state.token = '';
+  localStorage.removeItem('dm_token');
+  apiCall('/api/logout', { method: 'POST' }).catch(() => {});
+  checkAuthStatus();
+}
+
+// Overview & Status
+async function refreshStatus(forceReleases = false) {
+  try {
+    const status = await apiCall('/api/status');
+    state.status = status;
+
+    // Sidebar device name
+    document.getElementById('sidebarDeviceName').textContent = status.deviceModel ? `${status.deviceModel} (${status.ip || '127.0.0.1'})` : 'Portal Unit';
+    document.getElementById('telemetryModelBadge').textContent = status.deviceModel || 'Portal';
+
+    // Target App
+    const targetBadge = document.getElementById('targetInstallBadge');
+    if (status.targetInstalled) {
+      targetBadge.className = 'badge badge-sage';
+      targetBadge.textContent = 'Installed';
+    } else {
+      targetBadge.className = 'badge badge-ochre';
+      targetBadge.textContent = 'Not Installed';
+    }
+
+    document.getElementById('valInstalledVersion').textContent = status.installedVersionName ? `v${status.installedVersionName}` : 'None';
+    document.getElementById('valAutoUpdate').textContent = status.autoUpdateEnabled ? 'Enabled' : 'Disabled';
+    document.getElementById('settingAutoUpdate').checked = status.autoUpdateEnabled;
+
+    // Service & Vitals
+    document.getElementById('updaterStateBadge').textContent = status.updaterState || 'IDLE';
+    document.getElementById('valA11y').textContent = status.accessibilityServiceActive ? 'Active (Auto-Click Ready)' : 'Disabled';
+    document.getElementById('valAdb').textContent = status.adbEnabled ? 'Enabled' : 'Disabled';
+    document.getElementById('btnToggleAdb').textContent = status.adbEnabled ? 'Disable Network ADB' : 'Enable Network ADB';
+
+    document.getElementById('valCpuUsage').textContent = status.cpuUsage ? `${Math.round(status.cpuUsage)}%` : '--';
+    document.getElementById('valCpuTemp').textContent = status.cpuTemp ? `${Math.round(status.cpuTemp)}°C` : '--';
+    document.getElementById('valIpAddress').textContent = status.ip || window.location.hostname;
+
+    // Load available releases
+    loadReleases(forceReleases);
+  } catch (err) {
+    console.error('Failed to refresh status:', err);
+  }
+}
+
+// Releases & Updates
+async function loadReleases(force = false) {
+  try {
+    const data = await apiCall(`/api/releases${force ? '?force=true' : ''}`);
+    if (Array.isArray(data.releases)) {
+      state.releases = data.releases;
+      const select = document.getElementById('selectRelease');
+      select.innerHTML = '';
+
+      if (data.releases.length > 0) {
+        const latest = data.releases[0];
+        document.getElementById('valLatestVersion').textContent = latest.tagName;
+      }
+
+      data.releases.forEach((rel, idx) => {
+        const opt = document.createElement('option');
+        opt.value = rel.tagName;
+        opt.dataset.url = rel.apkAssetUrl;
+        opt.dataset.filename = rel.apkFileName;
+        opt.textContent = idx === 0 ? `Latest (${rel.tagName})` : rel.tagName;
+        select.appendChild(opt);
+      });
+    }
+  } catch (e) {
+    console.warn('Could not fetch releases:', e);
+  }
+}
+
+async function triggerUpdate() {
+  const select = document.getElementById('selectRelease');
+  const selectedOpt = select.selectedOptions[0];
+  const tag = selectedOpt ? selectedOpt.value : null;
+  const url = selectedOpt ? selectedOpt.dataset.url : null;
+  const filename = selectedOpt ? selectedOpt.dataset.filename : null;
+  const force = document.getElementById('chkForceUpdate').checked;
+
+  const btn = document.getElementById('btnTriggerUpdate');
+  const statusMsg = document.getElementById('updateStatusMsg');
+
+  btn.disabled = true;
+  statusMsg.classList.remove('hidden');
+  statusMsg.className = 'banner banner-teal';
+  statusMsg.textContent = `Initiating OTA update sequence to ${tag || 'latest'}...`;
+
+  try {
+    const res = await apiCall('/api/update', {
+      method: 'POST',
+      body: JSON.stringify({ tag, url, filename, force })
+    });
+    statusMsg.className = 'banner banner-sage';
+    statusMsg.textContent = res.message || 'Update initiated successfully!';
+    setTimeout(() => refreshStatus(false), 2000);
+  } catch (err) {
+    statusMsg.className = 'banner banner-rust';
+    statusMsg.textContent = `Update failed: ${err.message}`;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function toggleAdb() {
+  try {
+    const res = await apiCall('/api/adb/toggle', { method: 'POST' });
+    refreshStatus(false);
+  } catch (err) {
+    alert(`Failed to toggle ADB: ${err.message}`);
+  }
+}
+
+// Mesh Discovery
+async function fetchPeers() {
+  try {
+    const data = await apiCall('/api/mesh');
+    state.peers = data.peers || [];
+    renderMeshPeers(state.peers);
+  } catch (e) {
+    console.warn('Failed to fetch mesh peers:', e);
+  }
+}
+
+function renderMeshPeers(peers) {
+  const container = document.getElementById('meshPeerGrid');
+  container.innerHTML = '';
+
+  if (peers.length === 0) {
+    container.innerHTML = `<div class="card" style="grid-column: 1/-1; text-align: center; color: var(--text-muted); padding: 40px;">No mesh nodes detected.</div>`;
+    return;
+  }
+
+  peers.forEach(peer => {
+    const card = document.createElement('div');
+    card.className = 'card';
+
+    const isOnline = peer.isOnline !== false;
+    const badgeClass = isOnline ? (peer.updaterState === 'IDLE' ? 'badge-sage' : 'badge-teal') : 'badge-gray';
+    const stateText = isOnline ? (peer.updaterState || 'ONLINE') : 'OFFLINE';
+
+    card.innerHTML = `
+      <div class="card-header">
+        <div class="card-title">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+          ${peer.deviceModel} ${peer.isSelf ? '<span class="badge badge-teal">This Device</span>' : ''}
+        </div>
+        <span class="badge ${badgeClass}">${stateText}</span>
+      </div>
+      <div class="kv-list">
+        <div class="kv-row">
+          <span class="kv-key">IP & Port</span>
+          <span class="kv-val">${peer.ip}:${peer.port}</span>
+        </div>
+        <div class="kv-row">
+          <span class="kv-key">Kiosk Satellite</span>
+          <span class="kv-val">${peer.targetInstalled && peer.installedVersionName ? `v${peer.installedVersionName}` : 'Not Installed'}</span>
+        </div>
+        <div class="kv-row">
+          <span class="kv-key">Network ADB</span>
+          <span class="kv-val">${peer.adbEnabled ? '<span style="color:var(--sage)">Enabled</span>' : '<span style="color:var(--rust)">Disabled</span>'}</span>
+        </div>
+        <div class="kv-row">
+          <span class="kv-key">Status Message</span>
+          <span class="kv-val" style="font-size:11px; color:var(--text-secondary);">${peer.updaterMessage || 'Ready'}</span>
+        </div>
+      </div>
+      ${!peer.isSelf ? `
+        <div style="display: flex; gap: 8px; margin-top: 6px;">
+          <button class="btn btn-secondary btn-sm" onclick="togglePeerAdb('${peer.ip}', ${peer.port})">Toggle ADB</button>
+          <button class="btn btn-primary btn-sm" onclick="triggerPeerUpdate('${peer.ip}', ${peer.port})">Update Node</button>
+        </div>
+      ` : ''}
+    `;
+    container.appendChild(card);
+  });
+}
+
+async function triggerBeacon() {
+  try {
+    await apiCall('/api/mesh/beacon', { method: 'POST' });
+    setTimeout(fetchPeers, 1000);
+  } catch (e) {
+    alert('Beacon broadcast failed: ' + e.message);
+  }
+}
+
+async function triggerUpdateAll() {
+  if (!confirm('Broadcast update trigger to all active nodes in the mesh?')) return;
+  try {
+    const res = await apiCall('/api/peers/update-all', { method: 'POST' });
+    alert(res.message || 'Update broadcast dispatched.');
+  } catch (e) {
+    alert('Update all failed: ' + e.message);
+  }
+}
+
+async function triggerPeerUpdate(ip, port) {
+  try {
+    const res = await apiCall('/api/peers/update', {
+      method: 'POST',
+      body: JSON.stringify({ ip, port, force: true })
+    });
+    alert(res.message || `Update dispatched to ${ip}`);
+  } catch (e) {
+    alert(`Failed to update peer ${ip}: ` + e.message);
+  }
+}
+
+async function togglePeerAdb(ip, port) {
+  try {
+    await apiCall('/api/peers/adb/toggle', {
+      method: 'POST',
+      body: JSON.stringify({ ip, port })
+    });
+    setTimeout(fetchPeers, 1500);
+  } catch (e) {
+    alert(`Failed to toggle ADB on ${ip}: ` + e.message);
+  }
+}
+
+// Settings
+async function saveAutoUpdateSetting() {
+  const enabled = document.getElementById('settingAutoUpdate').checked;
+  try {
+    await apiCall('/api/settings', {
+      method: 'POST',
+      body: JSON.stringify({ autoUpdateEnabled: enabled })
+    });
+    refreshStatus(false);
+  } catch (e) {
+    alert('Failed to update auto-update preference: ' + e.message);
+  }
+}
+
+async function handlePasswordChange(e) {
+  e.preventDefault();
+  const currentPassword = document.getElementById('pwdCurrent').value;
+  const newPassword = document.getElementById('pwdNew').value;
+  const confirmPassword = document.getElementById('pwdConfirm').value;
+  const msgEl = document.getElementById('pwdMsg');
+
+  if (newPassword && newPassword !== confirmPassword) {
+    msgEl.className = 'banner banner-rust';
+    msgEl.textContent = 'New passwords do not match.';
+    msgEl.classList.remove('hidden');
+    return;
+  }
+
+  try {
+    const res = await apiCall('/api/password', {
+      method: 'POST',
+      body: JSON.stringify({ currentPassword, password: newPassword })
+    });
+
+    msgEl.className = 'banner banner-sage';
+    msgEl.textContent = res.message || 'Password settings saved successfully!';
+    msgEl.classList.remove('hidden');
+
+    if (res.token) {
+      state.token = res.token;
+      localStorage.setItem('dm_token', res.token);
+    } else if (!newPassword) {
+      state.token = '';
+      localStorage.removeItem('dm_token');
+    }
+
+    document.getElementById('pwdCurrent').value = '';
+    document.getElementById('pwdNew').value = '';
+    document.getElementById('pwdConfirm').value = '';
+    checkAuthStatus();
+  } catch (err) {
+    msgEl.className = 'banner banner-rust';
+    msgEl.textContent = err.message || 'Failed to update password.';
+    msgEl.classList.remove('hidden');
+  }
+}
+
+// Logs Console
+async function fetchLogs() {
+  try {
+    const data = await apiCall('/api/logs');
+    state.logs = data.logs || [];
+    applyLogFilter();
+  } catch (e) {
+    console.warn('Failed to load logs:', e);
+  }
+}
+
+function applyLogFilter() {
+  const filter = (document.getElementById('logFilter').value || '').toLowerCase();
+  const consoleEl = document.getElementById('logConsole');
+  const countBadge = document.getElementById('logsCountBadge');
+
+  const filtered = filter ? state.logs.filter(l => l.toLowerCase().includes(filter)) : state.logs;
+  countBadge.textContent = `${filtered.length} entries`;
+
+  consoleEl.textContent = filtered.length > 0 ? filtered.join('\n') : '[No log entries matched filter]';
+
+  if (document.getElementById('chkAutoScroll').checked) {
+    consoleEl.scrollTop = consoleEl.scrollHeight;
+  }
+}
+
+function copyLogs() {
+  navigator.clipboard.writeText(state.logs.join('\n')).then(() => {
+    alert('Logs copied to clipboard!');
+  }).catch(() => {
+    alert('Clipboard access denied.');
+  });
+}
+
+async function clearLogs() {
+  try {
+    await apiCall('/api/logs/clear', { method: 'POST' });
+    state.logs = [];
+    applyLogFilter();
+  } catch (e) {
+    alert('Failed to clear logs: ' + e.message);
+  }
+}
+
+// Initialize on Load
+window.addEventListener('DOMContentLoaded', () => {
+  checkAuthStatus();
+  refreshStatus();
+
+  // Background polling loop every 4s
+  setInterval(() => {
+    const activeTab = document.querySelector('.tab-pane.active')?.id;
+    if (activeTab === 'tab-overview') {
+      refreshStatus(false);
+    } else if (activeTab === 'tab-mesh') {
+      fetchPeers();
+    } else if (activeTab === 'tab-logs') {
+      fetchLogs();
+    }
+  }, 4000);
+});
+</script>
+</body>
+</html>

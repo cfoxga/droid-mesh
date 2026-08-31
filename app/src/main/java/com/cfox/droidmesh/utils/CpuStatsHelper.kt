@@ -41,11 +41,14 @@ object CpuStatsHelper {
         } catch (e: Exception) { null }
         if (!bluetoothName.isNullOrBlank()) return bluetoothName
 
-        if (Build.MODEL.startsWith(Build.MANUFACTURER, ignoreCase = true)) {
-            return Build.MODEL
+        val model = Build.MODEL ?: "Portal"
+        val manufacturer = Build.MANUFACTURER ?: ""
+        if (manufacturer.isNotBlank() && model.startsWith(manufacturer, ignoreCase = true)) {
+            return model
         }
-        return "${Build.MANUFACTURER} ${Build.MODEL}".trim()
+        return "$manufacturer $model".trim()
     }
+
 
     data class CpuTelemetry(
         val usagePercent: Double?,

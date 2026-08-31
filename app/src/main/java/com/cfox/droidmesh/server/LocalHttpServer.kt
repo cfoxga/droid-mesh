@@ -1,15 +1,28 @@
 package com.cfox.droidmesh.server
 
 import android.content.Context
+import com.cfox.droidmesh.api.ReleaseInfo
 import com.cfox.droidmesh.installer.AppVersionHelper
 import com.cfox.droidmesh.mesh.MeshDiscoveryManager
+import com.cfox.droidmesh.mesh.PeerNode
 import com.cfox.droidmesh.service.AutoInstallService
 import com.cfox.droidmesh.settings.SettingsStore
+import com.cfox.droidmesh.utils.AdbHelper
+import com.cfox.droidmesh.utils.CpuStatsHelper
 import com.cfox.droidmesh.utils.Logger
 import fi.iki.elonen.NanoHTTPD
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.InputStream
+import java.net.URLEncoder
+import java.util.concurrent.TimeUnit
 
 class LocalHttpServer(
     private val context: Context,
@@ -18,118 +31,289 @@ class LocalHttpServer(
     port: Int = 2325
 ) : NanoHTTPD(port) {
 
+    private val httpClient = OkHttpClient.Builder()
+        .connectTimeout(6, TimeUnit.SECONDS)
+        .readTimeout(8, TimeUnit.SECONDS)
+        .build()
+
+    private val scope = CoroutineScope(Dispatchers.IO)
+
     override fun serve(session: IHTTPSession): Response {
         val uri = session.uri
         val method = session.method
 
-        Logger.i("HTTP ${method.name} request received at $uri from ${session.remoteIpAddress}")
+        // Handle CORS Preflight
+        if (method == Method.OPTIONS) {
+            val res = newFixedLengthResponse(Response.Status.OK, "text/plain", "")
+            addCorsHeaders(res)
+            return res
+        }
 
         return try {
             when {
-                // GET / or GET /status
-                (uri == "/" || uri == "/status") && method == Method.GET -> {
-                    handleStatus()
-                }
-
-                // GET /mesh or GET /peers
-                (uri == "/mesh" || uri == "/peers") && method == Method.GET -> {
-                    handleMesh()
-                }
-
-                // POST /adb/toggle or GET /adb/toggle
-                (uri == "/adb/toggle") -> {
-                    val newTarget = com.cfox.droidmesh.utils.AdbHelper.toggleAdb(context)
-                    val json = JSONObject().apply {
-                        put("status", "ok")
-                        put("adbEnabled", com.cfox.droidmesh.utils.AdbHelper.isAdbEnabled(context))
+                // Static Web Administration Interface
+                (uri == "/" || uri == "/index.html" || uri == "/overview" || uri == "/settings" || uri == "/mesh" || uri == "/logs") && method == Method.GET -> {
+                    val accept = session.headers["accept"] ?: ""
+                    if (accept.contains("application/json") && uri == "/") {
+                        handleStatus()
+                    } else {
+                        handleServeWeb()
                     }
-                    newFixedLengthResponse(Response.Status.OK, "application/json", json.toString(2))
                 }
 
-                // GET /check
-                uri == "/check" && method == Method.GET -> {
-                    handleCheck()
-                }
+                // Auth Endpoints
+                uri == "/api/auth/status" && method == Method.GET -> handleAuthStatus(session)
+                uri == "/api/login" && method == Method.POST -> handleLogin(session)
+                uri == "/api/logout" && method == Method.POST -> handleLogout()
+                uri == "/api/password" && method == Method.POST -> handlePassword(session)
 
-                // POST /update or GET /update
-                (uri == "/update") && (method == Method.POST || method == Method.GET) -> {
-                    val params = session.parms
-                    handleUpdate(params)
-                }
+                // Status & Health
+                (uri == "/status" || uri == "/api/status" || uri == "/api/health") && method == Method.GET -> handleStatus()
 
-                // GET /logs
-                uri == "/logs" && method == Method.GET -> {
-                    handleLogs()
-                }
+                // Settings
+                uri == "/api/settings" && method == Method.GET -> handleGetSettings()
+                uri == "/api/settings" && method == Method.POST -> handlePostSettings(session)
+
+                // Releases & Updates
+                (uri == "/check" || uri == "/api/check" || uri == "/api/releases") && method == Method.GET -> handleCheck(session)
+                (uri == "/update" || uri == "/api/update") && (method == Method.POST || method == Method.GET) -> handleUpdate(session)
+
+                // Network ADB
+                (uri == "/adb/toggle" || uri == "/api/adb/toggle") && (method == Method.POST || method == Method.GET) -> handleAdbToggle(session)
+
+                // Peer Mesh Fleet
+                (uri == "/mesh" || uri == "/peers" || uri == "/api/mesh") && method == Method.GET -> handleMesh()
+                uri == "/api/mesh/beacon" && (method == Method.POST || method == Method.GET) -> handleMeshBeacon(session)
+                uri == "/api/peers/update" && method == Method.POST -> handlePeerUpdate(session)
+                uri == "/api/peers/update-all" && method == Method.POST -> handlePeerUpdateAll(session)
+                uri == "/api/peers/adb/toggle" && method == Method.POST -> handlePeerAdbToggle(session)
+
+                // Runtime Logs
+                (uri == "/logs" || uri == "/api/logs") && method == Method.GET -> handleLogs()
+                uri == "/api/logs/clear" && method == Method.POST -> handleLogsClear(session)
 
                 else -> {
-                    val json = JSONObject().apply {
-                        put("status", "error")
-                        put("message", "Endpoint not found: ${method.name} $uri")
-                    }
-                    newFixedLengthResponse(
+                    jsonResponse(
                         Response.Status.NOT_FOUND,
-                        "application/json",
-                        json.toString(2)
+                        JSONObject().apply {
+                            put("status", "error")
+                            put("message", "Endpoint not found: ${method.name} $uri")
+                        }
                     )
                 }
             }
         } catch (e: Exception) {
-            Logger.e("Error processing HTTP request", e)
-            val json = JSONObject().apply {
-                put("status", "error")
-                put("error", e.message ?: "Internal Server Error")
-            }
-            newFixedLengthResponse(
+            Logger.e("Error processing HTTP request ($method $uri)", e)
+            jsonResponse(
                 Response.Status.INTERNAL_ERROR,
-                "application/json",
-                json.toString(2)
+                JSONObject().apply {
+                    put("status", "error")
+                    put("error", e.message ?: "Internal Server Error")
+                }
             )
         }
+    }
+
+    // --- Authentication Helpers ---
+
+    private fun extractToken(session: IHTTPSession): String? {
+        val authHeader = session.headers["authorization"] ?: session.headers["Authorization"]
+        if (!authHeader.isNullOrBlank() && authHeader.startsWith("Bearer ", ignoreCase = true)) {
+            return authHeader.substring(7).trim()
+        }
+
+        val customHeader = session.headers["x-auth-token"] ?: session.headers["X-Auth-Token"]
+        if (!customHeader.isNullOrBlank()) {
+            return customHeader.trim()
+        }
+
+        val cookie = session.cookies.read("auth_token")
+        if (!cookie.isNullOrBlank()) {
+            return cookie.trim()
+        }
+
+        return session.parms["token"]?.trim()
+    }
+
+    private fun isAuthorized(session: IHTTPSession): Boolean {
+        if (!SettingsStore.isPasswordSet(context)) return true
+        val token = extractToken(session)
+        return SettingsStore.validateToken(context, token)
+    }
+
+    private fun parseJsonBody(session: IHTTPSession): JSONObject {
+        return try {
+            val files = HashMap<String, String>()
+            session.parseBody(files)
+            val postData = files["postData"]
+            if (!postData.isNullOrBlank()) JSONObject(postData) else JSONObject()
+        } catch (e: Exception) {
+            JSONObject()
+        }
+    }
+
+    // --- Web Assets Serving ---
+
+    private fun handleServeWeb(): Response {
+        return try {
+            val html = context.assets.open("web/index.html").bufferedReader().use { it.readText() }
+            val res = newFixedLengthResponse(Response.Status.OK, "text/html; charset=utf-8", html)
+            addCorsHeaders(res)
+            res
+        } catch (e: Exception) {
+            Logger.e("Failed to load web administration UI from assets", e)
+            newFixedLengthResponse(
+                Response.Status.INTERNAL_ERROR,
+                "text/plain",
+                "Failed to load web admin UI: ${e.message}"
+            )
+        }
+    }
+
+    // --- Endpoint Handlers ---
+
+    private fun handleAuthStatus(session: IHTTPSession): Response {
+        val pwdSet = SettingsStore.isPasswordSet(context)
+        val authed = if (pwdSet) isAuthorized(session) else true
+
+        val json = JSONObject().apply {
+            put("status", "ok")
+            put("passwordSet", pwdSet)
+            put("authenticated", authed)
+        }
+        return jsonResponse(Response.Status.OK, json)
+    }
+
+    private fun handleLogin(session: IHTTPSession): Response {
+        val body = parseJsonBody(session)
+        val password = body.optString("password", session.parms["password"] ?: "")
+
+        if (SettingsStore.verifyPassword(context, password)) {
+            val token = SettingsStore.generateToken(context)
+            val json = JSONObject().apply {
+                put("status", "ok")
+                put("message", "Authentication successful")
+                put("token", token)
+                put("expiresIn", 7 * 86400)
+            }
+            return jsonResponse(Response.Status.OK, json, cookies = mapOf("auth_token" to token))
+        } else {
+            val json = JSONObject().apply {
+                put("status", "error")
+                put("error", "Invalid admin password")
+            }
+            return jsonResponse(Response.Status.UNAUTHORIZED, json)
+        }
+    }
+
+    private fun handleLogout(): Response {
+        val json = JSONObject().apply {
+            put("status", "ok")
+            put("message", "Logged out")
+        }
+        val res = jsonResponse(Response.Status.OK, json)
+        res.addHeader("Set-Cookie", "auth_token=; Path=/; Max-Age=0; SameSite=Lax")
+        return res
+    }
+
+    private fun handlePassword(session: IHTTPSession): Response {
+        if (SettingsStore.isPasswordSet(context) && !isAuthorized(session)) {
+            return jsonResponse(Response.Status.UNAUTHORIZED, JSONObject().apply {
+                put("status", "error")
+                put("error", "Authentication required to change password")
+            })
+        }
+
+        val body = parseJsonBody(session)
+        val currentPassword = body.optString("currentPassword", "")
+        val newPassword = body.optString("password", "")
+
+        if (SettingsStore.isPasswordSet(context)) {
+            if (!SettingsStore.verifyPassword(context, currentPassword)) {
+                return jsonResponse(Response.Status.BAD_REQUEST, JSONObject().apply {
+                    put("status", "error")
+                    put("error", "Current password does not match")
+                })
+            }
+        }
+
+        SettingsStore.setPassword(context, newPassword)
+        val newToken = if (newPassword.isNotBlank()) SettingsStore.generateToken(context) else null
+
+        val json = JSONObject().apply {
+            put("status", "ok")
+            put("message", if (newPassword.isBlank()) "Admin password removed" else "Admin password updated successfully")
+            if (newToken != null) {
+                put("token", newToken)
+            }
+        }
+
+        val cookies = if (newToken != null) mapOf("auth_token" to newToken) else mapOf("auth_token" to "")
+        return jsonResponse(Response.Status.OK, json, cookies = cookies)
     }
 
     private fun handleStatus(): Response {
         val installed = AppVersionHelper.getInstalledVersion(context)
         val currentStatus = coordinator.statusFlow.value
+        val telemetry = CpuStatsHelper.readTelemetry()
 
         val json = JSONObject().apply {
             put("status", "ok")
-            put("app", "Kiosk Satellite Updater")
+            put("app", "DroidMesh")
             put("targetPackage", AppVersionHelper.TARGET_PACKAGE)
             put("targetInstalled", installed.isInstalled)
             put("installedVersionName", installed.versionName ?: JSONObject.NULL)
             put("installedVersionCode", installed.versionCode ?: JSONObject.NULL)
             put("accessibilityServiceActive", AutoInstallService.isServiceRunning)
             put("autoUpdateEnabled", SettingsStore.isAutoUpdateEnabled(context))
-            put("adbEnabled", com.cfox.droidmesh.utils.AdbHelper.isAdbEnabled(context))
+            put("adbEnabled", AdbHelper.isAdbEnabled(context))
             put("updaterState", currentStatus.state)
             put("updaterMessage", currentStatus.message)
             put("progressPercent", currentStatus.progressPercent)
+            put("deviceModel", CpuStatsHelper.getDeviceName(context))
+            put("cpuUsage", telemetry.usagePercent ?: JSONObject.NULL)
+            put("cpuTemp", telemetry.tempCelsius ?: JSONObject.NULL)
+            put("passwordConfigured", SettingsStore.isPasswordSet(context))
         }
 
-        return newFixedLengthResponse(Response.Status.OK, "application/json", json.toString(2))
+        return jsonResponse(Response.Status.OK, json)
     }
 
-    private fun handleMesh(): Response {
-        val peers = meshManager?.peersFlow?.value ?: emptyList()
+    private fun handleGetSettings(): Response {
         val json = JSONObject().apply {
             put("status", "ok")
-            put("count", peers.size)
-            put("meshPort", MeshDiscoveryManager.MESH_PORT)
-            val arr = JSONArray()
-            for (peer in peers) {
-                arr.put(peer.toJson())
-            }
-            put("peers", arr)
+            put("autoUpdateEnabled", SettingsStore.isAutoUpdateEnabled(context))
+            put("hasPassword", SettingsStore.isPasswordSet(context))
+            put("adbEnabled", AdbHelper.isAdbEnabled(context))
         }
-        return newFixedLengthResponse(Response.Status.OK, "application/json", json.toString(2))
+        return jsonResponse(Response.Status.OK, json)
     }
 
-    private fun handleCheck(): Response {
-        val result = runBlocking { coordinator.checkVersion() }
+    private fun handlePostSettings(session: IHTTPSession): Response {
+        if (!isAuthorized(session)) {
+            return jsonResponse(Response.Status.UNAUTHORIZED, JSONObject().apply {
+                put("status", "error")
+                put("error", "Unauthorized")
+            })
+        }
 
-        return if (result.isSuccess) {
-            val comp = result.getOrThrow()
+        val body = parseJsonBody(session)
+        if (body.has("autoUpdateEnabled")) {
+            val enabled = body.getBoolean("autoUpdateEnabled")
+            SettingsStore.setAutoUpdateEnabled(context, enabled)
+            Logger.i("Auto-update toggled via HTTP API: $enabled")
+        }
+
+        return handleGetSettings()
+    }
+
+    private fun handleCheck(session: IHTTPSession): Response {
+        val force = session.parms["force"]?.toBoolean() ?: false
+        val releasesResult = runBlocking { coordinator.fetchAvailableReleases(forceRefresh = force) }
+        val checkResult = runBlocking { coordinator.checkVersion() }
+
+        if (checkResult.isSuccess) {
+            val comp = checkResult.getOrThrow()
             val json = JSONObject().apply {
                 put("status", "ok")
                 put("targetPackage", AppVersionHelper.TARGET_PACKAGE)
@@ -145,31 +329,54 @@ class LocalHttpServer(
                     put("apkFileName", comp.releaseInfo.apkFileName)
                     put("apkSize", comp.releaseInfo.apkSize)
                 })
+
+                val relArr = JSONArray()
+                if (releasesResult.isSuccess) {
+                    for (rel in releasesResult.getOrThrow()) {
+                        relArr.put(JSONObject().apply {
+                            put("name", rel.name)
+                            put("tagName", rel.tagName)
+                            put("publishedAt", rel.publishedAt)
+                            put("apkAssetUrl", rel.apkAssetUrl)
+                            put("apkFileName", rel.apkFileName)
+                            put("apkSize", rel.apkSize)
+                        })
+                    }
+                }
+                put("releases", relArr)
             }
-            newFixedLengthResponse(Response.Status.OK, "application/json", json.toString(2))
+            return jsonResponse(Response.Status.OK, json)
         } else {
-            val err = result.exceptionOrNull()?.message ?: "Check failed"
+            val err = checkResult.exceptionOrNull()?.message ?: "Check failed"
             val json = JSONObject().apply {
                 put("status", "error")
                 put("message", err)
             }
-            newFixedLengthResponse(Response.Status.INTERNAL_ERROR, "application/json", json.toString(2))
+            return jsonResponse(Response.Status.INTERNAL_ERROR, json)
         }
     }
 
-    private fun handleUpdate(params: Map<String, String>): Response {
-        val force = params["force"]?.toBoolean() ?: false
-        val tag = params["tag"] ?: params["version"]
-        val url = params["url"] ?: params["download_url"]
-        val filename = params["filename"] ?: (if (tag != null) "kiosk-satellite-$tag.apk" else null)
+    private fun handleUpdate(session: IHTTPSession): Response {
+        if (!isAuthorized(session)) {
+            return jsonResponse(Response.Status.UNAUTHORIZED, JSONObject().apply {
+                put("status", "error")
+                put("error", "Unauthorized")
+            })
+        }
 
-        if (!url.isNullOrBlank() && !tag.isNullOrBlank()) {
-            val specificRelease = com.cfox.droidmesh.api.ReleaseInfo(
+        val body = parseJsonBody(session)
+        val force = body.optBoolean("force", session.parms["force"]?.toBoolean() ?: false)
+        val tag = body.optString("tag", session.parms["tag"] ?: session.parms["version"] ?: "")
+        val url = body.optString("url", session.parms["url"] ?: session.parms["download_url"] ?: "")
+        val filename = body.optString("filename", session.parms["filename"] ?: if (tag.isNotBlank()) "kiosk-satellite-$tag.apk" else "")
+
+        if (url.isNotBlank() && tag.isNotBlank()) {
+            val specificRelease = ReleaseInfo(
                 tagName = tag,
                 name = tag,
                 publishedAt = "",
                 apkAssetUrl = url,
-                apkFileName = filename ?: "kiosk-satellite-$tag.apk",
+                apkFileName = filename.ifBlank { "kiosk-satellite-$tag.apk" },
                 apkSize = 0L
             )
             coordinator.startUpdateForRelease(specificRelease, force = force)
@@ -179,11 +386,189 @@ class LocalHttpServer(
 
         val json = JSONObject().apply {
             put("status", "accepted")
-            put("message", "Update sequence initiated (force=$force, target=${tag ?: "latest"})")
+            put("message", "Update sequence initiated (force=$force, target=${tag.ifBlank { "latest" }})")
             put("accessibilityServiceActive", AutoInstallService.isServiceRunning)
         }
 
-        return newFixedLengthResponse(Response.Status.ACCEPTED, "application/json", json.toString(2))
+        return jsonResponse(Response.Status.ACCEPTED, json)
+    }
+
+    private fun handleAdbToggle(session: IHTTPSession): Response {
+        if (!isAuthorized(session)) {
+            return jsonResponse(Response.Status.UNAUTHORIZED, JSONObject().apply {
+                put("status", "error")
+                put("error", "Unauthorized")
+            })
+        }
+
+        AdbHelper.toggleAdb(context)
+        val json = JSONObject().apply {
+            put("status", "ok")
+            put("adbEnabled", AdbHelper.isAdbEnabled(context))
+        }
+        return jsonResponse(Response.Status.OK, json)
+    }
+
+    private fun handleMesh(): Response {
+        val peers = meshManager?.peersFlow?.value ?: emptyList()
+        val json = JSONObject().apply {
+            put("status", "ok")
+            put("count", peers.size)
+            put("meshPort", MeshDiscoveryManager.MESH_PORT)
+            val arr = JSONArray()
+            for (peer in peers) {
+                arr.put(peer.toJson())
+            }
+            put("peers", arr)
+        }
+        return jsonResponse(Response.Status.OK, json)
+    }
+
+    private fun handleMeshBeacon(session: IHTTPSession): Response {
+        if (!isAuthorized(session)) {
+            return jsonResponse(Response.Status.UNAUTHORIZED, JSONObject().apply {
+                put("status", "error")
+                put("error", "Unauthorized")
+            })
+        }
+
+        meshManager?.triggerBeacon()
+        val json = JSONObject().apply {
+            put("status", "ok")
+            put("message", "Mesh UDP beacon broadcast dispatched")
+        }
+        return jsonResponse(Response.Status.OK, json)
+    }
+
+    private fun handlePeerUpdate(session: IHTTPSession): Response {
+        if (!isAuthorized(session)) {
+            return jsonResponse(Response.Status.UNAUTHORIZED, JSONObject().apply {
+                put("status", "error")
+                put("error", "Unauthorized")
+            })
+        }
+
+        val body = parseJsonBody(session)
+        val ip = body.optString("ip", "")
+        val port = body.optInt("port", 2325)
+        val tag = body.optString("tag", "")
+        val url = body.optString("url", "")
+        val force = body.optBoolean("force", true)
+
+        if (ip.isBlank()) {
+            return jsonResponse(Response.Status.BAD_REQUEST, JSONObject().apply {
+                put("status", "error")
+                put("error", "Missing peer IP address")
+            })
+        }
+
+        scope.launch {
+            try {
+                val queryParams = mutableListOf("force=$force")
+                if (tag.isNotBlank()) queryParams.add("tag=${URLEncoder.encode(tag, "UTF-8")}")
+                if (url.isNotBlank()) queryParams.add("url=${URLEncoder.encode(url, "UTF-8")}")
+                val updateUrl = "http://$ip:$port/update?${queryParams.joinToString("&")}"
+
+                val req = Request.Builder()
+                    .url(updateUrl)
+                    .post(ByteArray(0).toRequestBody(null, 0, 0))
+                    .build()
+                httpClient.newCall(req).execute().close()
+                Logger.i("Dispatched remote peer update to $ip:$port")
+            } catch (e: Exception) {
+                Logger.e("Error dispatching peer update to $ip:$port", e)
+            }
+        }
+
+        val json = JSONObject().apply {
+            put("status", "accepted")
+            put("message", "Dispatched update sequence to peer $ip:$port")
+        }
+        return jsonResponse(Response.Status.ACCEPTED, json)
+    }
+
+    private fun handlePeerUpdateAll(session: IHTTPSession): Response {
+        if (!isAuthorized(session)) {
+            return jsonResponse(Response.Status.UNAUTHORIZED, JSONObject().apply {
+                put("status", "error")
+                put("error", "Unauthorized")
+            })
+        }
+
+        val body = parseJsonBody(session)
+        val tag = body.optString("tag", "")
+        val url = body.optString("url", "")
+
+        // 1. Trigger local
+        coordinator.startUpdateAsync(force = true)
+
+        // 2. Trigger remotes
+        val peers = meshManager?.peersFlow?.value ?: emptyList()
+        val remotes = peers.filter { !it.isSelf && it.isOnline }
+
+        scope.launch {
+            for (peer in remotes) {
+                try {
+                    val queryParams = mutableListOf("force=true")
+                    if (tag.isNotBlank()) queryParams.add("tag=${URLEncoder.encode(tag, "UTF-8")}")
+                    if (url.isNotBlank()) queryParams.add("url=${URLEncoder.encode(url, "UTF-8")}")
+                    val updateUrl = "http://${peer.ip}:${peer.port}/update?${queryParams.joinToString("&")}"
+
+                    val req = Request.Builder()
+                        .url(updateUrl)
+                        .post(ByteArray(0).toRequestBody(null, 0, 0))
+                        .build()
+                    httpClient.newCall(req).execute().close()
+                } catch (e: Exception) {
+                    Logger.e("Failed to dispatch update to peer ${peer.ip}", e)
+                }
+            }
+        }
+
+        val json = JSONObject().apply {
+            put("status", "accepted")
+            put("message", "Dispatched update command to local unit and ${remotes.size} online remote peers")
+        }
+        return jsonResponse(Response.Status.ACCEPTED, json)
+    }
+
+    private fun handlePeerAdbToggle(session: IHTTPSession): Response {
+        if (!isAuthorized(session)) {
+            return jsonResponse(Response.Status.UNAUTHORIZED, JSONObject().apply {
+                put("status", "error")
+                put("error", "Unauthorized")
+            })
+        }
+
+        val body = parseJsonBody(session)
+        val ip = body.optString("ip", "")
+        val port = body.optInt("port", 2325)
+
+        if (ip.isBlank()) {
+            return jsonResponse(Response.Status.BAD_REQUEST, JSONObject().apply {
+                put("status", "error")
+                put("error", "Missing peer IP address")
+            })
+        }
+
+        scope.launch {
+            try {
+                val req = Request.Builder()
+                    .url("http://$ip:$port/adb/toggle")
+                    .post(ByteArray(0).toRequestBody(null, 0, 0))
+                    .build()
+                httpClient.newCall(req).execute().close()
+                Logger.i("Dispatched remote ADB toggle to $ip:$port")
+            } catch (e: Exception) {
+                Logger.e("Failed to toggle ADB on remote peer $ip", e)
+            }
+        }
+
+        val json = JSONObject().apply {
+            put("status", "accepted")
+            put("message", "Dispatched ADB toggle to peer $ip:$port")
+        }
+        return jsonResponse(Response.Status.ACCEPTED, json)
     }
 
     private fun handleLogs(): Response {
@@ -192,6 +577,46 @@ class LocalHttpServer(
             put("status", "ok")
             put("logs", JSONArray(logs))
         }
-        return newFixedLengthResponse(Response.Status.OK, "application/json", json.toString(2))
+        return jsonResponse(Response.Status.OK, json)
+    }
+
+    private fun handleLogsClear(session: IHTTPSession): Response {
+        if (!isAuthorized(session)) {
+            return jsonResponse(Response.Status.UNAUTHORIZED, JSONObject().apply {
+                put("status", "error")
+                put("error", "Unauthorized")
+            })
+        }
+
+        Logger.clear()
+        val json = JSONObject().apply {
+            put("status", "ok")
+            put("message", "Log buffer cleared")
+        }
+        return jsonResponse(Response.Status.OK, json)
+    }
+
+    private fun addCorsHeaders(response: Response) {
+        response.addHeader("Access-Control-Allow-Origin", "*")
+        response.addHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS, PATCH")
+        response.addHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Auth-Token")
+    }
+
+    private fun jsonResponse(
+        status: Response.Status,
+        obj: JSONObject,
+        cookies: Map<String, String>? = null
+    ): Response {
+        val res = newFixedLengthResponse(status, "application/json; charset=utf-8", obj.toString(2))
+        addCorsHeaders(res)
+        cookies?.forEach { (k, v) ->
+            if (v.isBlank()) {
+                res.addHeader("Set-Cookie", "$k=; Path=/; Max-Age=0; SameSite=Lax")
+            } else {
+                res.addHeader("Set-Cookie", "$k=$v; Path=/; Max-Age=604800; SameSite=Lax")
+            }
+        }
+        return res
     }
 }
+

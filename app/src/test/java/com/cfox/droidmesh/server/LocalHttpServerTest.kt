@@ -150,6 +150,10 @@ class LocalHttpServerTest {
         val response = server.serve(session)
         assertEquals(NanoHTTPD.Response.Status.OK, response.status)
         assertEquals("application/json; charset=utf-8", response.mimeType)
+        val bodyStr = response.data?.readBytes()?.toString(Charsets.UTF_8) ?: ""
+        val json = JSONObject(bodyStr)
+        assertEquals("DroidMesh", json.getString("app"))
+        assertTrue(json.has("version"))
     }
 
     @Test

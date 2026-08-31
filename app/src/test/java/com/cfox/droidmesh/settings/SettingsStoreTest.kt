@@ -27,6 +27,12 @@ class SettingsStoreTest {
                 if (value != null) inMemoryPrefs[key] = value else inMemoryPrefs.remove(key)
                 editor
             }
+            org.mockito.kotlin.whenever(it.putStringSet(any(), org.mockito.kotlin.anyOrNull())).thenAnswer { invocation ->
+                val key = invocation.getArgument<String>(0)
+                val value = invocation.getArgument<Set<String>?>(1)
+                if (value != null) inMemoryPrefs[key] = value else inMemoryPrefs.remove(key)
+                editor
+            }
             org.mockito.kotlin.whenever(it.putBoolean(any(), any())).thenAnswer { invocation ->
                 val key = invocation.getArgument<String>(0)
                 val value = invocation.getArgument<Boolean>(1)
@@ -52,6 +58,10 @@ class SettingsStoreTest {
                 val key = invocation.getArgument<String>(0)
                 val def = invocation.getArgument<String?>(1)
                 inMemoryPrefs[key] as? String ?: def
+            }
+            org.mockito.kotlin.whenever(it.getStringSet(any(), org.mockito.kotlin.anyOrNull())).thenAnswer { invocation ->
+                @Suppress("UNCHECKED_CAST")
+                inMemoryPrefs[invocation.getArgument<String>(0)] as? Set<String> ?: invocation.getArgument<Set<String>?>(1) ?: emptySet<String>()
             }
             org.mockito.kotlin.whenever(it.edit()).thenAnswer { editor }
         }
@@ -113,5 +123,34 @@ class SettingsStoreTest {
 
         val newToken = SettingsStore.generateToken(mockContext, ttlSeconds = 3600)
         assertTrue("New token succeeds", SettingsStore.validateToken(mockContext, newToken))
+    }
+
+    @Test
+    fun testMeshIdentityAndCrossVlanSeeds() {
+        // Defaults
+        assertEquals("meta-portals", SettingsStore.getLocalMeshId(mockContext))
+        assertEquals("Meta Portals", SettingsStore.getLocalMeshName(mockContext))
+        assertTrue(SettingsStore.getCrossVlanSeeds(mockContext).isEmpty())
+
+        // Custom Mesh Identity
+        SettingsStore.setLocalMeshId(mockContext, "googletv")
+        SettingsStore.setLocalMeshName(mockContext, "Google TV")
+        assertEquals("googletv", SettingsStore.getLocalMeshId(mockContext))
+        assertEquals("Google TV", SettingsStore.getLocalMeshName(mockContext))
+
+        // Cross-VLAN Seeds
+        assertTrue(SettingsStore.addCrossVlanSeed(mockContext, "192.168.50.10:2325"))
+        assertTrue(SettingsStore.addCrossVlanSeed(mockContext, "192.168.50.11:2325"))
+        assertFalse("Duplicate seed addition returns false", SettingsStore.addCrossVlanSeed(mockContext, "192.168.50.10:2325"))
+
+        val seeds = SettingsStore.getCrossVlanSeeds(mockContext)
+        assertEquals(2, seeds.size)
+        assertTrue(seeds.contains("192.168.50.10:2325"))
+        assertTrue(seeds.contains("192.168.50.11:2325"))
+
+        // Remove seed
+        assertTrue(SettingsStore.removeCrossVlanSeed(mockContext, "192.168.50.10:2325"))
+        assertEquals(1, SettingsStore.getCrossVlanSeeds(mockContext).size)
+        assertFalse(SettingsStore.getCrossVlanSeeds(mockContext).contains("192.168.50.10:2325"))
     }
 }

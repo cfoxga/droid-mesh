@@ -138,6 +138,10 @@ class LocalHttpServer(
                 // Peer Mesh Fleet
                 (uri == "/mesh" || uri == "/peers" || uri == "/api/mesh") && method == Method.GET -> handleMesh()
                 uri == "/api/mesh/beacon" && (method == Method.POST || method == Method.GET) -> handleMeshBeacon(session)
+                uri == "/api/mesh/connect" && method == Method.POST -> handleMeshConnect(session)
+                uri == "/api/mesh/handshake" && method == Method.POST -> handleMeshHandshake(session)
+                uri == "/api/mesh/seeds" && method == Method.GET -> handleMeshSeedsGet()
+                (uri == "/api/mesh/seeds" || uri == "/api/mesh/seeds/remove") && (method == Method.DELETE || method == Method.POST) -> handleMeshSeedsRemove(session)
                 uri == "/api/peers/update" && method == Method.POST -> handlePeerUpdate(session)
                 uri == "/api/peers/update-all" && method == Method.POST -> handlePeerUpdateAll(session)
                 uri == "/api/peers/adb/toggle" && method == Method.POST -> handlePeerAdbToggle(session)
@@ -200,7 +204,7 @@ class LocalHttpServer(
     }
 
     private fun parseJsonBody(session: IHTTPSession): JSONObject {
-        if (session.method != Method.POST && session.method != Method.PUT && session.method != Method.PATCH) {
+        if (session.method != Method.POST && session.method != Method.PUT && session.method != Method.PATCH && session.method != Method.DELETE) {
             return JSONObject()
         }
         val contentLength = session.headers["content-length"]?.toIntOrNull() ?: 0
@@ -356,11 +360,17 @@ class LocalHttpServer(
     }
 
     private fun handleGetSettings(): Response {
+        val seedsJson = JSONArray()
+        SettingsStore.getCrossVlanSeeds(context).forEach { seedsJson.put(it) }
+
         val json = JSONObject().apply {
             put("status", "ok")
             put("autoUpdateEnabled", SettingsStore.isAutoUpdateEnabled(context))
             put("hasPassword", SettingsStore.isPasswordSet(context))
             put("adbEnabled", AdbHelper.isAdbEnabled(context))
+            put("localMeshId", SettingsStore.getLocalMeshId(context))
+            put("localMeshName", SettingsStore.getLocalMeshName(context))
+            put("crossVlanSeeds", seedsJson)
         }
         return jsonResponse(Response.Status.OK, json)
     }
@@ -378,6 +388,20 @@ class LocalHttpServer(
             val enabled = body.getBoolean("autoUpdateEnabled")
             SettingsStore.setAutoUpdateEnabled(context, enabled)
             Logger.i("Auto-update toggled via HTTP API: $enabled")
+        }
+        if (body.has("localMeshId")) {
+            val meshId = body.getString("localMeshId").trim()
+            if (meshId.isNotBlank()) {
+                SettingsStore.setLocalMeshId(context, meshId)
+                Logger.i("Local mesh ID updated: $meshId")
+            }
+        }
+        if (body.has("localMeshName")) {
+            val meshName = body.getString("localMeshName").trim()
+            if (meshName.isNotBlank()) {
+                SettingsStore.setLocalMeshName(context, meshName)
+                Logger.i("Local mesh name updated: $meshName")
+            }
         }
 
         return handleGetSettings()
@@ -486,6 +510,13 @@ class LocalHttpServer(
     }
 
     private fun handleMesh(): Response {
+        val grouped = meshManager?.getMeshesGrouped()
+        if (grouped != null) {
+            grouped.put("status", "ok")
+            grouped.put("meshPort", MeshDiscoveryManager.MESH_PORT)
+            return jsonResponse(Response.Status.OK, grouped)
+        }
+
         val peers = meshManager?.peersFlow?.value ?: emptyList()
         val json = JSONObject().apply {
             put("status", "ok")
@@ -496,6 +527,87 @@ class LocalHttpServer(
                 arr.put(peer.toJson())
             }
             put("peers", arr)
+        }
+        return jsonResponse(Response.Status.OK, json)
+    }
+
+    private fun handleMeshConnect(session: IHTTPSession): Response {
+        if (!isAuthorized(session)) {
+            return jsonResponse(Response.Status.UNAUTHORIZED, JSONObject().apply {
+                put("status", "error")
+                put("error", "Unauthorized")
+            })
+        }
+
+        val body = parseJsonBody(session)
+        val ip = body.optString("ip", body.optString("seed", ""))
+        if (ip.isBlank()) {
+            return jsonResponse(Response.Status.BAD_REQUEST, JSONObject().apply {
+                put("status", "error")
+                put("error", "Missing 'ip' or 'seed' parameter")
+            })
+        }
+
+        val result = meshManager?.addCrossVlanSeed(ip, reciprocal = true)
+        val normalized = result?.getOrNull() ?: ip
+
+        val json = JSONObject().apply {
+            put("status", "ok")
+            put("message", "Connecting to cross-VLAN mesh seed $normalized")
+            put("seed", normalized)
+        }
+        return jsonResponse(Response.Status.OK, json)
+    }
+
+    private fun handleMeshHandshake(session: IHTTPSession): Response {
+        val body = parseJsonBody(session)
+        val senderIp = session.remoteIpAddress ?: "127.0.0.1"
+        val responseJson = if (meshManager != null) {
+            meshManager.handleIncomingHandshake(body, senderIp)
+        } else {
+            val remoteSenderIp = body.optString("sender_ip", senderIp)
+            val remotePort = body.optInt("sender_port", 2325)
+            val remoteSeed = "$remoteSenderIp:$remotePort"
+            SettingsStore.addCrossVlanSeed(context, remoteSeed)
+            JSONObject()
+        }
+        responseJson.put("status", "ok")
+        return jsonResponse(Response.Status.OK, responseJson)
+    }
+
+    private fun handleMeshSeedsGet(): Response {
+        val seeds = SettingsStore.getCrossVlanSeeds(context)
+        val arr = JSONArray()
+        seeds.forEach { arr.put(it) }
+        val json = JSONObject().apply {
+            put("status", "ok")
+            put("seeds", arr)
+        }
+        return jsonResponse(Response.Status.OK, json)
+    }
+
+    private fun handleMeshSeedsRemove(session: IHTTPSession): Response {
+        if (!isAuthorized(session)) {
+            return jsonResponse(Response.Status.UNAUTHORIZED, JSONObject().apply {
+                put("status", "error")
+                put("error", "Unauthorized")
+            })
+        }
+
+        val body = parseJsonBody(session)
+        val ip = body.optString("ip", body.optString("seed", session.parms["ip"] ?: session.parms["seed"] ?: ""))
+        if (ip.isBlank()) {
+            return jsonResponse(Response.Status.BAD_REQUEST, JSONObject().apply {
+                put("status", "error")
+                put("error", "Missing seed IP to remove")
+            })
+        }
+
+        val removed = meshManager?.removeCrossVlanSeed(ip) ?: SettingsStore.removeCrossVlanSeed(context, ip)
+        val json = JSONObject().apply {
+            put("status", "ok")
+            put("removed", removed)
+            put("message", "Removed seed $ip")
         }
         return jsonResponse(Response.Status.OK, json)
     }

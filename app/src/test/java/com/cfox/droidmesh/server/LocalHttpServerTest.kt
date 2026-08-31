@@ -34,6 +34,12 @@ class LocalHttpServerTest {
                 if (v != null) inMemoryPrefs[k] = v else inMemoryPrefs.remove(k)
                 it
             }
+            whenever(it.putStringSet(any(), anyOrNull())).thenAnswer { inv ->
+                val k = inv.getArgument<String>(0)
+                val v = inv.getArgument<Set<String>?>(1)
+                if (v != null) inMemoryPrefs[k] = v else inMemoryPrefs.remove(k)
+                it
+            }
             whenever(it.putBoolean(any(), any())).thenAnswer { inv ->
                 inMemoryPrefs[inv.getArgument<String>(0)] = inv.getArgument<Boolean>(1)
                 it
@@ -52,6 +58,10 @@ class LocalHttpServerTest {
             }
             whenever(it.getString(any(), anyOrNull())).thenAnswer { inv ->
                 inMemoryPrefs[inv.getArgument<String>(0)] as? String ?: inv.getArgument<String?>(1)
+            }
+            whenever(it.getStringSet(any(), anyOrNull())).thenAnswer { inv ->
+                @Suppress("UNCHECKED_CAST")
+                inMemoryPrefs[inv.getArgument<String>(0)] as? Set<String> ?: inv.getArgument<Set<String>?>(1) ?: emptySet<String>()
             }
             whenever(it.edit()).thenAnswer { editor }
         }
@@ -167,5 +177,43 @@ class LocalHttpServerTest {
         val authedResponse = server.serve(authedSession)
         assertEquals(NanoHTTPD.Response.Status.OK, authedResponse.status)
         assertFalse(SettingsStore.isAutoUpdateEnabled(mockContext))
+    }
+
+    @Test
+    fun testMeshEndpointReturnsOk() {
+        val session = mockSession("/api/mesh")
+        val response = server.serve(session)
+        assertEquals(NanoHTTPD.Response.Status.OK, response.status)
+        assertEquals("application/json; charset=utf-8", response.mimeType)
+    }
+
+    @Test
+    fun testMeshSeedsEndpoints() {
+        // GET seeds
+        val getSession = mockSession("/api/mesh/seeds")
+        val getRes = server.serve(getSession)
+        assertEquals(NanoHTTPD.Response.Status.OK, getRes.status)
+
+        // Seed Removal (DELETE)
+        SettingsStore.addCrossVlanSeed(mockContext, "192.168.50.10:2325")
+        val deleteSession = mockSession(
+            uri = "/api/mesh/seeds",
+            method = NanoHTTPD.Method.DELETE,
+            postBody = """{"ip": "192.168.50.10:2325"}"""
+        )
+        val deleteRes = server.serve(deleteSession)
+        assertEquals(NanoHTTPD.Response.Status.OK, deleteRes.status)
+    }
+
+    @Test
+    fun testMeshHandshakeEndpoint() {
+        val handshakeSession = mockSession(
+            uri = "/api/mesh/handshake",
+            method = NanoHTTPD.Method.POST,
+            postBody = """{"sender_ip": "192.168.50.10", "sender_port": 2325, "mesh_id": "googletv", "mesh_name": "Google TV", "reciprocal": false}"""
+        )
+        val response = server.serve(handshakeSession)
+        assertEquals(NanoHTTPD.Response.Status.OK, response.status)
+        assertTrue(SettingsStore.getCrossVlanSeeds(mockContext).contains("192.168.50.10:2325"))
     }
 }

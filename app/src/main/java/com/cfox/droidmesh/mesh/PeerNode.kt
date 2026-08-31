@@ -14,7 +14,10 @@ data class PeerNode(
     val updaterMessage: String? = null,
     val adbEnabled: Boolean = false,
     val lastSeenTimestamp: Long = System.currentTimeMillis(),
-    val isSelf: Boolean = false
+    val isSelf: Boolean = false,
+    val meshId: String = "meta-portals",
+    val meshName: String = "Meta Portals",
+    val isCrossVlan: Boolean = false
 ) {
     val isOnline: Boolean
         get() = isSelf || (System.currentTimeMillis() - lastSeenTimestamp) < 30_000L
@@ -27,6 +30,9 @@ data class PeerNode(
         put("ip", ip)
         put("port", port)
         put("deviceModel", deviceModel)
+        put("meshId", meshId)
+        put("meshName", meshName)
+        put("isCrossVlan", isCrossVlan)
         put("targetInstalled", targetInstalled)
         put("installedVersionName", installedVersionName ?: JSONObject.NULL)
         put("installedVersionCode", installedVersionCode ?: JSONObject.NULL)
@@ -46,6 +52,9 @@ data class PeerNode(
                 val ip = json.optString("ip", senderIp)
                 val port = json.optInt("port", 2325)
                 val deviceModel = json.optString("deviceModel", "Portal")
+                val meshId = json.optString("meshId", json.optString("mesh_id", "meta-portals"))
+                val meshName = json.optString("meshName", json.optString("mesh_name", "Meta Portals"))
+                val isCrossVlan = json.optBoolean("isCrossVlan", json.optBoolean("is_cross_vlan", false))
                 val targetInstalled = json.optBoolean("targetInstalled", false)
                 val installedVersionName = if (json.isNull("installedVersionName")) null else json.optString("installedVersionName")
                 val installedVersionCode = if (json.isNull("installedVersionCode")) null else json.optLong("installedVersionCode")
@@ -64,7 +73,10 @@ data class PeerNode(
                     updaterMessage = updaterMessage,
                     adbEnabled = adbEnabled,
                     lastSeenTimestamp = System.currentTimeMillis(),
-                    isSelf = false
+                    isSelf = false,
+                    meshId = meshId,
+                    meshName = meshName,
+                    isCrossVlan = isCrossVlan
                 )
             } catch (e: Exception) {
                 null

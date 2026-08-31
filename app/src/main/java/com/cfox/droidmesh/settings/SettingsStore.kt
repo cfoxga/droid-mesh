@@ -17,8 +17,82 @@ object SettingsStore {
     private const val KEY_WEB_PASSWORD_HASH = "web_password_hash"
     private const val KEY_WEB_PASSWORD_SALT = "web_password_salt"
     private const val KEY_AUTH_SECRET = "auth_secret"
+    private const val KEY_LOCAL_MESH_ID = "local_mesh_id"
+    private const val KEY_LOCAL_MESH_NAME = "local_mesh_name"
+    private const val KEY_CROSS_VLAN_SEEDS = "cross_vlan_seeds"
 
     private const val DEFAULT_AUTO_UPDATE_ENABLED = true
+
+    fun getDefaultMeshId(context: Context): String {
+        val model = (android.os.Build.MODEL ?: "").lowercase()
+        val manufacturer = (android.os.Build.MANUFACTURER ?: "").lowercase()
+        val isTv = try {
+            context.packageManager?.hasSystemFeature(android.content.pm.PackageManager.FEATURE_LEANBACK) == true
+        } catch (_: Exception) {
+            false
+        }
+        return when {
+            isTv || model.contains("googletv") || model.contains("google tv") || model.contains("chromecast") || model.contains("onn") -> "googletv"
+            model.contains("portal") || manufacturer.contains("facebook") || manufacturer.contains("meta") -> "meta-portals"
+            else -> "meta-portals"
+        }
+    }
+
+    fun getDefaultMeshName(context: Context): String {
+        return when (getDefaultMeshId(context)) {
+            "googletv" -> "Google TV"
+            "meta-portals" -> "Meta Portals"
+            else -> "Meta Portals"
+        }
+    }
+
+    fun getLocalMeshId(context: Context): String {
+        val saved = prefs(context).getString(KEY_LOCAL_MESH_ID, null)
+        return if (!saved.isNullOrBlank()) saved else getDefaultMeshId(context)
+    }
+
+    fun setLocalMeshId(context: Context, meshId: String) {
+        prefs(context).edit().putString(KEY_LOCAL_MESH_ID, meshId.trim()).apply()
+    }
+
+    fun getLocalMeshName(context: Context): String {
+        val saved = prefs(context).getString(KEY_LOCAL_MESH_NAME, null)
+        return if (!saved.isNullOrBlank()) saved else getDefaultMeshName(context)
+    }
+
+    fun setLocalMeshName(context: Context, meshName: String) {
+        prefs(context).edit().putString(KEY_LOCAL_MESH_NAME, meshName.trim()).apply()
+    }
+
+    fun getCrossVlanSeeds(context: Context): Set<String> {
+        val seeds = prefs(context).getStringSet(KEY_CROSS_VLAN_SEEDS, emptySet()) ?: emptySet()
+        return seeds.toSet()
+    }
+
+    fun setCrossVlanSeeds(context: Context, seeds: Set<String>) {
+        prefs(context).edit().putStringSet(KEY_CROSS_VLAN_SEEDS, seeds).apply()
+    }
+
+    fun addCrossVlanSeed(context: Context, seed: String): Boolean {
+        val cleanSeed = seed.trim()
+        if (cleanSeed.isBlank()) return false
+        val current = getCrossVlanSeeds(context).toMutableSet()
+        val added = current.add(cleanSeed)
+        if (added) {
+            setCrossVlanSeeds(context, current)
+        }
+        return added
+    }
+
+    fun removeCrossVlanSeed(context: Context, seed: String): Boolean {
+        val cleanSeed = seed.trim()
+        val current = getCrossVlanSeeds(context).toMutableSet()
+        val removed = current.remove(cleanSeed)
+        if (removed) {
+            setCrossVlanSeeds(context, current)
+        }
+        return removed
+    }
 
     fun isAutoUpdateEnabled(context: Context): Boolean =
         prefs(context).getBoolean(KEY_AUTO_UPDATE_ENABLED, DEFAULT_AUTO_UPDATE_ENABLED)

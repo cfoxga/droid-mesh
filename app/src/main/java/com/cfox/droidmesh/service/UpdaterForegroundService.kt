@@ -90,11 +90,12 @@ class UpdaterForegroundService : Service() {
         httpServer = LocalHttpServer(applicationContext, coordinator, mesh, PORT)
 
         try {
-            httpServer?.start()
-            Logger.i("Local HTTP server successfully started on port $PORT")
+            httpServer?.start(fi.iki.elonen.NanoHTTPD.SOCKET_READ_TIMEOUT, false)
+            Logger.i("Local HTTP server successfully started on port $PORT (non-daemon)")
         } catch (e: Exception) {
             Logger.e("Failed to bind LocalHttpServer to port $PORT", e)
         }
+
 
         // Collect coordinator status updates to update notification & wake lock
         serviceScope.launch {

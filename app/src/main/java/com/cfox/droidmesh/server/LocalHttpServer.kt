@@ -29,20 +29,74 @@ class LocalHttpServer(
     private val coordinator: UpdateCoordinator,
     private val meshManager: MeshDiscoveryManager? = null,
     port: Int = 2325
-) : NanoHTTPD(port) {
+) : NanoHTTPD("0.0.0.0", port) {
+
+    init {
+        val pool = java.util.concurrent.Executors.newCachedThreadPool { r ->
+            Thread(r, "DroidMesh-HTTP-Worker").apply {
+                isDaemon = false
+            }
+        }
+        setAsyncRunner(object : AsyncRunner {
+            override fun exec(code: ClientHandler) {
+                pool.execute(code)
+            }
+            override fun closed(clientHandler: ClientHandler) {}
+            override fun closeAll() {
+                try { pool.shutdownNow() } catch (_: Exception) {}
+            }
+        })
+    }
+
+    override fun createClientHandler(accept: java.net.Socket, inputStream: InputStream): ClientHandler {
+        val rawAddress = accept.inetAddress
+        val fastAddress = try {
+            val ip = rawAddress.hostAddress ?: "127.0.0.1"
+            java.net.InetAddress.getByAddress(ip, rawAddress.address)
+        } catch (_: Exception) {
+            rawAddress
+        }
+        val wrapper = object : java.net.Socket() {
+            override fun getInetAddress(): java.net.InetAddress = fastAddress
+            override fun getInputStream(): InputStream = accept.getInputStream()
+            override fun getOutputStream(): java.io.OutputStream = accept.getOutputStream()
+            override fun close() = accept.close()
+            override fun isClosed(): Boolean = accept.isClosed
+            override fun isConnected(): Boolean = accept.isConnected
+            override fun setSoTimeout(timeout: Int) { accept.soTimeout = timeout }
+            override fun getSoTimeout(): Int = accept.soTimeout
+        }
+        return super.createClientHandler(wrapper, inputStream)
+    }
+
+
+
+
 
     private val httpClient = OkHttpClient.Builder()
+
         .connectTimeout(6, TimeUnit.SECONDS)
         .readTimeout(8, TimeUnit.SECONDS)
         .build()
 
     private val scope = CoroutineScope(Dispatchers.IO)
 
+    private val webHtmlBytes by lazy {
+        try {
+            context.assets.open("web/index.html").use { it.readBytes() }
+        } catch (e: Exception) {
+            Logger.e("Failed to load web/index.html from assets", e)
+            ByteArray(0)
+        }
+    }
+
     override fun serve(session: IHTTPSession): Response {
         val uri = session.uri
         val method = session.method
+        Logger.i("LocalHttpServer.serve: $method $uri from ${session.remoteIpAddress}")
 
         // Handle CORS Preflight
+
         if (method == Method.OPTIONS) {
             val res = newFixedLengthResponse(Response.Status.OK, "text/plain", "")
             addCorsHeaders(res)
@@ -127,9 +181,13 @@ class LocalHttpServer(
             return customHeader.trim()
         }
 
-        val cookie = session.cookies.read("auth_token")
-        if (!cookie.isNullOrBlank()) {
-            return cookie.trim()
+        val cookieHeader = session.headers["cookie"] ?: session.headers["Cookie"]
+        if (!cookieHeader.isNullOrBlank()) {
+            val token = cookieHeader.split(";")
+                .map { it.trim() }
+                .firstOrNull { it.startsWith("auth_token=") }
+                ?.substringAfter("auth_token=")
+            if (!token.isNullOrBlank()) return token
         }
 
         return session.parms["token"]?.trim()
@@ -142,33 +200,51 @@ class LocalHttpServer(
     }
 
     private fun parseJsonBody(session: IHTTPSession): JSONObject {
+        if (session.method != Method.POST && session.method != Method.PUT && session.method != Method.PATCH) {
+            return JSONObject()
+        }
+        val contentLength = session.headers["content-length"]?.toIntOrNull() ?: 0
+        if (contentLength <= 0) return JSONObject()
+
         return try {
-            val files = HashMap<String, String>()
-            session.parseBody(files)
-            val postData = files["postData"]
-            if (!postData.isNullOrBlank()) JSONObject(postData) else JSONObject()
+            val buf = ByteArray(contentLength)
+            var totalRead = 0
+            val input = session.inputStream
+            while (totalRead < contentLength) {
+                val count = input.read(buf, totalRead, contentLength - totalRead)
+                if (count <= 0) break
+                totalRead += count
+            }
+            val text = String(buf, 0, totalRead, Charsets.UTF_8)
+            if (text.isNotBlank()) JSONObject(text) else JSONObject()
         } catch (e: Exception) {
             JSONObject()
         }
     }
 
+
     // --- Web Assets Serving ---
 
     private fun handleServeWeb(): Response {
-        return try {
-            val html = context.assets.open("web/index.html").bufferedReader().use { it.readText() }
-            val res = newFixedLengthResponse(Response.Status.OK, "text/html; charset=utf-8", html)
-            addCorsHeaders(res)
-            res
-        } catch (e: Exception) {
-            Logger.e("Failed to load web administration UI from assets", e)
-            newFixedLengthResponse(
+        val bytes = webHtmlBytes
+        if (bytes.isEmpty()) {
+            return newFixedLengthResponse(
                 Response.Status.INTERNAL_ERROR,
                 "text/plain",
-                "Failed to load web admin UI: ${e.message}"
+                "Web administration UI asset not found."
             )
         }
+        val html = String(bytes, Charsets.UTF_8)
+        val res = newFixedLengthResponse(
+            Response.Status.OK,
+            "text/html; charset=utf-8",
+            html
+        )
+        addCorsHeaders(res)
+        return res
     }
+
+
 
     // --- Endpoint Handlers ---
 
@@ -597,10 +673,12 @@ class LocalHttpServer(
     }
 
     private fun addCorsHeaders(response: Response) {
+        response.addHeader("Connection", "close")
         response.addHeader("Access-Control-Allow-Origin", "*")
         response.addHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS, PATCH")
         response.addHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Auth-Token")
     }
+
 
     private fun jsonResponse(
         status: Response.Status,

@@ -88,23 +88,25 @@ class LocalHttpServerTest {
         params: Map<String, String> = emptyMap(),
         postBody: String? = null
     ): NanoHTTPD.IHTTPSession {
-        val cookies = server.CookieHandler(headers)
+        val mutableHeaders = headers.toMutableMap()
+        val bodyBytes = postBody?.toByteArray(Charsets.UTF_8)
+        if (bodyBytes != null) {
+            mutableHeaders["content-length"] = bodyBytes.size.toString()
+        }
+        val cookies = server.CookieHandler(mutableHeaders)
         return mock {
             whenever(it.uri).thenReturn(uri)
             whenever(it.method).thenReturn(method)
-            whenever(it.headers).thenReturn(headers)
+            whenever(it.headers).thenReturn(mutableHeaders)
             whenever(it.parms).thenReturn(params)
             whenever(it.cookies).thenReturn(cookies)
             whenever(it.remoteIpAddress).thenReturn("192.168.40.100")
-            if (postBody != null) {
-                whenever(it.parseBody(any())).thenAnswer { inv ->
-                    val map = inv.getArgument<MutableMap<String, String>>(0)
-                    map["postData"] = postBody
-                    Unit
-                }
+            if (bodyBytes != null) {
+                whenever(it.inputStream).thenAnswer { ByteArrayInputStream(bodyBytes) }
             }
         }
     }
+
 
 
     @Test

@@ -17,7 +17,7 @@ object CpuStatsHelper {
 
     private val NOT_CPU_ZONE = listOf(
         "trip", "limit", "batt", "pmic", "charg", "wifi", "wlan", "usb", "skin",
-        "gpu", "cam", "flash", "modem", "mdpa", "nrpa", "dram"
+        "gpu", "cam", "flash", "modem", "mdpa", "nrpa", "dram", "ibat", "vbat"
     )
 
     private class IdleSnapshot(
@@ -29,6 +29,9 @@ object CpuStatsHelper {
 
     private var lastIdle: IdleSnapshot? = null
     private var thermalBlocked = false
+
+    @Volatile
+    private var cachedTelemetry = CpuTelemetry(null, null)
 
     fun getDeviceName(context: Context): String {
         val globalName = try {
@@ -49,7 +52,6 @@ object CpuStatsHelper {
         return "$manufacturer $model".trim()
     }
 
-
     data class CpuTelemetry(
         val usagePercent: Double?,
         val tempCelsius: Double?
@@ -62,28 +64,33 @@ object CpuStatsHelper {
     }
 
     fun readTelemetry(): CpuTelemetry {
-        return CpuTelemetry(
-            usagePercent = cpuUsage(),
-            tempCelsius = cpuTemp()
-        )
+        return try {
+            val usage = cpuUsage()
+            val temp = cpuTemp()
+            val result = CpuTelemetry(usage, temp)
+            cachedTelemetry = result
+            result
+        } catch (e: Exception) {
+            cachedTelemetry
+        }
     }
 
     @Synchronized
     private fun cpuUsage(): Double? {
-        var first = lastIdle ?: idleSnapshot() ?: return frequencyLoad()
-        val age = SystemClock.elapsedRealtimeNanos() - first.atNanos
-        if (age < 500_000_000L || age > 300_000_000_000L) {
-            first = idleSnapshot() ?: return frequencyLoad()
-            try {
-                Thread.sleep(250)
-            } catch (_: InterruptedException) {
-                return frequencyLoad()
-            }
-        }
         val now = idleSnapshot() ?: return frequencyLoad()
+        val first = lastIdle
         lastIdle = now
-        val wallUs = (now.atNanos - first.atNanos) / 1000.0
+
+        if (first == null) return frequencyLoad()
+
+        val age = now.atNanos - first.atNanos
+        if (age < 100_000_000L || age > 300_000_000_000L) {
+            return frequencyLoad()
+        }
+
+        val wallUs = age / 1000.0
         if (wallUs <= 0) return frequencyLoad()
+
         var busySum = 0.0
         var n = 0
         for ((name, idleNow) in now.idleUs) {
@@ -164,7 +171,7 @@ object CpuStatsHelper {
         var max: Double? = null
         for (zone in zones) {
             val type = readText(File(zone, "type"))?.lowercase() ?: continue
-            if (NOT_CPU_ZONE.any { type.contains(it) }) continue
+            if (NOT_ZONE_ALLOWED(type)) continue
             if (!wanted(type)) continue
             val raw = readLong(File(zone, "temp")) ?: continue
             val deg = if (raw > 1000L) raw / 1000.0 else raw.toDouble()
@@ -174,11 +181,15 @@ object CpuStatsHelper {
         return max
     }
 
+    private fun NOT_ZONE_ALLOWED(type: String): Boolean =
+        NOT_CPU_ZONE.any { type.contains(it) }
+
     private fun readText(f: File): String? = try {
-        f.readText().trim()
+        if (!f.exists() || !f.canRead()) null else f.readText().trim()
     } catch (e: Exception) {
         null
     }
 
     private fun readLong(f: File): Long? = readText(f)?.toLongOrNull()
 }
+

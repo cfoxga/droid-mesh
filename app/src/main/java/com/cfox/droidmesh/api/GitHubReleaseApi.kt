@@ -1,6 +1,6 @@
-package com.cfox.kiosksatelliteupdater.api
+package com.cfox.droidmesh.api
 
-import com.cfox.kiosksatelliteupdater.utils.Logger
+import com.cfox.droidmesh.utils.Logger
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient

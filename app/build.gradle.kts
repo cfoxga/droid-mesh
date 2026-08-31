@@ -20,15 +20,15 @@ fun signing(name: String): String? =
     )
 
 android {
-    namespace = "com.cfox.kiosksatelliteupdater"
+    namespace = "com.cfox.droidmesh"
     compileSdk = 34
 
     defaultConfig {
-        applicationId = "com.cfox.kiosksatelliteupdater"
+        applicationId = "com.cfox.droidmesh"
         minSdk = 28
         targetSdk = 29
-        versionCode = 3
-        versionName = "0.0.3"
+        versionCode = 1
+        versionName = "0.0.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

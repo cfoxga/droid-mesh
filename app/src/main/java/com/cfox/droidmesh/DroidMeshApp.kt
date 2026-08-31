@@ -1,10 +1,10 @@
-package com.cfox.kiosksatelliteupdater
+package com.cfox.droidmesh
 
 import android.app.Application
-import com.cfox.kiosksatelliteupdater.service.UpdaterForegroundService
-import com.cfox.kiosksatelliteupdater.utils.Logger
+import com.cfox.droidmesh.service.UpdaterForegroundService
+import com.cfox.droidmesh.utils.Logger
 
-class KioskSatelliteUpdaterApp : Application() {
+class DroidMeshApp : Application() {
     override fun onCreate() {
         super.onCreate()
         Logger.i("Kiosk Satellite Updater Application onCreate")

@@ -1,10 +1,10 @@
-package com.cfox.kiosksatelliteupdater.installer
+package com.cfox.droidmesh.installer
 
 import android.content.Context
 import android.content.pm.PackageInfo
 import android.content.pm.PackageManager
 import android.os.Build
-import com.cfox.kiosksatelliteupdater.utils.Logger
+import com.cfox.droidmesh.utils.Logger
 
 object AppVersionHelper {
     const val TARGET_PACKAGE = "me.jxl.kiosk_satellite"

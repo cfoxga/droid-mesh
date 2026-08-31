@@ -4,7 +4,7 @@
 # Echo Show LineageOS ports use Device Manager mode instead and never need
 # this app.
 #
-# This script provisions ONLY the updater (com.cfox.kiosksatelliteupdater).
+# This script provisions ONLY the updater (com.cfox.droidmesh).
 # It does not install or grant permissions for Kiosk Satellite itself
 # (me.jxl.kiosk_satellite) — once the updater is running, trigger its own
 # install/update via the HTTP API documented in README.md, or use
@@ -22,7 +22,7 @@
 #                latest GitHub release for cfoxga/kiosk-satellite-updater.
 set -euo pipefail
 
-PKG="com.cfox.kiosksatelliteupdater"
+PKG="com.cfox.droidmesh"
 REPO_OWNER="cfoxga"
 REPO_NAME="kiosk-satellite-updater"
 

@@ -1,8 +1,8 @@
-package com.cfox.kiosksatelliteupdater.downloader
+package com.cfox.droidmesh.downloader
 
 import android.content.Context
 import android.os.Environment
-import com.cfox.kiosksatelliteupdater.utils.Logger
+import com.cfox.droidmesh.utils.Logger
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient

@@ -1,4 +1,4 @@
-package com.cfox.kiosksatelliteupdater.settings
+package com.cfox.droidmesh.settings
 
 import android.content.Context
 import android.content.SharedPreferences

@@ -1,4 +1,4 @@
-package com.cfox.kiosksatelliteupdater.mesh
+package com.cfox.droidmesh.mesh
 
 import org.json.JSONObject
 

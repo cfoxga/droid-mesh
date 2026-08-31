@@ -1,6 +1,6 @@
-package com.cfox.kiosksatelliteupdater.installer
+package com.cfox.droidmesh.installer
 
-import com.cfox.kiosksatelliteupdater.utils.Logger
+import com.cfox.droidmesh.utils.Logger
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream

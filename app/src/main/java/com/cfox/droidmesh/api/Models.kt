@@ -1,4 +1,4 @@
-package com.cfox.kiosksatelliteupdater.api
+package com.cfox.droidmesh.api
 
 data class ReleaseInfo(
     val tagName: String,

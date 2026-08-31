@@ -1,4 +1,4 @@
-package com.cfox.kiosksatelliteupdater.installer
+package com.cfox.droidmesh.installer
 
 import android.app.PendingIntent
 import android.content.Context
@@ -6,11 +6,11 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import androidx.core.content.FileProvider
-import com.cfox.kiosksatelliteupdater.utils.Logger
+import com.cfox.droidmesh.utils.Logger
 import java.io.File
 
 object PackageInstallerDispatcher {
-    private const val FILE_PROVIDER_AUTHORITY = "com.cfox.kiosksatelliteupdater.fileprovider"
+    private const val FILE_PROVIDER_AUTHORITY = "com.cfox.droidmesh.fileprovider"
 
     /**
      * Creates an installation Intent with FileProvider URI and starts the system PackageInstaller.
@@ -70,7 +70,7 @@ object PackageInstallerDispatcher {
             val pendingIntent = PendingIntent.getBroadcast(
                 context,
                 0,
-                Intent("com.cfox.kiosksatelliteupdater.ACTION_UNINSTALL_STATUS"),
+                Intent("com.cfox.droidmesh.ACTION_UNINSTALL_STATUS"),
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                     PendingIntent.FLAG_MUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
                 } else {

@@ -816,7 +816,7 @@
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
                                 android:fontFamily="@font/rubik"
-                                android:text="com.cfox.kiosksatelliteupdater"
+                                android:text="com.cfox.droidmesh"
                                 android:textColor="@color/ks_on_surface_variant"
                                 android:textSize="14sp" />
                         </LinearLayout>

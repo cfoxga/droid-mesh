@@ -1,11 +1,11 @@
-package com.cfox.kiosksatelliteupdater.server
+package com.cfox.droidmesh.server
 
 import android.content.Context
-import com.cfox.kiosksatelliteupdater.installer.AppVersionHelper
-import com.cfox.kiosksatelliteupdater.mesh.MeshDiscoveryManager
-import com.cfox.kiosksatelliteupdater.service.AutoInstallService
-import com.cfox.kiosksatelliteupdater.settings.SettingsStore
-import com.cfox.kiosksatelliteupdater.utils.Logger
+import com.cfox.droidmesh.installer.AppVersionHelper
+import com.cfox.droidmesh.mesh.MeshDiscoveryManager
+import com.cfox.droidmesh.service.AutoInstallService
+import com.cfox.droidmesh.settings.SettingsStore
+import com.cfox.droidmesh.utils.Logger
 import fi.iki.elonen.NanoHTTPD
 import kotlinx.coroutines.runBlocking
 import org.json.JSONArray
@@ -38,10 +38,10 @@ class LocalHttpServer(
 
                 // POST /adb/toggle or GET /adb/toggle
                 (uri == "/adb/toggle") -> {
-                    val newTarget = com.cfox.kiosksatelliteupdater.utils.AdbHelper.toggleAdb(context)
+                    val newTarget = com.cfox.droidmesh.utils.AdbHelper.toggleAdb(context)
                     val json = JSONObject().apply {
                         put("status", "ok")
-                        put("adbEnabled", com.cfox.kiosksatelliteupdater.utils.AdbHelper.isAdbEnabled(context))
+                        put("adbEnabled", com.cfox.droidmesh.utils.AdbHelper.isAdbEnabled(context))
                     }
                     newFixedLengthResponse(Response.Status.OK, "application/json", json.toString(2))
                 }
@@ -101,7 +101,7 @@ class LocalHttpServer(
             put("installedVersionCode", installed.versionCode ?: JSONObject.NULL)
             put("accessibilityServiceActive", AutoInstallService.isServiceRunning)
             put("autoUpdateEnabled", SettingsStore.isAutoUpdateEnabled(context))
-            put("adbEnabled", com.cfox.kiosksatelliteupdater.utils.AdbHelper.isAdbEnabled(context))
+            put("adbEnabled", com.cfox.droidmesh.utils.AdbHelper.isAdbEnabled(context))
             put("updaterState", currentStatus.state)
             put("updaterMessage", currentStatus.message)
             put("progressPercent", currentStatus.progressPercent)
@@ -164,7 +164,7 @@ class LocalHttpServer(
         val filename = params["filename"] ?: (if (tag != null) "kiosk-satellite-$tag.apk" else null)
 
         if (!url.isNullOrBlank() && !tag.isNullOrBlank()) {
-            val specificRelease = com.cfox.kiosksatelliteupdater.api.ReleaseInfo(
+            val specificRelease = com.cfox.droidmesh.api.ReleaseInfo(
                 tagName = tag,
                 name = tag,
                 publishedAt = "",

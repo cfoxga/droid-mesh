@@ -1,15 +1,15 @@
-package com.cfox.kiosksatelliteupdater.server
+package com.cfox.droidmesh.server
 
 import android.content.Context
-import com.cfox.kiosksatelliteupdater.api.GitHubReleaseApi
-import com.cfox.kiosksatelliteupdater.api.ReleaseInfo
-import com.cfox.kiosksatelliteupdater.api.UpdateStatus
-import com.cfox.kiosksatelliteupdater.api.VersionComparison
-import com.cfox.kiosksatelliteupdater.downloader.ApkDownloader
-import com.cfox.kiosksatelliteupdater.installer.AdbLoopbackInstaller
-import com.cfox.kiosksatelliteupdater.installer.AppVersionHelper
-import com.cfox.kiosksatelliteupdater.installer.PackageInstallerDispatcher
-import com.cfox.kiosksatelliteupdater.utils.Logger
+import com.cfox.droidmesh.api.GitHubReleaseApi
+import com.cfox.droidmesh.api.ReleaseInfo
+import com.cfox.droidmesh.api.UpdateStatus
+import com.cfox.droidmesh.api.VersionComparison
+import com.cfox.droidmesh.downloader.ApkDownloader
+import com.cfox.droidmesh.installer.AdbLoopbackInstaller
+import com.cfox.droidmesh.installer.AppVersionHelper
+import com.cfox.droidmesh.installer.PackageInstallerDispatcher
+import com.cfox.droidmesh.utils.Logger
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob

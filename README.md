@@ -1,4 +1,4 @@
-# Kiosk Satellite Updater
+# DroidMesh
 
 A standalone, single-purpose Android 10 updater utility in Kotlin targeting `me.jxl.kiosk_satellite` on unrooted Meta Portal devices (Portal 10", Portal Mini, Portal Plus). Strictly Meta Portal — Echo Show LineageOS ports can be switched into Device Manager mode instead, which covers the same need without this app.
 
@@ -6,7 +6,7 @@ A standalone, single-purpose Android 10 updater utility in Kotlin targeting `me.
 
 - **Target SDK**: `29` (Android 10), **Min SDK**: `28` (Android 9 Pie), **Compile SDK**: `34`
 - **Target App**: `me.jxl.kiosk_satellite`
-- **Package**: `com.cfox.kiosksatelliteupdater`
+- **Package**: `com.cfox.droidmesh`
 - **Headless HTTP Trigger**: Embedded server listening on port `2325`
 - **Auto-Install Engine**: Automated `AccessibilityService` interacting with AOSP / Google Package Installer dialogs
 - **Storage Strategy**: Scoped-storage compliant downloads via `getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)` and `FileProvider`
@@ -69,21 +69,21 @@ installed within one check cycle — no manual `/update` call required. The manu
 reference or a non-standard install:
 
 ```bash
-# 1. Install Kiosk Satellite Updater APK
-adb install -r kiosk-satellite-updater.apk
+# 1. Install DroidMesh APK
+adb install -r droid-mesh.apk
 
 # 2. Grant Install Unknown Packages permission
-adb shell appops set com.cfox.kiosksatelliteupdater REQUEST_INSTALL_PACKAGES allow
+adb shell appops set com.cfox.droidmesh REQUEST_INSTALL_PACKAGES allow
 
 # 3. Enable the Accessibility Service permanently
-adb shell settings put secure enabled_accessibility_services com.cfox.kiosksatelliteupdater/com.cfox.kiosksatelliteupdater.service.AutoInstallService
+adb shell settings put secure enabled_accessibility_services com.cfox.droidmesh/com.cfox.droidmesh.service.AutoInstallService
 adb shell settings put secure accessibility_enabled 1
 
 # 4. Whitelist from battery optimizations (Doze mode)
-adb shell dumpsys deviceidle whitelist +com.cfox.kiosksatelliteupdater
+adb shell dumpsys deviceidle whitelist +com.cfox.droidmesh
 
 # 5. Launch the app (starts the foreground service + HTTP server on :2325)
-adb shell am start -n com.cfox.kiosksatelliteupdater/.MainActivity
+adb shell am start -n com.cfox.droidmesh/.MainActivity
 ```
 
 ---
@@ -182,7 +182,7 @@ curl -X GET http://<portal-ip>:2325/logs
 
 ## Disclaimer & License
 
-**Kiosk Satellite Updater (KSU)** is an independent, unofficial companion utility. It is not affiliated with, endorsed by, or sponsored by Xavier Larrea or the creators of Kiosk Satellite.
+**DroidMesh (KSU)** is an independent, unofficial companion utility. It is not affiliated with, endorsed by, or sponsored by Xavier Larrea or the creators of Kiosk Satellite.
 
 This project is licensed under the [MIT License](LICENSE).
 

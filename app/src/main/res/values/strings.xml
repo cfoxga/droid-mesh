@@ -1,10 +1,10 @@
 <resources>
-    <string name="app_name">Kiosk Satellite Updater</string>
-    <string name="accessibility_service_label">Kiosk Auto Installer</string>
-    <string name="accessibility_service_description">Automates package installation prompts for Kiosk Satellite</string>
-    <string name="notification_channel_name">Kiosk Satellite Updater Service</string>
+    <string name="app_name">DroidMesh</string>
+    <string name="accessibility_service_label">DroidMesh Auto Installer</string>
+    <string name="accessibility_service_description">Automates package installation prompts for DroidMesh managed apps</string>
+    <string name="notification_channel_name">DroidMesh Service</string>
     <string name="notification_channel_description">Keeps local HTTP update trigger server alive on port 2325</string>
-    <string name="notification_title">Kiosk Satellite Updater Running</string>
+    <string name="notification_title">DroidMesh Running</string>
     <string name="notification_text">Listening for update commands on port 2325</string>
     <string name="auto_update_description">Periodically installs/updates Kiosk Satellite automatically, no manual trigger needed</string>
 </resources>

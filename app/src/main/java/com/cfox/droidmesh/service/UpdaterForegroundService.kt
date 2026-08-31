@@ -1,4 +1,4 @@
-package com.cfox.kiosksatelliteupdater.service
+package com.cfox.droidmesh.service
 
 import android.app.Notification
 import android.app.NotificationChannel
@@ -11,13 +11,13 @@ import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
 import androidx.core.app.NotificationCompat
-import com.cfox.kiosksatelliteupdater.MainActivity
-import com.cfox.kiosksatelliteupdater.R
-import com.cfox.kiosksatelliteupdater.mesh.MeshDiscoveryManager
-import com.cfox.kiosksatelliteupdater.server.LocalHttpServer
-import com.cfox.kiosksatelliteupdater.server.UpdateCoordinator
-import com.cfox.kiosksatelliteupdater.settings.SettingsStore
-import com.cfox.kiosksatelliteupdater.utils.Logger
+import com.cfox.droidmesh.MainActivity
+import com.cfox.droidmesh.R
+import com.cfox.droidmesh.mesh.MeshDiscoveryManager
+import com.cfox.droidmesh.server.LocalHttpServer
+import com.cfox.droidmesh.server.UpdateCoordinator
+import com.cfox.droidmesh.settings.SettingsStore
+import com.cfox.droidmesh.utils.Logger
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -34,9 +34,9 @@ class UpdaterForegroundService : Service() {
         const val NOTIFICATION_ID = 1001
         const val PORT = 2325
 
-        const val ACTION_START = "com.cfox.kiosksatelliteupdater.action.START"
-        const val ACTION_STOP = "com.cfox.kiosksatelliteupdater.action.STOP"
-        const val ACTION_TRIGGER_UPDATE = "com.cfox.kiosksatelliteupdater.action.TRIGGER_UPDATE"
+        const val ACTION_START = "com.cfox.droidmesh.action.START"
+        const val ACTION_STOP = "com.cfox.droidmesh.action.STOP"
+        const val ACTION_TRIGGER_UPDATE = "com.cfox.droidmesh.action.TRIGGER_UPDATE"
 
         // How often the auto-update loop re-checks GitHub while enabled.
         // Not user-configurable; only the on/off toggle is exposed.

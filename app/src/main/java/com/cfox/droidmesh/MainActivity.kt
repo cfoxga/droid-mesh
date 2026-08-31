@@ -1,4 +1,4 @@
-package com.cfox.kiosksatelliteupdater
+package com.cfox.droidmesh
 
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -19,17 +19,17 @@ import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.lifecycleScope
-import com.cfox.kiosksatelliteupdater.api.ReleaseInfo
-import com.cfox.kiosksatelliteupdater.databinding.ActivityMainBinding
-import com.cfox.kiosksatelliteupdater.databinding.ItemMeshPeerBinding
-import com.cfox.kiosksatelliteupdater.installer.AppVersionHelper
-import com.cfox.kiosksatelliteupdater.mesh.PeerNode
-import com.cfox.kiosksatelliteupdater.server.UpdateCoordinator
-import com.cfox.kiosksatelliteupdater.service.AutoInstallService
-import com.cfox.kiosksatelliteupdater.service.UpdaterForegroundService
-import com.cfox.kiosksatelliteupdater.settings.SettingsStore
-import com.cfox.kiosksatelliteupdater.utils.CpuStatsHelper
-import com.cfox.kiosksatelliteupdater.utils.Logger
+import com.cfox.droidmesh.api.ReleaseInfo
+import com.cfox.droidmesh.databinding.ActivityMainBinding
+import com.cfox.droidmesh.databinding.ItemMeshPeerBinding
+import com.cfox.droidmesh.installer.AppVersionHelper
+import com.cfox.droidmesh.mesh.PeerNode
+import com.cfox.droidmesh.server.UpdateCoordinator
+import com.cfox.droidmesh.service.AutoInstallService
+import com.cfox.droidmesh.service.UpdaterForegroundService
+import com.cfox.droidmesh.settings.SettingsStore
+import com.cfox.droidmesh.utils.CpuStatsHelper
+import com.cfox.droidmesh.utils.Logger
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -223,7 +223,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         binding.tvAdbStatus.setOnClickListener {
-            com.cfox.kiosksatelliteupdater.utils.AdbHelper.toggleAdb(this)
+            com.cfox.droidmesh.utils.AdbHelper.toggleAdb(this)
             refreshStatus()
             populateVersionSpinner()
             updateVersionSelectionUI()
@@ -330,7 +330,7 @@ class MainActivity : AppCompatActivity() {
     private fun populateVersionSpinner() {
         val options = mutableListOf<String>()
         val latestTag = availableReleases.firstOrNull()?.tagName
-        val isAdb = com.cfox.kiosksatelliteupdater.utils.AdbHelper.isAdbEnabled(this)
+        val isAdb = com.cfox.droidmesh.utils.AdbHelper.isAdbEnabled(this)
         val installed = AppVersionHelper.getInstalledVersion(this)
 
         if (latestTag != null) {
@@ -455,7 +455,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         // ADB Status
-        val isAdb = com.cfox.kiosksatelliteupdater.utils.AdbHelper.isAdbEnabled(this)
+        val isAdb = com.cfox.droidmesh.utils.AdbHelper.isAdbEnabled(this)
         if (isAdb) {
             binding.tvAdbStatus.text = "ADB Debugging: ENABLED (Tap to toggle)"
             binding.tvAdbStatus.setTextColor(getColor(R.color.ks_sage))
@@ -693,7 +693,7 @@ class MainActivity : AppCompatActivity() {
 
             itemBinding.btnPeerAdbStatus.setOnClickListener {
                 if (peer.isSelf) {
-                    com.cfox.kiosksatelliteupdater.utils.AdbHelper.toggleAdb(this)
+                    com.cfox.droidmesh.utils.AdbHelper.toggleAdb(this)
                     refreshStatus()
                     populateVersionSpinner()
                 } else {

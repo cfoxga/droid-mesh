@@ -1,4 +1,4 @@
-package com.cfox.kiosksatelliteupdater.downloader
+package com.cfox.droidmesh.downloader
 
 data class DownloadProgress(
     val bytesRead: Long,

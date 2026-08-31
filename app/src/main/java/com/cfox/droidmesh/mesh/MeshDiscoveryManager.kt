@@ -1,12 +1,12 @@
-package com.cfox.kiosksatelliteupdater.mesh
+package com.cfox.droidmesh.mesh
 
 import android.content.Context
 import android.net.wifi.WifiManager
 import android.os.Build
 import android.provider.Settings
-import com.cfox.kiosksatelliteupdater.installer.AppVersionHelper
-import com.cfox.kiosksatelliteupdater.server.UpdateCoordinator
-import com.cfox.kiosksatelliteupdater.utils.Logger
+import com.cfox.droidmesh.installer.AppVersionHelper
+import com.cfox.droidmesh.server.UpdateCoordinator
+import com.cfox.droidmesh.utils.Logger
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -196,7 +196,7 @@ class MeshDiscoveryManager(
                 put("installedVersionCode", installed.versionCode ?: JSONObject.NULL)
                 put("updaterState", currentStatus.state)
                 put("updaterMessage", currentStatus.message)
-                put("adbEnabled", com.cfox.kiosksatelliteupdater.utils.AdbHelper.isAdbEnabled(context))
+                put("adbEnabled", com.cfox.droidmesh.utils.AdbHelper.isAdbEnabled(context))
                 put("timestamp", System.currentTimeMillis())
             }
 
@@ -261,7 +261,7 @@ class MeshDiscoveryManager(
             installedVersionCode = installed.versionCode,
             updaterState = currentStatus.state,
             updaterMessage = currentStatus.message,
-            adbEnabled = com.cfox.kiosksatelliteupdater.utils.AdbHelper.isAdbEnabled(context),
+            adbEnabled = com.cfox.droidmesh.utils.AdbHelper.isAdbEnabled(context),
             lastSeenTimestamp = System.currentTimeMillis(),
             isSelf = true
         )

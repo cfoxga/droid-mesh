@@ -1,4 +1,4 @@
-package com.cfox.kiosksatelliteupdater.utils
+package com.cfox.droidmesh.utils
 
 import android.content.Context
 import android.os.Build

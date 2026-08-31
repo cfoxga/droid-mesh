@@ -1,16 +1,17 @@
 # DroidMesh
 
-A standalone, single-purpose Android 10 updater utility in Kotlin targeting `me.jxl.kiosk_satellite` on unrooted Meta Portal devices (Portal 10", Portal Mini, Portal Plus). Strictly Meta Portal — Echo Show LineageOS ports can be switched into Device Manager mode instead, which covers the same need without this app.
+A lightweight, native Android P2P mesh network, headless package updater, and local fleet manager in Kotlin. DroidMesh coordinates app installations, updates, and telemetry across unrooted Meta Portal smart displays, Onn Google TV streaming boxes, and Android IoT devices.
 
 ## Key Characteristics
 
 - **Target SDK**: `29` (Android 10), **Min SDK**: `28` (Android 9 Pie), **Compile SDK**: `34`
-- **Target App**: `me.jxl.kiosk_satellite`
 - **Package**: `com.cfox.droidmesh`
-- **Headless HTTP Trigger**: Embedded server listening on port `2325`
-- **Auto-Install Engine**: Automated `AccessibilityService` interacting with AOSP / Google Package Installer dialogs
+- **P2P UDP Mesh Discovery**: Port `23250` (Multicast/Broadcast live peer directory)
+- **Headless HTTP Trigger**: Embedded REST server listening on port `2325`
+- **Auto-Install Engine**: Automated `AccessibilityService` interacting with AOSP & Google TV Package Installer dialogs, with support for native Android 12+ silent package installer flows
 - **Storage Strategy**: Scoped-storage compliant downloads via `getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)` and `FileProvider`
-- **Auto-Update**: On by default (toggle in-app). While enabled, the foreground service periodically checks GitHub and installs Kiosk Satellite on its own — installing just the updater is enough to end up with both apps present, no manual `/update` call needed. Toggling it off stops the periodic check; `/update` still works on demand either way.
+- **Background Keep-Alive**: Persistent foreground service with battery optimization whitelist (`dumpsys deviceidle`)
+- **Fleet Synchronization**: Decentralized peer telemetry, hardware profiles, ADB availability, and live app version reporting
 
 ---
 
@@ -182,7 +183,7 @@ curl -X GET http://<portal-ip>:2325/logs
 
 ## Disclaimer & License
 
-**DroidMesh (KSU)** is an independent, unofficial companion utility. It is not affiliated with, endorsed by, or sponsored by Xavier Larrea or the creators of Kiosk Satellite.
+**DroidMesh** is an independent, open-source companion utility and fleet manager.
 
 This project is licensed under the [MIT License](LICENSE).
 

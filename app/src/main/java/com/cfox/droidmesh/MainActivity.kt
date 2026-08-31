@@ -324,6 +324,9 @@ class MainActivity : AppCompatActivity() {
         val storedLibrary = SettingsStore.getMeshAppLibrary(this, meshId).toMutableMap()
         for (p in meshPeers) {
             for (app in p.installedApps) {
+                if (AppVersionHelper.isExcludedAppPackage(app.packageName, this)) {
+                    continue
+                }
                 if (!storedLibrary.containsKey(app.packageName)) {
                     storedLibrary[app.packageName] = SettingsStore.MeshAppConfig(
                         packageName = app.packageName,
@@ -338,7 +341,17 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        val libraryList = storedLibrary.values.sortedBy { it.appName.lowercase() }
+        // If non-portal mesh (e.g. googletv) has Kiosk Satellite from an old sync without any node having it installed, prune it
+        if (meshId != "meta-portals" && !meshPeers.any { p -> p.installedApps.any { it.packageName == AppVersionHelper.TARGET_PACKAGE } }) {
+            storedLibrary.remove(AppVersionHelper.TARGET_PACKAGE)
+        }
+
+        val libraryList = storedLibrary.values
+            .filter { !AppVersionHelper.isExcludedAppPackage(it.packageName, this) }
+            .sortedWith(
+                compareByDescending<SettingsStore.MeshAppConfig> { it.isSideloaded }
+                    .thenBy { it.appName.lowercase() }
+            )
         binding.tvMeshLibraryAppCount.text = "${libraryList.size} Apps"
 
         if (libraryList.isEmpty()) {
@@ -352,7 +365,6 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
-        val inflater = layoutInflater
         for (app in libraryList) {
             val row = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
@@ -482,8 +494,8 @@ class MainActivity : AppCompatActivity() {
                 itemBinding.tvPeerAdbStatus.setTextColor(getColor(R.color.ks_rust))
             }
 
-            // Only show apps that have been marked as managed in the library
-            val managedApps = peer.installedApps.filter { library[it.packageName]?.managed == true }
+            // Only show apps that have been marked as managed in the library and not excluded
+            val managedApps = peer.installedApps.filter { !AppVersionHelper.isExcludedAppPackage(it.packageName, this) && library[it.packageName]?.managed == true }
 
             val outOfDateApps = managedApps.filter { app ->
                 val cfg = library[app.packageName]
@@ -953,7 +965,12 @@ class MainActivity : AppCompatActivity() {
         }
 
         val selfInfo = AppVersionHelper.getInstalledVersion(this, packageName)
-        binding.tvAboutAppVersion.text = "Version: ${selfInfo.versionName ?: "0.0.1"} (build ${selfInfo.versionCode ?: 1})"
+        val displayVer = if (selfInfo.versionName?.contains("(") == true) {
+            selfInfo.versionName
+        } else {
+            "${selfInfo.versionName ?: "0.0.1"} (build ${selfInfo.versionCode ?: 1})"
+        }
+        binding.tvAboutAppVersion.text = "Version: $displayVer"
         binding.tvAboutPackage.text = "Package: $packageName"
     }
 

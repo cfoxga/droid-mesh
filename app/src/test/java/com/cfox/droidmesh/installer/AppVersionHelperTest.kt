@@ -75,15 +75,35 @@ class AppVersionHelperTest {
             applicationInfo = fbAppInfo
         }
 
-        whenever(mockPm.getInstalledPackages(0)).thenReturn(listOf(ksPkg, sysPkg, fbPkg, dmPkg))
+        // 5. Netflix (User store app)
+        val netflixAppInfo = ApplicationInfo().apply { flags = 0 }
+        val netflixPkg = PackageInfo().apply {
+            packageName = "com.netflix.ninja"
+            versionName = "8.0.0"
+            applicationInfo = netflixAppInfo
+        }
+        whenever(mockPm.getApplicationLabel(netflixAppInfo)).thenReturn("Netflix")
+
+        whenever(mockPm.getInstalledPackages(0)).thenReturn(listOf(ksPkg, sysPkg, fbPkg, dmPkg, netflixPkg))
 
         val installedApps = AppVersionHelper.getUserInstalledApps(mockContext)
 
+        // DroidMesh must be excluded from user installed app list
         assertEquals(2, installedApps.size)
-        assertEquals("com.cfox.droidmesh", installedApps[0].packageName)
-        assertEquals("DroidMesh", installedApps[0].appName)
-        assertEquals("me.jxl.kiosk_satellite", installedApps[1].packageName)
-        assertEquals("Kiosk Satellite", installedApps[1].appName)
+        assertEquals("me.jxl.kiosk_satellite", installedApps[0].packageName)
+        assertEquals("Kiosk Satellite", installedApps[0].appName)
+        assertEquals("com.netflix.ninja", installedApps[1].packageName)
+        assertEquals("Netflix", installedApps[1].appName)
+        assertFalse(installedApps.any { it.packageName == "com.cfox.droidmesh" })
+    }
+
+    // [PROGRAMMATIC] APP-TEST-005: DroidMesh exclusion from app lists
+    @Test
+    fun testIsExcludedAppPackage() {
+        assertTrue(AppVersionHelper.isExcludedAppPackage("com.cfox.droidmesh"))
+        assertTrue(AppVersionHelper.isExcludedAppPackage("com.cfox.kiosksatelliteupdater"))
+        assertFalse(AppVersionHelper.isExcludedAppPackage("me.jxl.kiosk_satellite"))
+        assertFalse(AppVersionHelper.isExcludedAppPackage("com.netflix.ninja"))
     }
 
     // [PROGRAMMATIC] MESH-TEST-001: PeerNode beacon serialization and deserialization
@@ -126,6 +146,11 @@ class AppVersionHelperTest {
         assertFalse(AppVersionHelper.isVersionMismatch("2026.8.107", "latest"))
         assertFalse(AppVersionHelper.isVersionMismatch("2026.8.107", "2026.8.107"))
         assertFalse(AppVersionHelper.isVersionMismatch("v2026.8.107", "2026.8.107"))
+        assertFalse(AppVersionHelper.isVersionMismatch("0.0.1 (7)", "0.0.1"))
+        assertFalse(AppVersionHelper.isVersionMismatch("0.0.1 (7)", "v0.0.1"))
+        assertFalse(AppVersionHelper.isVersionMismatch("v0.0.1 (7)", "0.0.1"))
+        assertFalse(AppVersionHelper.isVersionMismatch("0.0.1 (7)", "V0.0.1"))
+        assertTrue(AppVersionHelper.isVersionMismatch("0.0.1 (7)", "0.0.2"))
         assertTrue(AppVersionHelper.isVersionMismatch("2026.8.106", "2026.8.107"))
         assertTrue(AppVersionHelper.isVersionMismatch(null, "2026.8.107"))
     }

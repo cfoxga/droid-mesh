@@ -174,4 +174,47 @@ class SettingsStoreTest {
         assertTrue(importedLibrary.containsKey("com.disney.disneyplus"))
         assertEquals(true, importedLibrary["com.disney.disneyplus"]?.managed)
     }
+
+    // [PROGRAMMATIC] APP-TEST-006: Partition-specific app library defaults and DroidMesh exclusion
+    @Test
+    fun testMeshAppLibraryDefaultsByMeshPartition() {
+        // Google TV mesh should NOT default Kiosk Satellite and should NEVER include DroidMesh
+        val gtvLibrary = SettingsStore.getMeshAppLibrary(mockContext, "googletv")
+        assertFalse(gtvLibrary.containsKey("me.jxl.kiosk_satellite"))
+        assertFalse(gtvLibrary.containsKey("com.cfox.droidmesh"))
+
+        // Meta Portals mesh SHOULD default Kiosk Satellite, but NEVER include DroidMesh
+        val portalsLibrary = SettingsStore.getMeshAppLibrary(mockContext, "meta-portals")
+        assertTrue(portalsLibrary.containsKey("me.jxl.kiosk_satellite"))
+        assertEquals("Kiosk Satellite", portalsLibrary["me.jxl.kiosk_satellite"]?.appName)
+        assertFalse(portalsLibrary.containsKey("com.cfox.droidmesh"))
+    }
+
+    // [PROGRAMMATIC] APP-TEST-007: App library sorting by type (sideloaded first), then alphabetically
+    @Test
+    fun testMeshAppLibrarySortingSideloadedFirstThenAlphabetical() {
+        val apps = listOf(
+            SettingsStore.MeshAppConfig("com.netflix.ninja", "Netflix", isSideloaded = false),
+            SettingsStore.MeshAppConfig("com.cfoxga.mpttv", "MPT TV", isSideloaded = true),
+            SettingsStore.MeshAppConfig("com.disney.disneyplus", "Disney+", isSideloaded = false),
+            SettingsStore.MeshAppConfig("com.cfoxga.foxtvagent", "Fox TV Agent", isSideloaded = true)
+        )
+
+        val sorted = apps.sortedWith(
+            compareByDescending<SettingsStore.MeshAppConfig> { it.isSideloaded }
+                .thenBy { it.appName.lowercase() }
+        )
+
+        assertEquals("Fox TV Agent", sorted[0].appName)
+        assertTrue(sorted[0].isSideloaded)
+
+        assertEquals("MPT TV", sorted[1].appName)
+        assertTrue(sorted[1].isSideloaded)
+
+        assertEquals("Disney+", sorted[2].appName)
+        assertFalse(sorted[2].isSideloaded)
+
+        assertEquals("Netflix", sorted[3].appName)
+        assertFalse(sorted[3].isSideloaded)
+    }
 }

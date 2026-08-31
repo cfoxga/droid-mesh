@@ -680,6 +680,9 @@ class MeshDiscoveryManager(
                 val storedLibrary = SettingsStore.getMeshAppLibrary(context, mId).toMutableMap()
                 for (p in peers) {
                     for (app in p.installedApps) {
+                        if (com.cfox.droidmesh.installer.AppVersionHelper.isExcludedAppPackage(app.packageName, context)) {
+                            continue
+                        }
                         if (!storedLibrary.containsKey(app.packageName)) {
                             storedLibrary[app.packageName] = SettingsStore.MeshAppConfig(
                                 packageName = app.packageName,
@@ -693,10 +696,23 @@ class MeshDiscoveryManager(
                         }
                     }
                 }
-                val libraryJson = JSONArray()
-                storedLibrary.values.sortedBy { it.appName.lowercase() }.forEach {
-                    libraryJson.put(it.toJson())
+
+                // If non-portal mesh (e.g. googletv) has Kiosk Satellite from an old sync without any node having it installed, prune it
+                if (mId != "meta-portals" && !peers.any { p -> p.installedApps.any { it.packageName == com.cfox.droidmesh.installer.AppVersionHelper.TARGET_PACKAGE } }) {
+                    storedLibrary.remove(com.cfox.droidmesh.installer.AppVersionHelper.TARGET_PACKAGE)
                 }
+
+                // Sort library: sideloaded apps first, then app store apps, then alphabetically by app name
+                val libraryJson = JSONArray()
+                storedLibrary.values
+                    .filter { !com.cfox.droidmesh.installer.AppVersionHelper.isExcludedAppPackage(it.packageName, context) }
+                    .sortedWith(
+                        compareByDescending<SettingsStore.MeshAppConfig> { it.isSideloaded }
+                            .thenBy { it.appName.lowercase() }
+                    )
+                    .forEach {
+                        libraryJson.put(it.toJson())
+                    }
                 put("app_library", libraryJson)
             }
             meshesArray.put(mObj)

@@ -1,4 +1,5 @@
 import java.util.Properties
+import java.util.concurrent.TimeUnit
 
 plugins {
     id("com.android.application")
@@ -19,6 +20,27 @@ fun signing(name: String): String? =
         "ANDROID_" + name.replace(Regex("([A-Z])"), "_$1").uppercase()
     )
 
+fun getGitCommitCount(): Int {
+    return try {
+        val process = ProcessBuilder("git", "rev-list", "--count", "HEAD")
+            .directory(rootDir)
+            .redirectOutput(ProcessBuilder.Redirect.PIPE)
+            .redirectError(ProcessBuilder.Redirect.PIPE)
+            .start()
+        process.waitFor(5, TimeUnit.SECONDS)
+        process.inputStream.bufferedReader().readText().trim().toInt()
+    } catch (_: Exception) {
+        1
+    }
+}
+
+val buildNum: Int = System.getenv("BUILD_NUMBER")?.toIntOrNull()
+    ?: System.getenv("GITEA_RUN_NUMBER")?.toIntOrNull()
+    ?: System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull()
+    ?: getGitCommitCount()
+
+val baseVersion = "0.0.1"
+
 android {
     namespace = "com.cfox.droidmesh"
     compileSdk = 34
@@ -27,8 +49,8 @@ android {
         applicationId = "com.cfox.droidmesh"
         minSdk = 28
         targetSdk = 29
-        versionCode = 1
-        versionName = "0.0.1"
+        versionCode = buildNum
+        versionName = "$baseVersion ($buildNum)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

@@ -358,32 +358,27 @@ object SettingsStore {
         val meshObj = root.optJSONObject(meshId)
         val result = mutableMapOf<String, MeshAppConfig>()
 
-        // Default base managed apps if not explicitly configured
-        val defaultSatellite = MeshAppConfig(
-            packageName = com.cfox.droidmesh.installer.AppVersionHelper.TARGET_PACKAGE,
-            appName = "Kiosk Satellite",
-            managed = true,
-            autoInstall = true,
-            targetVersion = "latest",
-            autoUpdate = true,
-            isSideloaded = true
-        )
-        val defaultDroidMesh = MeshAppConfig(
-            packageName = "com.cfox.droidmesh",
-            appName = "DroidMesh",
-            managed = true,
-            autoInstall = false,
-            targetVersion = "latest",
-            autoUpdate = true,
-            isSideloaded = true
-        )
-        result[defaultSatellite.packageName] = defaultSatellite
-        result[defaultDroidMesh.packageName] = defaultDroidMesh
+        // Default base managed apps if not explicitly configured (only for Meta Portals mesh partition)
+        if (meshId == "meta-portals" || meshId == "default") {
+            val defaultSatellite = MeshAppConfig(
+                packageName = com.cfox.droidmesh.installer.AppVersionHelper.TARGET_PACKAGE,
+                appName = "Kiosk Satellite",
+                managed = true,
+                autoInstall = true,
+                targetVersion = "latest",
+                autoUpdate = true,
+                isSideloaded = true
+            )
+            result[defaultSatellite.packageName] = defaultSatellite
+        }
 
         if (meshObj != null) {
             val keys = meshObj.keys()
             while (keys.hasNext()) {
                 val pkg = keys.next()
+                if (com.cfox.droidmesh.installer.AppVersionHelper.isExcludedAppPackage(pkg, context)) {
+                    continue
+                }
                 val appJson = meshObj.optJSONObject(pkg)
                 if (appJson != null) {
                     val config = MeshAppConfig.fromJson(appJson)
@@ -391,6 +386,11 @@ object SettingsStore {
                 }
             }
         }
+
+        // Always ensure DroidMesh companion is excluded from the library
+        result.remove("com.cfox.droidmesh")
+        result.remove("com.cfox.kiosksatelliteupdater")
+        result.remove(context.packageName)
         return result
     }
 

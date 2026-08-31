@@ -296,8 +296,8 @@ class LocalHttpServerTest {
         // 2. POST update app config
         val postPayload = JSONObject().apply {
             put("meshId", "meta-portals")
-            put("packageName", "com.cfox.droidmesh")
-            put("appName", "DroidMesh")
+            put("packageName", "com.cfoxga.mpttv")
+            put("appName", "MPT TV")
             put("managed", true)
             put("autoInstall", true)
             put("targetVersion", "latest")
@@ -313,6 +313,6 @@ class LocalHttpServerTest {
         assertEquals(NanoHTTPD.Response.Status.OK, postRes.status)
 
         val lib = SettingsStore.getMeshAppLibrary(mockContext, "meta-portals")
-        assertTrue(lib["com.cfox.droidmesh"]?.autoInstall == true)
+        assertTrue(lib["com.cfoxga.mpttv"]?.autoInstall == true)
     }
 }

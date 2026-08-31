@@ -1378,8 +1378,8 @@ function renderSidebarMeshes() {
 function isVersionMismatch(installedVersion, targetVersion) {
   if (!targetVersion || targetVersion === 'latest') return false;
   if (!installedVersion) return true;
-  const cleanInst = String(installedVersion).trim().replace(/^v/, '').split(/[-+]/)[0];
-  const cleanTarget = String(targetVersion).trim().replace(/^v/, '').split(/[-+]/)[0];
+  const cleanInst = String(installedVersion).trim().replace(/^[vV]/, '').split(/[-+\s(]/)[0].trim();
+  const cleanTarget = String(targetVersion).trim().replace(/^[vV]/, '').split(/[-+\s(]/)[0].trim();
   return cleanInst !== cleanTarget;
 }
 
@@ -1423,12 +1423,24 @@ function renderCurrentMeshView() {
   renderMeshPeers(currentMesh.peers || [], currentMesh.app_library || []);
 }
 
+function isExcludedApp(pkg) {
+  return !pkg || pkg === 'com.cfox.droidmesh' || pkg === 'com.cfox.kiosksatelliteupdater';
+}
+
 function renderMeshAppLibrary(currentMesh) {
   const tbody = document.getElementById('meshLibraryTableBody');
   const countBadge = document.getElementById('meshLibraryBadge');
   if (!tbody) return;
 
-  const library = currentMesh.app_library || [];
+  const library = (currentMesh.app_library || [])
+    .filter(app => !isExcludedApp(app.packageName))
+    .sort((a, b) => {
+      const aSide = a.isSideloaded !== false ? 1 : 0;
+      const bSide = b.isSideloaded !== false ? 1 : 0;
+      if (aSide !== bSide) return bSide - aSide;
+      return (a.appName || a.packageName || '').localeCompare(b.appName || b.packageName || '', undefined, { sensitivity: 'base' });
+    });
+
   if (countBadge) {
     countBadge.textContent = `${library.length} App${library.length === 1 ? '' : 's'}`;
   }
@@ -1526,7 +1538,7 @@ function renderMeshPeers(peers, library) {
   }
 
   const libraryMap = {};
-  (library || []).forEach(app => {
+  (library || []).filter(app => !isExcludedApp(app.packageName)).forEach(app => {
     libraryMap[app.packageName] = app;
   });
 
@@ -1538,7 +1550,7 @@ function renderMeshPeers(peers, library) {
     const badgeClass = isOnline ? (peer.updaterState === 'IDLE' ? 'badge-sage' : 'badge-teal') : 'badge-gray';
     const stateText = isOnline ? (peer.updaterState || 'ONLINE') : 'OFFLINE';
 
-    const rawApps = peer.installedApps || [];
+    const rawApps = (peer.installedApps || []).filter(app => !isExcludedApp(app.packageName));
     // Only show apps that have been marked as managed in the library
     const managedApps = rawApps.filter(app => libraryMap[app.packageName]?.managed);
 
@@ -1549,7 +1561,7 @@ function renderMeshPeers(peers, library) {
     });
 
     const installedPkgSet = new Set(rawApps.map(a => a.packageName));
-    const missingApps = (library || []).filter(libApp => libApp.managed && libApp.autoInstall && !installedPkgSet.has(libApp.packageName));
+    const missingApps = (library || []).filter(libApp => !isExcludedApp(libApp.packageName) && libApp.managed && libApp.autoInstall && !installedPkgSet.has(libApp.packageName));
 
     const isExpanded = !!state.peerAppsExpanded[peer.id];
 

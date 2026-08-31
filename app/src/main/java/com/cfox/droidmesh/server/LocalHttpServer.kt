@@ -594,7 +594,13 @@ class LocalHttpServer(
         } else {
             val stored = SettingsStore.getMeshAppLibrary(context, meshId)
             val arr = JSONArray()
-            stored.values.sortedBy { it.appName.lowercase() }.forEach { arr.put(it.toJson()) }
+            stored.values
+                .filter { !AppVersionHelper.isExcludedAppPackage(it.packageName, context) }
+                .sortedWith(
+                    compareByDescending<SettingsStore.MeshAppConfig> { it.isSideloaded }
+                        .thenBy { it.appName.lowercase() }
+                )
+                .forEach { arr.put(it.toJson()) }
             arr
         }
 

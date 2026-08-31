@@ -22,6 +22,12 @@ object AppVersionHelper {
         val versionCode: Long?
     )
 
+    fun isExcludedAppPackage(packageName: String, context: Context? = null): Boolean {
+        return packageName == "com.cfox.droidmesh" ||
+               packageName == "com.cfox.kiosksatelliteupdater" ||
+               (context != null && packageName == context.packageName)
+    }
+
     fun isSideloadedApp(packageName: String): Boolean {
         return packageName == TARGET_PACKAGE ||
                packageName == "com.cfox.droidmesh" ||
@@ -39,8 +45,20 @@ object AppVersionHelper {
         if (installedVersionName.isNullOrBlank()) {
             return true
         }
-        val cleanInstalled = installedVersionName.trim().removePrefix("v").substringBefore("-").substringBefore("+")
-        val cleanTarget = targetVersion.trim().removePrefix("v").substringBefore("-").substringBefore("+")
+        val cleanInstalled = installedVersionName.trim()
+            .removePrefix("v").removePrefix("V")
+            .substringBefore("-")
+            .substringBefore("+")
+            .substringBefore(" ")
+            .substringBefore("(")
+            .trim()
+        val cleanTarget = targetVersion.trim()
+            .removePrefix("v").removePrefix("V")
+            .substringBefore("-")
+            .substringBefore("+")
+            .substringBefore(" ")
+            .substringBefore("(")
+            .trim()
         return cleanInstalled != cleanTarget
     }
 
@@ -58,6 +76,7 @@ object AppVersionHelper {
 
                 val pkgName = pkg.packageName
                 if (isOemOrSystemPackage(pkgName)) continue
+                if (isExcludedAppPackage(pkgName, context)) continue
 
                 val appName = try {
                     pm.getApplicationLabel(appInfo).toString()

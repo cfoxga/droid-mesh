@@ -36,6 +36,16 @@ class LocalHttpServer(
                     handleMesh()
                 }
 
+                // POST /adb/toggle or GET /adb/toggle
+                (uri == "/adb/toggle") -> {
+                    val newTarget = com.cfox.kiosksatelliteupdater.utils.AdbHelper.toggleAdb(context)
+                    val json = JSONObject().apply {
+                        put("status", "ok")
+                        put("adbEnabled", com.cfox.kiosksatelliteupdater.utils.AdbHelper.isAdbEnabled(context))
+                    }
+                    newFixedLengthResponse(Response.Status.OK, "application/json", json.toString(2))
+                }
+
                 // GET /check
                 uri == "/check" && method == Method.GET -> {
                     handleCheck()
@@ -44,8 +54,7 @@ class LocalHttpServer(
                 // POST /update or GET /update
                 (uri == "/update") && (method == Method.POST || method == Method.GET) -> {
                     val params = session.parms
-                    val force = params["force"]?.toBoolean() ?: false
-                    handleUpdate(force)
+                    handleUpdate(params)
                 }
 
                 // GET /logs
@@ -92,6 +101,7 @@ class LocalHttpServer(
             put("installedVersionCode", installed.versionCode ?: JSONObject.NULL)
             put("accessibilityServiceActive", AutoInstallService.isServiceRunning)
             put("autoUpdateEnabled", SettingsStore.isAutoUpdateEnabled(context))
+            put("adbEnabled", com.cfox.kiosksatelliteupdater.utils.AdbHelper.isAdbEnabled(context))
             put("updaterState", currentStatus.state)
             put("updaterMessage", currentStatus.message)
             put("progressPercent", currentStatus.progressPercent)
@@ -147,13 +157,29 @@ class LocalHttpServer(
         }
     }
 
-    private fun handleUpdate(force: Boolean): Response {
-        // Trigger update asynchronously
-        coordinator.startUpdateAsync(force = force)
+    private fun handleUpdate(params: Map<String, String>): Response {
+        val force = params["force"]?.toBoolean() ?: false
+        val tag = params["tag"] ?: params["version"]
+        val url = params["url"] ?: params["download_url"]
+        val filename = params["filename"] ?: (if (tag != null) "kiosk-satellite-$tag.apk" else null)
+
+        if (!url.isNullOrBlank() && !tag.isNullOrBlank()) {
+            val specificRelease = com.cfox.kiosksatelliteupdater.api.ReleaseInfo(
+                tagName = tag,
+                name = tag,
+                publishedAt = "",
+                apkAssetUrl = url,
+                apkFileName = filename ?: "kiosk-satellite-$tag.apk",
+                apkSize = 0L
+            )
+            coordinator.startUpdateForRelease(specificRelease, force = force)
+        } else {
+            coordinator.startUpdateAsync(force = force)
+        }
 
         val json = JSONObject().apply {
             put("status", "accepted")
-            put("message", "Update sequence initiated (force=$force)")
+            put("message", "Update sequence initiated (force=$force, target=${tag ?: "latest"})")
             put("accessibilityServiceActive", AutoInstallService.isServiceRunning)
         }
 

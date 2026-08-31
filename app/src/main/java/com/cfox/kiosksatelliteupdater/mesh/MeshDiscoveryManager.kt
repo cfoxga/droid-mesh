@@ -196,6 +196,7 @@ class MeshDiscoveryManager(
                 put("installedVersionCode", installed.versionCode ?: JSONObject.NULL)
                 put("updaterState", currentStatus.state)
                 put("updaterMessage", currentStatus.message)
+                put("adbEnabled", com.cfox.kiosksatelliteupdater.utils.AdbHelper.isAdbEnabled(context))
                 put("timestamp", System.currentTimeMillis())
             }
 
@@ -260,6 +261,7 @@ class MeshDiscoveryManager(
             installedVersionCode = installed.versionCode,
             updaterState = currentStatus.state,
             updaterMessage = currentStatus.message,
+            adbEnabled = com.cfox.kiosksatelliteupdater.utils.AdbHelper.isAdbEnabled(context),
             lastSeenTimestamp = System.currentTimeMillis(),
             isSelf = true
         )

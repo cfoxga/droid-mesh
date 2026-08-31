@@ -78,4 +78,30 @@ object AppVersionHelper {
         // If semver prefix is identical, fallback to tag string inequality
         return latestTag.trim().removePrefix("v") != installedVersionName.trim().removePrefix("v")
     }
+
+    /**
+     * Extracts the versionCode from a downloaded APK file.
+     */
+    fun getApkVersionCode(context: Context, apkFile: java.io.File): Long? {
+        return try {
+            val packageInfo = context.packageManager.getPackageArchiveInfo(apkFile.absolutePath, 0) ?: return null
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                packageInfo.longVersionCode
+            } else {
+                @Suppress("DEPRECATION")
+                packageInfo.versionCode.toLong()
+            }
+        } catch (e: Exception) {
+            Logger.e("Error reading APK archive info for ${apkFile.name}", e)
+            null
+        }
+    }
+
+    /**
+     * Checks if target APK is a downgrade compared to the currently installed build.
+     */
+    fun isDowngrade(installedVersionCode: Long?, apkVersionCode: Long?): Boolean {
+        if (installedVersionCode == null || apkVersionCode == null) return false
+        return apkVersionCode < installedVersionCode
+    }
 }

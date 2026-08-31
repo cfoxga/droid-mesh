@@ -2,6 +2,7 @@ package com.cfox.kiosksatelliteupdater.service
 
 import android.accessibilityservice.AccessibilityService
 import android.content.Intent
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.view.accessibility.AccessibilityEvent
@@ -21,7 +22,8 @@ class AutoInstallService : AccessibilityService() {
             "com.google.android.packageinstaller",
             "com.android.permissioncontroller",
             "com.google.android.permissioncontroller",
-            "com.android.settings"
+            "com.android.settings",
+            "com.android.systemui"
         )
 
         private val INSTALL_BUTTON_IDS = setOf(
@@ -40,7 +42,9 @@ class AutoInstallService : AccessibilityService() {
             "done",
             "open",
             "allow",
-            "continue"
+            "continue",
+            "ok",
+            "uninstall"
         )
     }
 
@@ -66,18 +70,32 @@ class AutoInstallService : AccessibilityService() {
 
         val eventType = event.eventType
         if (eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED &&
-            eventType != AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED
+            eventType != AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED &&
+            eventType != AccessibilityEvent.TYPE_WINDOWS_CHANGED
         ) {
             return
         }
 
-        val rootNode = rootInActiveWindow ?: event.source ?: return
+        val nodesToInspect = mutableListOf<AccessibilityNodeInfo>()
+        event.source?.let { nodesToInspect.add(it) }
+        rootInActiveWindow?.let { if (!nodesToInspect.contains(it)) nodesToInspect.add(it) }
 
-        try {
-            inspectAndProcessNodeTree(rootNode, packageName)
-        } finally {
-            // Note: in modern Android, rootNode must be recycled when obtained from rootInActiveWindow if older SDK,
-            // but in API 28+ Kotlin it's safe.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            try {
+                for (window in windows) {
+                    window.root?.let { if (!nodesToInspect.contains(it)) nodesToInspect.add(it) }
+                }
+            } catch (e: Exception) {
+                // Ignore windows retrieval error
+            }
+        }
+
+        for (root in nodesToInspect) {
+            try {
+                inspectAndProcessNodeTree(root, packageName)
+            } catch (e: Exception) {
+                Logger.e("Error inspecting node tree", e)
+            }
         }
     }
 

@@ -1,5 +1,6 @@
 package com.cfox.kiosksatelliteupdater.installer
 
+import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -57,6 +58,42 @@ object PackageInstallerDispatcher {
         } catch (e: Exception) {
             Logger.e("Failed to dispatch package installation", e)
             Result.failure(e)
+        }
+    }
+
+    /**
+     * Dispatches an uninstallation request for the target package using system PackageInstaller.
+     */
+    fun dispatchUninstall(context: Context, packageName: String = AppVersionHelper.TARGET_PACKAGE): Result<Boolean> {
+        return try {
+            Logger.i("Dispatching uninstallation for $packageName")
+            val pendingIntent = PendingIntent.getBroadcast(
+                context,
+                0,
+                Intent("com.cfox.kiosksatelliteupdater.ACTION_UNINSTALL_STATUS"),
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    PendingIntent.FLAG_MUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+                } else {
+                    PendingIntent.FLAG_UPDATE_CURRENT
+                }
+            )
+            val packageInstaller = context.packageManager.packageInstaller
+            packageInstaller.uninstall(packageName, pendingIntent.intentSender)
+            Logger.i("PackageInstaller.uninstall dispatched successfully for $packageName")
+            Result.success(true)
+        } catch (e: Exception) {
+            Logger.w("PackageInstaller.uninstall failed (${e.message}), falling back to Intent.ACTION_DELETE")
+            try {
+                val uninstallIntent = Intent(Intent.ACTION_DELETE).apply {
+                    data = Uri.parse("package:$packageName")
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                }
+                context.startActivity(uninstallIntent)
+                Result.success(true)
+            } catch (ex: Exception) {
+                Logger.e("Failed to dispatch uninstallation", ex)
+                Result.failure(ex)
+            }
         }
     }
 }

@@ -51,4 +51,9 @@ object Logger {
     fun getRecentLogs(): List<String> {
         return logHistory.toList()
     }
+
+    fun clear() {
+        logHistory.clear()
+        _logFlow.tryEmit("[${timeFormat.format(Date())}] [INFO] Log history cleared.")
+    }
 }

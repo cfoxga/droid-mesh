@@ -12,6 +12,7 @@ data class PeerNode(
     val installedVersionCode: Long? = null,
     val updaterState: String = "IDLE",
     val updaterMessage: String? = null,
+    val adbEnabled: Boolean = false,
     val lastSeenTimestamp: Long = System.currentTimeMillis(),
     val isSelf: Boolean = false
 ) {
@@ -31,6 +32,7 @@ data class PeerNode(
         put("installedVersionCode", installedVersionCode ?: JSONObject.NULL)
         put("updaterState", if (isOnline) updaterState else "OFFLINE")
         put("updaterMessage", updaterMessage ?: JSONObject.NULL)
+        put("adbEnabled", adbEnabled)
         put("lastSeenTimestamp", lastSeenTimestamp)
         put("lastSeenSecondsAgo", lastSeenSecondsAgo)
         put("isOnline", isOnline)
@@ -49,6 +51,7 @@ data class PeerNode(
                 val installedVersionCode = if (json.isNull("installedVersionCode")) null else json.optLong("installedVersionCode")
                 val updaterState = json.optString("updaterState", "IDLE")
                 val updaterMessage = if (json.isNull("updaterMessage")) null else json.optString("updaterMessage")
+                val adbEnabled = json.optBoolean("adbEnabled", false)
                 PeerNode(
                     id = id,
                     ip = ip,
@@ -59,6 +62,7 @@ data class PeerNode(
                     installedVersionCode = installedVersionCode,
                     updaterState = updaterState,
                     updaterMessage = updaterMessage,
+                    adbEnabled = adbEnabled,
                     lastSeenTimestamp = System.currentTimeMillis(),
                     isSelf = false
                 )

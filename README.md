@@ -177,3 +177,12 @@ curl -X GET http://<portal-ip>:2325/peers
 ```bash
 curl -X GET http://<portal-ip>:2325/logs
 ```
+
+---
+
+## Disclaimer & License
+
+**Kiosk Satellite Updater (KSU)** is an independent, unofficial companion utility. It is not affiliated with, endorsed by, or sponsored by Xavier Larrea or the creators of Kiosk Satellite.
+
+This project is licensed under the [MIT License](LICENSE).
+

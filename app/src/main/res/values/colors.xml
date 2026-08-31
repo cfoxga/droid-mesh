@@ -1,14 +1,46 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="purple_500">#FF6200EE</color>
-    <color name="purple_700">#FF3700B3</color>
-    <color name="teal_200">#FF03DAC5</color>
-    <color name="teal_700">#FF018786</color>
+    <!-- Kiosk Satellite Visual Identity Palette -->
+    <!-- Base Backgrounds -->
+    <color name="ks_dark_bg">#202124</color>
+    <color name="ks_surface_lowest">#1A1B1E</color>
+    <color name="ks_surface_low">#26272B</color>
+    <color name="ks_surface_container">#2A2B2F</color>
+    <color name="ks_surface_high">#303136</color>
+    <color name="ks_surface_highest">#37383D</color>
+
+    <!-- Brand Accents -->
+    <color name="ks_sage">#749C6F</color>
+    <color name="ks_sage_container">#3A4A37</color>
+    <color name="ks_on_sage_container">#D9E6D5</color>
+
+    <color name="ks_teal">#6C9B9F</color>
+    <color name="ks_teal_container">#2F4649</color>
+    <color name="ks_on_teal_container">#D0E3E5</color>
+
+    <color name="ks_ochre">#CE9C3E</color>
+    <color name="ks_ochre_container">#4A3A12</color>
+    <color name="ks_on_ochre_container">#EFDFB5</color>
+
+    <color name="ks_rust">#D97E4C</color>
+    <color name="ks_rust_container">#5A2A0E</color>
+    <color name="ks_on_rust_container">#F4D7C5</color>
+
+    <!-- Text & Outlines -->
+    <color name="ks_on_surface">#E8EAED</color>
+    <color name="ks_on_surface_variant">#B6BABF</color>
+    <color name="ks_outline">#5F6368</color>
+    <color name="ks_outline_variant">#3C3E43</color>
+
+    <!-- Status Aliases -->
+    <color name="status_green">#749C6F</color>
+    <color name="status_amber">#CE9C3E</color>
+    <color name="status_red">#D97E4C</color>
+    <color name="status_blue">#6C9B9F</color>
+    <color name="status_gray">#5F6368</color>
+
+    <!-- Base Constants -->
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
-    <color name="bg_dark">#FF121212</color>
-    <color name="card_dark">#FF1E1E1E</color>
-    <color name="status_green">#FF4CAF50</color>
-    <color name="status_red">#FFF44336</color>
-    <color name="status_amber">#FFFFC107</color>
+    <color name="transparent">#00000000</color>
 </resources>

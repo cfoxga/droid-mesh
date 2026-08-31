@@ -9,6 +9,8 @@ data class PeerNode(
     val ip: String,
     val port: Int = 2325,
     val deviceModel: String = "",
+    /** User-configured name (from Settings.Global.device_name / bluetooth_name). Empty = not set. */
+    val displayName: String = "",
     val targetInstalled: Boolean = false,
     val installedVersionName: String? = null,
     val installedVersionCode: Long? = null,
@@ -23,6 +25,10 @@ data class PeerNode(
     val isCrossVlan: Boolean = false,
     val configVersion: Long = 0L
 ) {
+    /** Human-readable node label: prefers user-configured displayName over raw Build model string. */
+    val effectiveName: String
+        get() = if (displayName.isNotBlank()) displayName else deviceModel
+
     val isOnline: Boolean
         get() = isSelf || (System.currentTimeMillis() - lastSeenTimestamp) < 30_000L
 
@@ -34,6 +40,7 @@ data class PeerNode(
         put("ip", ip)
         put("port", port)
         put("deviceModel", deviceModel)
+        put("displayName", displayName)
         put("meshId", meshId)
         put("meshName", meshName)
         put("isCrossVlan", isCrossVlan)
@@ -69,6 +76,7 @@ data class PeerNode(
                 val ip = json.optString("ip", senderIp)
                 val port = json.optInt("port", 2325)
                 val deviceModel = json.optString("deviceModel", "Portal")
+                val displayName = json.optString("displayName", "")
                 val meshId = json.optString("meshId", json.optString("mesh_id", "meta-portals"))
                 val meshName = json.optString("meshName", json.optString("mesh_name", "Meta Portals"))
                 val isCrossVlan = json.optBoolean("isCrossVlan", json.optBoolean("is_cross_vlan", false))
@@ -114,6 +122,7 @@ data class PeerNode(
                     ip = ip,
                     port = port,
                     deviceModel = deviceModel,
+                    displayName = displayName,
                     targetInstalled = targetInstalled,
                     installedVersionName = installedVersionName,
                     installedVersionCode = installedVersionCode,

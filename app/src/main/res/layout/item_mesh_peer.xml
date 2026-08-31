@@ -102,7 +102,7 @@
             android:layout_height="wrap_content"
             android:orientation="vertical">
 
-            <!-- Row 1: IP & Port -->
+            <!-- Row 1: IP Address -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -113,19 +113,19 @@
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
                     android:fontFamily="@font/rubik"
-                    android:text="IP &amp; Port"
+                    android:text="IP Address"
                     android:textColor="@color/ks_on_surface_variant"
                     android:textSize="13sp" />
 
                 <TextView
-                    android:id="@+id/tvPeerIpPort"
+                    android:id="@+id/tvPeerIp"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:fontFamily="@font/rubik"
                     android:textColor="@color/ks_on_surface"
                     android:textSize="13sp"
                     android:textStyle="bold"
-                    tools:text="192.168.40.250:2325" />
+                    tools:text="192.168.40.250" />
             </LinearLayout>
 
             <!-- Row 2: Network ADB -->
@@ -235,64 +235,6 @@
                     android:paddingVertical="6dp"
                     android:visibility="gone" />
             </LinearLayout>
-
-            <!-- Row 4: Status Message / Last seen -->
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="6dp"
-                android:paddingVertical="3dp">
-
-                <TextView
-                    android:id="@+id/tvPeerMessage"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:ellipsize="end"
-                    android:fontFamily="@font/rubik"
-                    android:maxLines="2"
-                    android:textColor="@color/ks_on_surface_variant"
-                    android:textSize="12sp"
-                    tools:text="Status: Ready" />
-
-                <TextView
-                    android:id="@+id/tvPeerLastSeen"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginStart="8dp"
-                    android:fontFamily="@font/rubik"
-                    android:textColor="@color/ks_outline"
-                    android:textSize="11sp"
-                    tools:text="Just now" />
-            </LinearLayout>
         </LinearLayout>
-
-        <!-- Action Buttons (Toggle ADB, Update Node) -->
-        <LinearLayout
-            android:id="@+id/layoutPeerActions"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="10dp"
-            android:gravity="end"
-            android:orientation="horizontal"
-            android:visibility="gone"
-            tools:visibility="visible">
-
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btnPeerToggleAdb"
-                style="@style/Widget.KS.Button.Pill.Outlined"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Toggle ADB" />
-
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btnPeerUpdate"
-                style="@style/Widget.KS.Button.Pill.Small"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="8dp"
-                android:text="Update Node" />
-        </LinearLayout>
-
     </LinearLayout>
 </com.google.android.material.card.MaterialCardView>

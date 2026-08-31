@@ -37,6 +37,7 @@ import com.cfox.droidmesh.server.UpdateCoordinator
 import com.cfox.droidmesh.service.AutoInstallService
 import com.cfox.droidmesh.service.UpdaterForegroundService
 import com.cfox.droidmesh.settings.SettingsStore
+import com.cfox.droidmesh.utils.AdbHelper
 import com.cfox.droidmesh.utils.CpuStatsHelper
 import com.cfox.droidmesh.utils.Logger
 import kotlinx.coroutines.Dispatchers
@@ -198,11 +199,15 @@ class MainActivity : AppCompatActivity() {
         renderSidebarMeshes()
     }
 
+    private var isMeshLibraryExpanded: Boolean = false
+
     // ==================== MESH NETWORK VIEW ====================
 
     private fun setupMeshActions() {
-        binding.btnMeshConnectVlan.setOnClickListener {
-            showConnectVlanDialog()
+        binding.layoutMeshAppLibraryHeader.setOnClickListener {
+            isMeshLibraryExpanded = !isMeshLibraryExpanded
+            binding.layoutMeshAppLibraryBody.visibility = if (isMeshLibraryExpanded) View.VISIBLE else View.GONE
+            binding.tvMeshLibraryChevron.text = if (isMeshLibraryExpanded) "▲" else "▼"
         }
 
         binding.btnMeshBeacon.setOnClickListener {
@@ -351,6 +356,8 @@ class MainActivity : AppCompatActivity() {
                 compareByDescending<SettingsStore.MeshAppConfig> { it.isSideloaded }
                     .thenBy { it.appName.lowercase() }
             )
+        binding.layoutMeshAppLibraryBody.visibility = if (isMeshLibraryExpanded) View.VISIBLE else View.GONE
+        binding.tvMeshLibraryChevron.text = if (isMeshLibraryExpanded) "▲" else "▼"
         binding.tvMeshLibraryAppCount.text = "${libraryList.size} Apps"
 
         if (libraryList.isEmpty()) {
@@ -455,10 +462,11 @@ class MainActivity : AppCompatActivity() {
         for (peer in peers) {
             val itemBinding = ItemMeshPeerBinding.inflate(inflater, binding.layoutMeshPeers, false)
 
-            itemBinding.tvPeerTitle.text = peer.deviceModel
-            itemBinding.tvPeerIpPort.text = "${peer.ip}:${peer.port}"
+            itemBinding.tvPeerTitle.text = peer.effectiveName
+            itemBinding.tvPeerIp.text = peer.ip
 
-            val isTv = peer.deviceModel.contains("tv", ignoreCase = true) || peer.deviceModel.contains("onn", ignoreCase = true)
+            val isTv = peer.effectiveName.contains("tv", ignoreCase = true) || peer.effectiveName.contains("onn", ignoreCase = true)
+                || peer.deviceModel.contains("tv", ignoreCase = true) || peer.deviceModel.contains("onn", ignoreCase = true)
             itemBinding.ivPeerDeviceIcon.setImageResource(if (isTv) R.drawable.ic_device_tv else R.drawable.ic_device_tablet)
 
             itemBinding.tvPeerSelfBadge.visibility = if (peer.isSelf) View.VISIBLE else View.GONE
@@ -488,9 +496,21 @@ class MainActivity : AppCompatActivity() {
             if (peer.adbEnabled) {
                 itemBinding.tvPeerAdbStatus.text = "Enabled (:5555)"
                 itemBinding.tvPeerAdbStatus.setTextColor(getColor(R.color.ks_sage))
+                itemBinding.tvPeerAdbStatus.isClickable = false
+                itemBinding.tvPeerAdbStatus.setOnClickListener(null)
             } else {
                 itemBinding.tvPeerAdbStatus.text = "Disabled"
                 itemBinding.tvPeerAdbStatus.setTextColor(getColor(R.color.ks_rust))
+                itemBinding.tvPeerAdbStatus.isClickable = true
+                itemBinding.tvPeerAdbStatus.setOnClickListener {
+                    if (peer.isSelf) {
+                        AdbHelper.toggleAdb(this@MainActivity)
+                        Toast.makeText(this@MainActivity, "Enabling ADB on local device...", Toast.LENGTH_SHORT).show()
+                    } else {
+                        toggleRemoteAdb(peer)
+                        Toast.makeText(this@MainActivity, "Enabling ADB on ${peer.effectiveName}...", Toast.LENGTH_SHORT).show()
+                    }
+                }
             }
 
             // Only show apps that have been marked as managed in the library and not excluded
@@ -523,7 +543,12 @@ class MainActivity : AppCompatActivity() {
 
             itemBinding.layoutPeerApps.removeAllViews()
             if (managedApps.isNotEmpty()) {
-                for (app in managedApps) {
+                // Sort: sideloaded apps first, then store apps; within each group alphabetically
+                val sortedApps = managedApps.sortedWith(
+                    compareByDescending<AppVersionHelper.InstalledAppInfo> { library[it.packageName]?.isSideloaded == true }
+                        .thenBy { it.appName.lowercase() }
+                )
+                for (app in sortedApps) {
                     val cfg = library[app.packageName]
                     val isSideloaded = cfg?.isSideloaded ?: AppVersionHelper.isSideloadedApp(app.packageName)
                     val needsUpdate = cfg != null && cfg.isSideloaded && cfg.targetVersion.isNotBlank() && AppVersionHelper.isVersionMismatch(app.versionName, cfg.targetVersion)
@@ -546,38 +571,41 @@ class MainActivity : AppCompatActivity() {
                     }
                     infoLayout.addView(nameTv)
 
-                    val verPill = TextView(this).apply {
-                        text = if (!app.versionName.isNullOrBlank()) "v${app.versionName}" else if (app.versionCode != null) "build ${app.versionCode}" else "Installed"
-                        setTextColor(if (needsUpdate) getColor(R.color.ks_rust) else getColor(R.color.ks_teal))
-                        background = ContextCompat.getDrawable(this@MainActivity, R.drawable.bg_badge_pill)
-                        backgroundTintList = ContextCompat.getColorStateList(
-                            this@MainActivity,
-                            if (needsUpdate) R.color.ks_rust_container else R.color.ks_teal_container
-                        )
-                        setPadding(16, 4, 16, 4)
-                        textSize = 11f
-                    }
-
                     appRow.addView(infoLayout)
-                    appRow.addView(verPill)
 
-                    if (needsUpdate && isSideloaded) {
-                        val updateBtn = com.google.android.material.button.MaterialButton(
-                            this,
-                            null,
-                            com.google.android.material.R.attr.materialButtonStyle
-                        ).apply {
-                            text = "Update"
-                            textSize = 10f
-                            setPadding(8, 2, 8, 2)
-                            val params = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT)
-                            params.marginStart = 8
-                            layoutParams = params
-                            setOnClickListener {
-                                triggerRemoteAppUpdate(peer, app.packageName, cfg?.targetVersion ?: "latest")
-                            }
+                    // Only show version pill for sideloaded apps (we manage those); store apps get no version badge
+                    if (isSideloaded) {
+                        val verPill = TextView(this).apply {
+                            text = if (!app.versionName.isNullOrBlank()) "v${app.versionName}" else if (app.versionCode != null) "build ${app.versionCode}" else "Installed"
+                            setTextColor(if (needsUpdate) getColor(R.color.ks_rust) else getColor(R.color.ks_teal))
+                            background = ContextCompat.getDrawable(this@MainActivity, R.drawable.bg_badge_pill)
+                            backgroundTintList = ContextCompat.getColorStateList(
+                                this@MainActivity,
+                                if (needsUpdate) R.color.ks_rust_container else R.color.ks_teal_container
+                            )
+                            setPadding(16, 4, 16, 4)
+                            textSize = 11f
                         }
-                        appRow.addView(updateBtn)
+                        appRow.addView(verPill)
+
+                        if (needsUpdate) {
+                            val updateBtn = com.google.android.material.button.MaterialButton(
+                                this,
+                                null,
+                                com.google.android.material.R.attr.materialButtonStyle
+                            ).apply {
+                                text = "Update"
+                                textSize = 10f
+                                setPadding(8, 2, 8, 2)
+                                val params = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+                                params.marginStart = 8
+                                layoutParams = params
+                                setOnClickListener {
+                                    triggerRemoteAppUpdate(peer, app.packageName, cfg?.targetVersion ?: "latest")
+                                }
+                            }
+                            appRow.addView(updateBtn)
+                        }
                     }
 
                     itemBinding.layoutPeerApps.addView(appRow)
@@ -589,21 +617,6 @@ class MainActivity : AppCompatActivity() {
                     textSize = 12f
                 }
                 itemBinding.layoutPeerApps.addView(noAppsTv)
-            }
-
-            itemBinding.tvPeerMessage.text = peer.updaterMessage ?: "Status: Ready"
-            itemBinding.tvPeerLastSeen.text = if (peer.isSelf) "Local" else if (peer.lastSeenSecondsAgo <= 5) "Just now" else "${peer.lastSeenSecondsAgo}s ago"
-
-            if (!peer.isSelf) {
-                itemBinding.layoutPeerActions.visibility = View.VISIBLE
-                itemBinding.btnPeerToggleAdb.setOnClickListener {
-                    toggleRemoteAdb(peer)
-                }
-                itemBinding.btnPeerUpdate.setOnClickListener {
-                    triggerRemoteUpdate(peer)
-                }
-            } else {
-                itemBinding.layoutPeerActions.visibility = View.GONE
             }
 
             binding.layoutMeshPeers.addView(itemBinding.root)

@@ -42,6 +42,9 @@ class UpdaterForegroundService : Service() {
         // Not user-configurable; only the on/off toggle is exposed.
         const val AUTO_UPDATE_INTERVAL_MS = 6 * 60 * 60 * 1000L
 
+        // How often the mesh app auto-install loop checks for missing managed apps.
+        const val AUTO_INSTALL_CHECK_MS = 60 * 60 * 1000L // 1 hour
+
         @Volatile
         var isRunning: Boolean = false
             private set
@@ -72,6 +75,7 @@ class UpdaterForegroundService : Service() {
     private var meshDiscoveryManager: MeshDiscoveryManager? = null
     private var wakeLock: PowerManager.WakeLock? = null
     private var autoUpdateJob: Job? = null
+    private var meshAutoInstallJob: Job? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -159,7 +163,7 @@ class UpdaterForegroundService : Service() {
 
         manageHttpServer()
         manageAutoUpdateLoop()
-
+        manageAutoInstallLoop()
 
         when (action) {
             ACTION_TRIGGER_UPDATE -> {
@@ -195,6 +199,62 @@ class UpdaterForegroundService : Service() {
             if (autoUpdateJob != null) Logger.i("Auto-update disabled — stopping periodic check")
             autoUpdateJob?.cancel()
             autoUpdateJob = null
+        }
+    }
+
+    /**
+     * Periodically checks the mesh app library for apps with autoInstall=true that are not
+     * currently installed on this device. For each missing sideloaded app that has a downloadUrl
+     * configured, triggers a download+install via PackageInstallerDispatcher.
+     * Runs once on startup then every AUTO_INSTALL_CHECK_MS.
+     */
+    private fun manageAutoInstallLoop() {
+        if (meshAutoInstallJob?.isActive == true) return
+        Logger.i("Mesh app auto-install loop starting (interval ${AUTO_INSTALL_CHECK_MS / 60_000}min)")
+        meshAutoInstallJob = serviceScope.launch(Dispatchers.IO) {
+            while (isActive) {
+                try {
+                    val localMeshId = SettingsStore.getLocalMeshId(applicationContext)
+                    val library = SettingsStore.getMeshAppLibrary(applicationContext, localMeshId)
+                    val installedPackages = com.cfox.droidmesh.installer.AppVersionHelper
+                        .getUserInstalledApps(applicationContext)
+                        .map { it.packageName }
+                        .toSet()
+
+                    for ((pkg, cfg) in library) {
+                        if (!isActive) break
+                        if (!cfg.managed || !cfg.autoInstall || !cfg.isSideloaded) continue
+                        if (installedPackages.contains(pkg)) continue
+                        if (com.cfox.droidmesh.installer.AppVersionHelper.isExcludedAppPackage(pkg, applicationContext)) continue
+
+                        val downloadUrl = cfg.downloadUrl.trim()
+                        if (downloadUrl.isBlank()) {
+                            Logger.w("Mesh auto-install: $pkg (${cfg.appName}) has autoInstall=true but no downloadUrl configured — skipping")
+                            continue
+                        }
+
+                        Logger.i("Mesh auto-install: $pkg (${cfg.appName}) is missing — downloading from $downloadUrl")
+                        try {
+                            val fileName = "$pkg-${cfg.targetVersion.trim().ifBlank { "latest" }}.apk"
+                            val downloader = com.cfox.droidmesh.downloader.ApkDownloader(applicationContext)
+                            val apkResult = downloader.downloadApk(downloadUrl, fileName)
+                            if (apkResult.isSuccess) {
+                                val apkFile = apkResult.getOrThrow()
+                                com.cfox.droidmesh.installer.PackageInstallerDispatcher
+                                    .dispatchInstall(applicationContext, apkFile)
+                                Logger.i("Mesh auto-install: dispatched installer for ${cfg.appName}")
+                            } else {
+                                Logger.w("Mesh auto-install: download failed for $pkg: ${apkResult.exceptionOrNull()?.message}")
+                            }
+                        } catch (e: Exception) {
+                            Logger.e("Mesh auto-install error for $pkg", e)
+                        }
+                    }
+                } catch (e: Exception) {
+                    Logger.e("Mesh auto-install loop error", e)
+                }
+                delay(AUTO_INSTALL_CHECK_MS)
+            }
         }
     }
 

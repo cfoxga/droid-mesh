@@ -446,18 +446,10 @@
 
                     <!-- Header Actions -->
                     <com.google.android.material.button.MaterialButton
-                        android:id="@+id/btnMeshConnectVlan"
-                        style="@style/Widget.KS.Button.Pill.Outlined"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="+ Connect VLAN" />
-
-                    <com.google.android.material.button.MaterialButton
                         android:id="@+id/btnMeshBeacon"
                         style="@style/Widget.KS.Button.Pill.Outlined"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:layout_marginStart="8dp"
                         android:text="Beacon" />
 
                     <com.google.android.material.button.MaterialButton
@@ -475,7 +467,7 @@
                     android:layout_marginVertical="16dp"
                     android:background="@color/ks_outline_variant" />
 
-                <!-- App Library for Selected Mesh -->
+                <!-- App Library for Selected Mesh (Collapsible, default collapsed) -->
                 <com.google.android.material.card.MaterialCardView
                     style="@style/Widget.KS.Card"
                     android:layout_width="match_parent"
@@ -489,8 +481,11 @@
                         android:padding="18dp">
 
                         <LinearLayout
+                            android:id="@+id/layoutMeshAppLibraryHeader"
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
+                            android:clickable="true"
+                            android:focusable="true"
                             android:gravity="center_vertical"
                             android:orientation="horizontal">
 
@@ -508,6 +503,7 @@
                                 android:id="@+id/tvMeshLibraryAppCount"
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
+                                android:layout_marginEnd="8dp"
                                 android:background="@drawable/bg_badge_pill"
                                 android:backgroundTint="@color/ks_teal_container"
                                 android:fontFamily="@font/rubik"
@@ -517,23 +513,41 @@
                                 android:textColor="@color/ks_teal"
                                 android:textSize="11sp"
                                 android:textStyle="bold" />
+
+                            <TextView
+                                android:id="@+id/tvMeshLibraryChevron"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:fontFamily="@font/rubik"
+                                android:text="▼"
+                                android:textColor="@color/ks_outline"
+                                android:textSize="12sp" />
                         </LinearLayout>
 
-                        <TextView
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:layout_marginTop="2dp"
-                            android:fontFamily="@font/rubik"
-                            android:text="Superset of apps in this mesh partition. Configure managed apps, auto-install, and target versions."
-                            android:textColor="@color/ks_on_surface_variant"
-                            android:textSize="12sp" />
-
+                        <!-- Collapsible Body Container (default collapsed) -->
                         <LinearLayout
-                            android:id="@+id/layoutMeshAppLibrary"
+                            android:id="@+id/layoutMeshAppLibraryBody"
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:layout_marginTop="12dp"
-                            android:orientation="vertical" />
+                            android:orientation="vertical"
+                            android:visibility="gone">
+
+                            <TextView
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="8dp"
+                                android:fontFamily="@font/rubik"
+                                android:text="Superset of apps in this mesh partition. Configure managed apps, auto-install, and target versions."
+                                android:textColor="@color/ks_on_surface_variant"
+                                android:textSize="12sp" />
+
+                            <LinearLayout
+                                android:id="@+id/layoutMeshAppLibrary"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="12dp"
+                                android:orientation="vertical" />
+                        </LinearLayout>
                     </LinearLayout>
                 </com.google.android.material.card.MaterialCardView>
 

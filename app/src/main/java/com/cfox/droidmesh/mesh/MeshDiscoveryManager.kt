@@ -86,6 +86,8 @@ class MeshDiscoveryManager(
         }
     }
 
+    fun getDisplayName(): String = com.cfox.droidmesh.utils.CpuStatsHelper.getDeviceName(context)
+
     fun start() {
         Logger.i("Starting MeshDiscoveryManager on UDP port $MESH_PORT (Device ID: $deviceId, Model: $deviceModel, Mesh: $localMeshId ($localMeshName))")
         acquireMulticastLock()
@@ -295,6 +297,7 @@ class MeshDiscoveryManager(
                 put("meshId", localMeshId)
                 put("meshName", localMeshName)
                 put("deviceModel", deviceModel)
+                put("displayName", getDisplayName())
                 put("config_version", SettingsStore.getConfigVersion(context))
                 put("targetInstalled", installed.isInstalled)
                 put("installedVersionName", installed.versionName ?: JSONObject.NULL)
@@ -520,6 +523,7 @@ class MeshDiscoveryManager(
             val ip = peerJson.optString("ip", seed.substringBefore(":"))
             val port = peerJson.optInt("port", 2325)
             val model = peerJson.optString("deviceModel", "Remote Node")
+            val displayName = peerJson.optString("displayName", "")
             val meshId = peerJson.optString("meshId", peerJson.optString("mesh_id", "default"))
             val meshName = peerJson.optString("meshName", peerJson.optString("mesh_name", meshId))
             val targetInstalled = peerJson.optBoolean("targetInstalled", false)
@@ -564,6 +568,7 @@ class MeshDiscoveryManager(
                 ip = ip,
                 port = port,
                 deviceModel = model,
+                displayName = displayName,
                 targetInstalled = targetInstalled,
                 installedVersionName = installedVersionName,
                 installedVersionCode = installedVersionCode,
@@ -628,6 +633,7 @@ class MeshDiscoveryManager(
             ip = localIp,
             port = 2325,
             deviceModel = "$deviceModel (This Device)",
+            displayName = "${getDisplayName()} (This Device)",
             targetInstalled = installed.isInstalled,
             installedVersionName = installed.versionName,
             installedVersionCode = installed.versionCode,

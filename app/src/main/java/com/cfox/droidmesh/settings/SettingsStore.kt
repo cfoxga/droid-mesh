@@ -40,7 +40,9 @@ object SettingsStore {
         val autoInstall: Boolean = false,
         val targetVersion: String = "latest",
         val autoUpdate: Boolean = false,
-        val isSideloaded: Boolean = false
+        val isSideloaded: Boolean = false,
+        /** Direct APK download URL for auto-install. Empty = no automatic download. */
+        val downloadUrl: String = ""
     ) {
         fun toJson(): JSONObject = JSONObject().apply {
             put("packageName", packageName)
@@ -50,6 +52,7 @@ object SettingsStore {
             put("targetVersion", targetVersion)
             put("autoUpdate", autoUpdate)
             put("isSideloaded", isSideloaded)
+            put("downloadUrl", downloadUrl)
         }
 
         companion object {
@@ -64,7 +67,8 @@ object SettingsStore {
                     autoInstall = json.optBoolean("autoInstall", false),
                     targetVersion = json.optString("targetVersion", "latest"),
                     autoUpdate = json.optBoolean("autoUpdate", false),
-                    isSideloaded = isSideload
+                    isSideloaded = isSideload,
+                    downloadUrl = json.optString("downloadUrl", "")
                 )
             }
         }

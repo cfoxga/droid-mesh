@@ -796,10 +796,6 @@ input:checked + .slider:before {
           </p>
         </div>
         <div class="header-actions">
-          <button class="btn btn-secondary btn-sm" onclick="showConnectModal(true)">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-            + Connect VLAN
-          </button>
           <button class="btn btn-secondary btn-sm" onclick="triggerBeacon()">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M2 12h20"/></svg>
             Beacon
@@ -810,17 +806,20 @@ input:checked + .slider:before {
         </div>
       </div>
 
-      <!-- App Library for Selected Mesh -->
+      <!-- App Library for Selected Mesh (Collapsible, default collapsed) -->
       <div class="card" style="margin-bottom: 20px;">
-        <div class="card-header">
+        <div class="card-header" onclick="toggleMeshLibrary()" style="cursor: pointer; user-select: none;">
           <div class="card-title">
             <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
             App Library
             <span id="meshLibraryBadge" class="badge badge-teal" style="font-size: 11px; margin-left: 6px;">Loading...</span>
           </div>
-          <span style="font-size: 12px; color: var(--text-secondary);">Superset of apps in this mesh partition</span>
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <span style="font-size: 12px; color: var(--text-secondary);">Superset of apps in this mesh partition</span>
+            <span id="meshLibraryChevron" style="color: var(--text-muted); font-size: 11px;">▼</span>
+          </div>
         </div>
-        <div style="overflow-x: auto;">
+        <div id="meshLibraryBody" style="display: none; overflow-x: auto;">
           <table style="width: 100%; border-collapse: collapse; text-align: left; font-size: 13px;">
             <thead>
               <tr style="border-bottom: 1px solid var(--border-subtle); color: var(--text-muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px;">
@@ -1008,7 +1007,8 @@ let state = {
   currentTab: 'mesh',
   logs: [],
   initialLoaded: false,
-  peerAppsExpanded: {}
+  peerAppsExpanded: {},
+  meshLibraryExpanded: false
 };
 
 // Helper
@@ -1464,9 +1464,21 @@ function isExcludedApp(pkg) {
   return !pkg || pkg === 'com.cfox.droidmesh' || pkg === 'com.cfox.kiosksatelliteupdater';
 }
 
+function toggleMeshLibrary() {
+  state.meshLibraryExpanded = !state.meshLibraryExpanded;
+  const body = document.getElementById('meshLibraryBody');
+  const chevron = document.getElementById('meshLibraryChevron');
+  if (body) body.style.display = state.meshLibraryExpanded ? 'block' : 'none';
+  if (chevron) chevron.textContent = state.meshLibraryExpanded ? '▲' : '▼';
+}
+
 function renderMeshAppLibrary(currentMesh) {
   const tbody = document.getElementById('meshLibraryTableBody');
   const countBadge = document.getElementById('meshLibraryBadge');
+  const body = document.getElementById('meshLibraryBody');
+  const chevron = document.getElementById('meshLibraryChevron');
+  if (body) body.style.display = state.meshLibraryExpanded ? 'block' : 'none';
+  if (chevron) chevron.textContent = state.meshLibraryExpanded ? '▲' : '▼';
   if (!tbody) return;
 
   const library = (currentMesh.app_library || [])
@@ -1606,7 +1618,15 @@ function renderMeshPeers(peers, library) {
     if (managedApps.length === 0 && missingApps.length === 0) {
       appsListHtml = `<span style="color: var(--text-muted); font-size: 12px; padding: 4px 0;">No managed apps installed</span>`;
     } else {
-      const installedRows = managedApps.map(app => {
+      // Sort: sideloaded first, then store apps; alpha within each group
+      const sortedApps = [...managedApps].sort((a, b) => {
+        const aSide = libraryMap[a.packageName]?.isSideloaded ? 1 : 0;
+        const bSide = libraryMap[b.packageName]?.isSideloaded ? 1 : 0;
+        if (bSide !== aSide) return bSide - aSide;
+        return (a.appName || a.packageName || '').localeCompare(b.appName || b.packageName || '', undefined, { sensitivity: 'base' });
+      });
+
+      const installedRows = sortedApps.map(app => {
         const cfg = libraryMap[app.packageName];
         const isSideloaded = cfg ? cfg.isSideloaded : false;
         const needsUpdate = cfg && cfg.isSideloaded && cfg.targetVersion && isVersionMismatch(app.versionName, cfg.targetVersion);
@@ -1618,13 +1638,15 @@ function renderMeshPeers(peers, library) {
               <span style="font-size: 11px; color: var(--text-muted); font-family: monospace;">${escapeHtml(app.packageName)}</span>
             </div>
             <div style="display: flex; align-items: center; gap: 6px;">
-              <span class="badge ${needsUpdate ? 'badge-rust' : 'badge-teal'}" style="font-size: 11px; padding: 2px 6px;">
-                ${app.versionName ? `v${escapeHtml(app.versionName)}` : (app.versionCode ? `build ${escapeHtml(app.versionCode)}` : 'Installed')}
-              </span>
-              ${needsUpdate && isSideloaded ? `
-                <button class="btn btn-primary btn-sm" style="font-size: 11px; padding: 2px 8px;" onclick="triggerAppUpdate('${peer.ip}', ${peer.port}, '${app.packageName}', '${cfg.targetVersion}')">
-                  Update
-                </button>
+              ${isSideloaded ? `
+                <span class="badge ${needsUpdate ? 'badge-rust' : 'badge-teal'}" style="font-size: 11px; padding: 2px 6px;">
+                  ${app.versionName ? `v${escapeHtml(app.versionName)}` : (app.versionCode ? `build ${escapeHtml(String(app.versionCode))}` : 'Installed')}
+                </span>
+                ${needsUpdate ? `
+                  <button class="btn btn-primary btn-sm" style="font-size: 11px; padding: 2px 8px;" onclick="triggerAppUpdate('${peer.ip}', ${peer.port}, '${app.packageName}', '${cfg.targetVersion}')">
+                    Update
+                  </button>
+                ` : ''}
               ` : ''}
             </div>
           </div>
@@ -1655,18 +1677,18 @@ function renderMeshPeers(peers, library) {
       <div class="card-header">
         <div class="card-title">
           <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
-          ${escapeHtml(peer.deviceModel)} ${peer.isSelf ? '<span class="badge badge-teal">This Device</span>' : ''} ${peer.isCrossVlan ? '<span class="badge badge-gray" style="font-size:10px;">VLAN</span>' : ''}
+          ${escapeHtml(peer.displayName || peer.deviceModel)} ${peer.isSelf ? '<span class="badge badge-teal">This Device</span>' : ''} ${peer.isCrossVlan ? '<span class="badge badge-gray" style="font-size:10px;">VLAN</span>' : ''}
         </div>
         <span class="badge ${badgeClass}">${stateText}</span>
       </div>
       <div class="kv-list">
         <div class="kv-row">
-          <span class="kv-key">IP & Port</span>
-          <span class="kv-val">${escapeHtml(peer.ip)}:${escapeHtml(peer.port)}</span>
+          <span class="kv-key">IP Address</span>
+          <span class="kv-val">${escapeHtml(peer.ip)}</span>
         </div>
         <div class="kv-row">
           <span class="kv-key">Network ADB</span>
-          <span class="kv-val">${peer.adbEnabled ? '<span style="color:var(--sage)">Enabled</span>' : '<span style="color:var(--rust)">Disabled</span>'}</span>
+          <span class="kv-val">${peer.adbEnabled ? '<span style="color:var(--sage); font-weight:600;">Enabled (:5555)</span>' : `<span style="color:var(--rust); cursor:pointer; text-decoration:underline; font-weight:600;" onclick="togglePeerAdb('${peer.ip}', ${peer.port})">Disabled</span>`}</span>
         </div>
         <div class="kv-row" style="flex-direction: column; align-items: flex-start; gap: 6px; border-bottom: 1px solid rgba(255, 255, 255, 0.04); padding-bottom: 8px;">
           <div onclick="togglePeerApps('${peer.id}')" style="cursor: pointer; display: flex; align-items: center; justify-content: space-between; width: 100%; user-select: none;">
@@ -1682,17 +1704,7 @@ function renderMeshPeers(peers, library) {
             ${appsListHtml}
           </div>
         </div>
-        <div class="kv-row">
-          <span class="kv-key">Status Message</span>
-          <span class="kv-val" style="font-size:11px; color:var(--text-secondary);">${escapeHtml(peer.updaterMessage || 'Ready')}</span>
-        </div>
       </div>
-      ${!peer.isSelf ? `
-        <div style="display: flex; gap: 8px; margin-top: 6px;">
-          <button class="btn btn-secondary btn-sm" onclick="togglePeerAdb('${peer.ip}', ${peer.port})">Toggle ADB</button>
-          <button class="btn btn-primary btn-sm" onclick="triggerPeerUpdate('${peer.ip}', ${peer.port})">Update Node</button>
-        </div>
-      ` : ''}
     `;
     container.appendChild(card);
   });

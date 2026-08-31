@@ -88,12 +88,27 @@ class UpdaterForegroundService : Service() {
         mesh.start()
 
         manageHttpServer()
+        SettingsStore.addConfigChangeListener(configChangeListener)
 
         // Collect coordinator status updates to update notification & wake lock
         serviceScope.launch {
             coordinator.statusFlow.collect { status ->
                 updateNotification(status.message)
                 handleWakeLockForState(status.state)
+            }
+        }
+    }
+
+    private val configChangeListener = SettingsStore.OnConfigChangeListener { result ->
+        serviceScope.launch(Dispatchers.Main) {
+            Logger.i("Config change received in UpdaterForegroundService: portChanged=${result.portChanged}, webServerToggled=${result.webServerToggled}, autoUpdateToggled=${result.autoUpdateToggled}")
+            if (result.portChanged || result.webServerToggled) {
+                manageHttpServer()
+                val currentPort = SettingsStore.getWebServerPort(applicationContext)
+                updateNotification("Listening on port $currentPort")
+            }
+            if (result.autoUpdateToggled) {
+                manageAutoUpdateLoop()
             }
         }
     }
@@ -267,6 +282,7 @@ class UpdaterForegroundService : Service() {
             Logger.e("Error stopping HTTP server / mesh manager", e)
         }
 
+        SettingsStore.removeConfigChangeListener(configChangeListener)
         serviceScope.cancel()
     }
 }

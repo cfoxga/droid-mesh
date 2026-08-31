@@ -44,6 +44,14 @@ class LocalHttpServerTest {
                 inMemoryPrefs[inv.getArgument<String>(0)] = inv.getArgument<Boolean>(1)
                 it
             }
+            whenever(it.putInt(any(), any())).thenAnswer { inv ->
+                inMemoryPrefs[inv.getArgument<String>(0)] = inv.getArgument<Int>(1)
+                it
+            }
+            whenever(it.putLong(any(), any())).thenAnswer { inv ->
+                inMemoryPrefs[inv.getArgument<String>(0)] = inv.getArgument<Long>(1)
+                it
+            }
             whenever(it.remove(any())).thenAnswer { inv ->
                 inMemoryPrefs.remove(inv.getArgument<String>(0))
                 it
@@ -55,6 +63,12 @@ class LocalHttpServerTest {
         val sharedPrefs: SharedPreferences = mock {
             whenever(it.getBoolean(any(), any())).thenAnswer { inv ->
                 inMemoryPrefs[inv.getArgument<String>(0)] as? Boolean ?: inv.getArgument<Boolean>(1)
+            }
+            whenever(it.getInt(any(), any())).thenAnswer { inv ->
+                inMemoryPrefs[inv.getArgument<String>(0)] as? Int ?: inv.getArgument<Int>(1)
+            }
+            whenever(it.getLong(any(), any())).thenAnswer { inv ->
+                inMemoryPrefs[inv.getArgument<String>(0)] as? Long ?: inv.getArgument<Long>(1)
             }
             whenever(it.getString(any(), anyOrNull())).thenAnswer { inv ->
                 inMemoryPrefs[inv.getArgument<String>(0)] as? String ?: inv.getArgument<String?>(1)
@@ -216,5 +230,44 @@ class LocalHttpServerTest {
         val response = server.serve(handshakeSession)
         assertEquals(NanoHTTPD.Response.Status.OK, response.status)
         assertTrue(SettingsStore.getCrossVlanSeeds(mockContext).contains("192.168.50.10:2325"))
+    }
+
+    @Test
+    fun testMeshConfigGetAndSyncEndpoints() {
+        // 1. Initial GET config
+        val getSession = mockSession("/api/mesh/config")
+        val getRes = server.serve(getSession)
+        assertEquals(NanoHTTPD.Response.Status.OK, getRes.status)
+
+        // 2. Incoming newer config via /api/mesh/sync-config
+        val syncPayload = JSONObject().apply {
+            put("config_version", 2000000000000L)
+            put("web_server_enabled", true)
+            put("web_server_port", 2326)
+            put("auto_update_enabled", false)
+            put("web_password_hash", "testhash123")
+            put("web_password_salt", "testsalt123")
+            put("auth_secret", "testsecret123")
+            val seedsArr = org.json.JSONArray().apply {
+                put("192.168.40.250:2326")
+                put("192.168.50.64:2326")
+            }
+            put("cross_vlan_seeds", seedsArr)
+        }
+
+        val syncSession = mockSession(
+            uri = "/api/mesh/sync-config",
+            method = NanoHTTPD.Method.POST,
+            postBody = syncPayload.toString()
+        )
+        val syncRes = server.serve(syncSession)
+        assertEquals(NanoHTTPD.Response.Status.OK, syncRes.status)
+
+        // Verify that SettingsStore reflects the synced values
+        assertEquals(2326, SettingsStore.getWebServerPort(mockContext))
+        assertFalse(SettingsStore.isAutoUpdateEnabled(mockContext))
+        assertTrue(SettingsStore.isPasswordSet(mockContext))
+        assertTrue(SettingsStore.getCrossVlanSeeds(mockContext).contains("192.168.50.64:2326"))
+        assertEquals(2000000000000L, SettingsStore.getConfigVersion(mockContext))
     }
 }

@@ -11,39 +11,38 @@
     <!-- ==================== 1. SIDEBAR NAVIGATION RAIL ==================== -->
     <LinearLayout
         android:id="@+id/layoutSidebar"
-        android:layout_width="290dp"
+        android:layout_width="280dp"
         android:layout_height="match_parent"
-        android:background="@color/ks_dark_bg"
+        android:background="@color/ks_surface_lowest"
         android:orientation="vertical">
 
-        <!-- Sidebar Header: Brand Mark + Title + Device Name -->
+        <!-- Sidebar Header: Brand Mark + Title + Subtitle -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:gravity="center_vertical"
             android:orientation="horizontal"
-            android:paddingHorizontal="20dp"
-            android:paddingTop="22dp"
+            android:paddingHorizontal="18dp"
+            android:paddingTop="20dp"
             android:paddingBottom="16dp">
 
-            <!-- Circular Brand Mark Disc -->
             <FrameLayout
-                android:layout_width="38dp"
-                android:layout_height="38dp"
-                android:background="@drawable/bg_disc_sage">
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                android:background="@drawable/bg_disc_teal">
 
                 <ImageView
                     android:layout_width="20dp"
                     android:layout_height="20dp"
                     android:layout_gravity="center"
-                    android:src="@drawable/ic_tab_overview"
+                    android:src="@drawable/ic_tab_mesh"
                     app:tint="@color/white" />
             </FrameLayout>
 
             <LinearLayout
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
-                android:layout_marginStart="14dp"
+                android:layout_marginStart="12dp"
                 android:layout_weight="1"
                 android:orientation="vertical">
 
@@ -51,271 +50,262 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:fontFamily="@font/rubik"
-                    android:text="Kiosk Satellite"
+                    android:text="DroidMesh"
                     android:textColor="@color/ks_on_surface"
                     android:textSize="17sp"
                     android:textStyle="bold" />
 
                 <TextView
-                    android:id="@+id/tvSidebarDeviceName"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="1dp"
                     android:fontFamily="@font/rubik"
-                    android:text="Portal Plus"
-                    android:textColor="@color/ks_on_surface_variant"
-                    android:textSize="12sp" />
+                    android:text="Fleet Companion"
+                    android:textColor="@color/ks_teal"
+                    android:textSize="11sp"
+                    android:textStyle="bold" />
             </LinearLayout>
         </LinearLayout>
 
         <View
             android:layout_width="match_parent"
             android:layout_height="1dp"
-            android:layout_marginHorizontal="16dp"
+            android:layout_marginHorizontal="14dp"
             android:background="@color/ks_outline_variant" />
 
-        <!-- Sidebar Menu Items -->
-        <LinearLayout
+        <!-- Scrollable Navigation Items -->
+        <androidx.core.widget.NestedScrollView
             android:layout_width="match_parent"
             android:layout_height="0dp"
             android:layout_weight="1"
-            android:orientation="vertical"
-            android:paddingHorizontal="12dp"
-            android:paddingTop="12dp">
+            android:fillViewport="true">
 
-            <!-- Item 1: Overview -->
             <LinearLayout
-                android:id="@+id/btnNavOverview"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:background="@drawable/bg_rail_item_selected"
-                android:clickable="true"
-                android:focusable="true"
-                android:gravity="center_vertical"
-                android:orientation="horizontal"
-                android:paddingHorizontal="14dp"
-                android:paddingVertical="12dp">
+                android:orientation="vertical"
+                android:paddingHorizontal="12dp"
+                android:paddingTop="12dp">
 
-                <FrameLayout
-                    android:layout_width="36dp"
-                    android:layout_height="36dp"
-                    android:background="@drawable/bg_disc_sage">
-
-                    <ImageView
-                        android:layout_width="20dp"
-                        android:layout_height="20dp"
-                        android:layout_gravity="center"
-                        android:src="@drawable/ic_tab_overview"
-                        app:tint="@color/white" />
-                </FrameLayout>
-
-                <LinearLayout
-                    android:layout_width="0dp"
+                <!-- SECTION 1: FLEET MESHES -->
+                <TextView
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginStart="14dp"
-                    android:layout_weight="1"
-                    android:orientation="vertical">
+                    android:fontFamily="@font/rubik"
+                    android:paddingHorizontal="6dp"
+                    android:paddingBottom="6dp"
+                    android:text="FLEET MESHES"
+                    android:textColor="@color/ks_outline"
+                    android:textSize="11sp"
+                    android:textStyle="bold" />
 
-                    <TextView
-                        android:id="@+id/tvNavOverviewTitle"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:fontFamily="@font/rubik"
-                        android:text="Overview"
-                        android:textColor="@color/ks_on_surface"
-                        android:textSize="15sp"
-                        android:textStyle="bold" />
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="2dp"
-                        android:fontFamily="@font/rubik"
-                        android:text="Version and mesh fleet"
-                        android:textColor="@color/ks_on_surface_variant"
-                        android:textSize="12sp" />
-                </LinearLayout>
-            </LinearLayout>
-
-            <!-- Item 2: Remote Access -->
-            <LinearLayout
-                android:id="@+id/btnNavRemote"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
-                android:background="?attr/selectableItemBackground"
-                android:clickable="true"
-                android:focusable="true"
-                android:gravity="center_vertical"
-                android:orientation="horizontal"
-                android:paddingHorizontal="14dp"
-                android:paddingVertical="12dp">
-
-                <FrameLayout
-                    android:layout_width="36dp"
-                    android:layout_height="36dp"
-                    android:background="@drawable/bg_disc_teal">
-
-                    <ImageView
-                        android:layout_width="20dp"
-                        android:layout_height="20dp"
-                        android:layout_gravity="center"
-                        android:src="@drawable/ic_tab_about"
-                        app:tint="@color/white" />
-                </FrameLayout>
-
+                <!-- Dynamic container for discovered meshes -->
                 <LinearLayout
-                    android:layout_width="0dp"
+                    android:id="@+id/layoutSidebarMeshes"
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginStart="14dp"
-                    android:layout_weight="1"
-                    android:orientation="vertical">
+                    android:orientation="vertical" />
 
-                    <TextView
-                        android:id="@+id/tvNavRemoteTitle"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:fontFamily="@font/rubik"
-                        android:text="Remote Access"
-                        android:textColor="@color/ks_on_surface"
-                        android:textSize="15sp"
-                        android:textStyle="bold" />
+                <!-- Connect Cross-VLAN Action Button -->
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnSidebarConnectVlan"
+                    style="@style/Widget.KS.Button.Pill.Outlined"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:layout_marginBottom="14dp"
+                    android:text="+ Connect Cross-VLAN"
+                    android:textColor="@color/ks_teal"
+                    app:strokeColor="@color/ks_teal_container" />
 
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="2dp"
-                        android:fontFamily="@font/rubik"
-                        android:text="Web UI &amp; admin password"
-                        android:textColor="@color/ks_on_surface_variant"
-                        android:textSize="12sp" />
-                </LinearLayout>
-            </LinearLayout>
+                <!-- SECTION 2: DEVICE CONTROL -->
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:fontFamily="@font/rubik"
+                    android:paddingHorizontal="6dp"
+                    android:paddingBottom="6dp"
+                    android:text="DEVICE CONTROL"
+                    android:textColor="@color/ks_outline"
+                    android:textSize="11sp"
+                    android:textStyle="bold" />
 
-            <!-- Item 3: About -->
-            <LinearLayout
-                android:id="@+id/btnNavAbout"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
-                android:background="?attr/selectableItemBackground"
-                android:clickable="true"
-                android:focusable="true"
-                android:gravity="center_vertical"
-                android:orientation="horizontal"
-                android:paddingHorizontal="14dp"
-                android:paddingVertical="12dp">
-
-
-                <FrameLayout
-                    android:layout_width="36dp"
-                    android:layout_height="36dp"
-                    android:background="@drawable/bg_disc_teal">
-
-                    <ImageView
-                        android:layout_width="20dp"
-                        android:layout_height="20dp"
-                        android:layout_gravity="center"
-                        android:src="@drawable/ic_tab_about"
-                        app:tint="@color/white" />
-                </FrameLayout>
-
+                <!-- Overview -->
                 <LinearLayout
-                    android:layout_width="0dp"
+                    android:id="@+id/btnNavOverview"
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginStart="14dp"
-                    android:layout_weight="1"
-                    android:orientation="vertical">
+                    android:background="@drawable/bg_rail_item_selected"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal"
+                    android:paddingHorizontal="12dp"
+                    android:paddingVertical="10dp">
 
-                    <TextView
-                        android:id="@+id/tvNavAboutTitle"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:fontFamily="@font/rubik"
-                        android:text="About"
-                        android:textColor="@color/ks_on_surface"
-                        android:textSize="15sp"
-                        android:textStyle="bold" />
+                    <FrameLayout
+                        android:layout_width="32dp"
+                        android:layout_height="32dp"
+                        android:background="@drawable/bg_disc_sage">
 
-                    <TextView
-                        android:layout_width="wrap_content"
+                        <ImageView
+                            android:layout_width="18dp"
+                            android:layout_height="18dp"
+                            android:layout_gravity="center"
+                            android:src="@drawable/ic_tab_overview"
+                            app:tint="@color/white" />
+                    </FrameLayout>
+
+                    <LinearLayout
+                        android:layout_width="0dp"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="2dp"
-                        android:fontFamily="@font/rubik"
-                        android:text="Version, author, license"
-                        android:textColor="@color/ks_on_surface_variant"
-                        android:textSize="12sp" />
+                        android:layout_marginStart="12dp"
+                        android:layout_weight="1"
+                        android:orientation="vertical">
+
+                        <TextView
+                            android:id="@+id/tvNavOverviewTitle"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:fontFamily="@font/rubik"
+                            android:text="Overview"
+                            android:textColor="@color/ks_on_surface"
+                            android:textSize="14sp"
+                            android:textStyle="bold" />
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:fontFamily="@font/rubik"
+                            android:text="System &amp; OTA Updates"
+                            android:textColor="@color/ks_on_surface_variant"
+                            android:textSize="11sp" />
+                    </LinearLayout>
                 </LinearLayout>
-            </LinearLayout>
 
-            <!-- Item 3: Logs -->
-            <LinearLayout
-                android:id="@+id/btnNavLogs"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
-                android:background="?attr/selectableItemBackground"
-                android:clickable="true"
-                android:focusable="true"
-                android:gravity="center_vertical"
-                android:orientation="horizontal"
-                android:paddingHorizontal="14dp"
-                android:paddingVertical="12dp">
-
-                <FrameLayout
-                    android:layout_width="36dp"
-                    android:layout_height="36dp"
-                    android:background="@drawable/bg_disc_ochre">
-
-                    <ImageView
-                        android:layout_width="20dp"
-                        android:layout_height="20dp"
-                        android:layout_gravity="center"
-                        android:src="@drawable/ic_tab_logs"
-                        app:tint="@color/white" />
-                </FrameLayout>
-
+                <!-- Settings -->
                 <LinearLayout
-                    android:layout_width="0dp"
+                    android:id="@+id/btnNavSettings"
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginStart="14dp"
-                    android:layout_weight="1"
-                    android:orientation="vertical">
+                    android:layout_marginTop="4dp"
+                    android:background="?attr/selectableItemBackground"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal"
+                    android:paddingHorizontal="12dp"
+                    android:paddingVertical="10dp">
 
-                    <TextView
-                        android:id="@+id/tvNavLogsTitle"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:fontFamily="@font/rubik"
-                        android:text="Logs"
-                        android:textColor="@color/ks_on_surface"
-                        android:textSize="15sp"
-                        android:textStyle="bold" />
+                    <FrameLayout
+                        android:layout_width="32dp"
+                        android:layout_height="32dp"
+                        android:background="@drawable/bg_disc_ochre">
 
-                    <TextView
-                        android:layout_width="wrap_content"
+                        <ImageView
+                            android:layout_width="18dp"
+                            android:layout_height="18dp"
+                            android:layout_gravity="center"
+                            android:src="@drawable/ic_tab_settings"
+                            app:tint="@color/white" />
+                    </FrameLayout>
+
+                    <LinearLayout
+                        android:layout_width="0dp"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="2dp"
-                        android:fontFamily="@font/rubik"
-                        android:text="Live updater output"
-                        android:textColor="@color/ks_on_surface_variant"
-                        android:textSize="12sp" />
+                        android:layout_marginStart="12dp"
+                        android:layout_weight="1"
+                        android:orientation="vertical">
+
+                        <TextView
+                            android:id="@+id/tvNavSettingsTitle"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:fontFamily="@font/rubik"
+                            android:text="Settings"
+                            android:textColor="@color/ks_on_surface"
+                            android:textSize="14sp"
+                            android:textStyle="bold" />
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:fontFamily="@font/rubik"
+                            android:text="Mesh &amp; Configuration"
+                            android:textColor="@color/ks_on_surface_variant"
+                            android:textSize="11sp" />
+                    </LinearLayout>
                 </LinearLayout>
-            </LinearLayout>
-        </LinearLayout>
 
-        <!-- Sidebar Footer: CPU Utilization & Temperature (No Logout Button) -->
+                <!-- Logs Console -->
+                <LinearLayout
+                    android:id="@+id/btnNavLogs"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:background="?attr/selectableItemBackground"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal"
+                    android:paddingHorizontal="12dp"
+                    android:paddingVertical="10dp">
+
+                    <FrameLayout
+                        android:layout_width="32dp"
+                        android:layout_height="32dp"
+                        android:background="@drawable/bg_disc_teal">
+
+                        <ImageView
+                            android:layout_width="18dp"
+                            android:layout_height="18dp"
+                            android:layout_gravity="center"
+                            android:src="@drawable/ic_tab_logs"
+                            app:tint="@color/white" />
+                    </FrameLayout>
+
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="12dp"
+                        android:layout_weight="1"
+                        android:orientation="vertical">
+
+                        <TextView
+                            android:id="@+id/tvNavLogsTitle"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:fontFamily="@font/rubik"
+                            android:text="Logs Console"
+                            android:textColor="@color/ks_on_surface"
+                            android:textSize="14sp"
+                            android:textStyle="bold" />
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:fontFamily="@font/rubik"
+                            android:text="Live output console"
+                            android:textColor="@color/ks_on_surface_variant"
+                            android:textSize="11sp" />
+                    </LinearLayout>
+                </LinearLayout>
+
+            </LinearLayout>
+        </androidx.core.widget.NestedScrollView>
+
+        <!-- Sidebar Footer: Telemetry & Device Badge -->
         <View
             android:layout_width="match_parent"
             android:layout_height="1dp"
-            android:layout_marginHorizontal="16dp"
+            android:layout_marginHorizontal="14dp"
             android:background="@color/ks_outline_variant" />
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:paddingHorizontal="20dp"
+            android:paddingHorizontal="18dp"
             android:paddingVertical="14dp">
 
             <LinearLayout
@@ -355,12 +345,12 @@
             </LinearLayout>
 
             <TextView
-                android:id="@+id/tvStatIp"
+                android:id="@+id/tvSidebarDeviceName"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="2dp"
                 android:fontFamily="@font/rubik"
-                android:text="HTTP :2325 · Mesh :23250"
+                android:text="PortalMini (127.0.0.1)"
                 android:textColor="@color/ks_outline"
                 android:textSize="11sp" />
         </LinearLayout>
@@ -379,9 +369,9 @@
         android:layout_height="match_parent"
         android:layout_weight="1">
 
-        <!-- 2A. TAB: OVERVIEW -->
+        <!-- 2A. TAB: MESH NETWORK VIEW -->
         <androidx.core.widget.NestedScrollView
-            android:id="@+id/paneOverview"
+            android:id="@+id/paneMesh"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
             android:fillViewport="true"
@@ -395,23 +385,354 @@
                 android:paddingTop="20dp"
                 android:paddingBottom="32dp">
 
-                <!-- Page Heading -->
-                <TextView
-                    android:layout_width="wrap_content"
+                <!-- Mesh Header Bar -->
+                <LinearLayout
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginBottom="16dp"
-                    android:fontFamily="@font/rubik"
-                    android:text="Overview"
-                    android:textColor="@color/ks_on_surface"
-                    android:textSize="22sp"
-                    android:textStyle="bold" />
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
 
-                <!-- 1. Version to Install Card -->
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical">
+
+                        <LinearLayout
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:gravity="center_vertical"
+                            android:orientation="horizontal">
+
+                            <TextView
+                                android:id="@+id/tvMeshViewTitle"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:fontFamily="@font/rubik"
+                                android:text="Meta Portals Mesh"
+                                android:textColor="@color/ks_on_surface"
+                                android:textSize="22sp"
+                                android:textStyle="bold" />
+
+                            <TextView
+                                android:id="@+id/tvMeshViewBadge"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:layout_marginStart="10dp"
+                                android:background="@drawable/bg_badge_pill"
+                                android:backgroundTint="@color/ks_teal_container"
+                                android:fontFamily="@font/rubik"
+                                android:paddingHorizontal="10dp"
+                                android:paddingVertical="3dp"
+                                android:text="Local Subnet"
+                                android:textColor="@color/ks_teal"
+                                android:textSize="11sp"
+                                android:textStyle="bold" />
+                        </LinearLayout>
+
+                        <TextView
+                            android:id="@+id/tvMeshViewSubtitle"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="2dp"
+                            android:fontFamily="@font/rubik"
+                            android:text="Partition: meta-portals • 2/2 nodes online"
+                            android:textColor="@color/ks_on_surface_variant"
+                            android:textSize="13sp" />
+                    </LinearLayout>
+
+                    <!-- Header Actions -->
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnMeshConnectVlan"
+                        style="@style/Widget.KS.Button.Pill.Outlined"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="+ Connect VLAN" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnMeshBeacon"
+                        style="@style/Widget.KS.Button.Pill.Outlined"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="8dp"
+                        android:text="Beacon" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnMeshUpdateAll"
+                        style="@style/Widget.KS.Button.Pill"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="8dp"
+                        android:text="Update All in Mesh" />
+                </LinearLayout>
+
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="1dp"
+                    android:layout_marginVertical="16dp"
+                    android:background="@color/ks_outline_variant" />
+
+                <!-- Dynamic Peer Nodes Grid/List Container -->
+                <LinearLayout
+                    android:id="@+id/layoutMeshPeers"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical" />
+            </LinearLayout>
+        </androidx.core.widget.NestedScrollView>
+
+        <!-- 2B. TAB: SYSTEM OVERVIEW -->
+        <androidx.core.widget.NestedScrollView
+            android:id="@+id/paneOverview"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:fillViewport="true"
+            android:visibility="gone">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:paddingHorizontal="24dp"
+                android:paddingTop="20dp"
+                android:paddingBottom="32dp">
+
+                <!-- Header Bar -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:fontFamily="@font/rubik"
+                        android:text="System Overview"
+                        android:textColor="@color/ks_on_surface"
+                        android:textSize="22sp"
+                        android:textStyle="bold" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnRefreshOverview"
+                        style="@style/Widget.KS.Button.Pill.Outlined"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Refresh"
+                        app:icon="@drawable/ic_refresh"
+                        app:iconGravity="textStart"
+                        app:iconPadding="6dp" />
+                </LinearLayout>
+
+                <!-- 1. Quick Status Cards Container -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="16dp"
+                    android:orientation="horizontal">
+
+                    <!-- Target App Card -->
+                    <com.google.android.material.card.MaterialCardView
+                        style="@style/Widget.KS.Card"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1">
+
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:orientation="vertical"
+                            android:padding="16dp">
+
+                            <LinearLayout
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:gravity="center_vertical">
+
+                                <TextView
+                                    android:layout_width="0dp"
+                                    android:layout_height="wrap_content"
+                                    android:layout_weight="1"
+                                    android:fontFamily="@font/rubik"
+                                    android:text="Kiosk Satellite"
+                                    android:textColor="@color/ks_on_surface"
+                                    android:textSize="14sp"
+                                    android:textStyle="bold" />
+
+                                <TextView
+                                    android:id="@+id/tvOverviewTargetBadge"
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:background="@drawable/bg_badge_pill"
+                                    android:backgroundTint="@color/ks_sage_container"
+                                    android:paddingHorizontal="8dp"
+                                    android:paddingVertical="2dp"
+                                    android:text="Installed"
+                                    android:textColor="@color/ks_sage"
+                                    android:textSize="10sp"
+                                    android:textStyle="bold" />
+                            </LinearLayout>
+
+                            <TextView
+                                android:id="@+id/tvOverviewInstalledVer"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="8dp"
+                                android:fontFamily="@font/rubik"
+                                android:text="Installed: v2026.8.107"
+                                android:textColor="@color/ks_on_surface_variant"
+                                android:textSize="12sp" />
+
+                            <TextView
+                                android:id="@+id/tvOverviewLatestVer"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="2dp"
+                                android:fontFamily="@font/rubik"
+                                android:text="Latest: Checking..."
+                                android:textColor="@color/ks_on_surface_variant"
+                                android:textSize="12sp" />
+                        </LinearLayout>
+                    </com.google.android.material.card.MaterialCardView>
+
+                    <!-- Services Card -->
+                    <com.google.android.material.card.MaterialCardView
+                        style="@style/Widget.KS.Card"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="12dp"
+                        android:layout_weight="1">
+
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:orientation="vertical"
+                            android:padding="16dp">
+
+                            <LinearLayout
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:gravity="center_vertical">
+
+                                <TextView
+                                    android:layout_width="0dp"
+                                    android:layout_height="wrap_content"
+                                    android:layout_weight="1"
+                                    android:fontFamily="@font/rubik"
+                                    android:text="DroidMesh Services"
+                                    android:textColor="@color/ks_on_surface"
+                                    android:textSize="14sp"
+                                    android:textStyle="bold" />
+
+                                <TextView
+                                    android:id="@+id/tvOverviewServiceBadge"
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:background="@drawable/bg_badge_pill"
+                                    android:backgroundTint="@color/ks_sage_container"
+                                    android:paddingHorizontal="8dp"
+                                    android:paddingVertical="2dp"
+                                    android:text="IDLE"
+                                    android:textColor="@color/ks_sage"
+                                    android:textSize="10sp"
+                                    android:textStyle="bold" />
+                            </LinearLayout>
+
+                            <TextView
+                                android:id="@+id/tvOverviewA11y"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="8dp"
+                                android:fontFamily="@font/rubik"
+                                android:text="A11y: Active"
+                                android:textColor="@color/ks_on_surface_variant"
+                                android:textSize="12sp" />
+
+                            <TextView
+                                android:id="@+id/tvOverviewAdb"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="2dp"
+                                android:fontFamily="@font/rubik"
+                                android:text="ADB :5555: Enabled"
+                                android:textColor="@color/ks_on_surface_variant"
+                                android:textSize="12sp" />
+                        </LinearLayout>
+                    </com.google.android.material.card.MaterialCardView>
+
+                    <!-- Telemetry Card -->
+                    <com.google.android.material.card.MaterialCardView
+                        style="@style/Widget.KS.Card"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="12dp"
+                        android:layout_weight="1">
+
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:orientation="vertical"
+                            android:padding="16dp">
+
+                            <LinearLayout
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:gravity="center_vertical">
+
+                                <TextView
+                                    android:layout_width="0dp"
+                                    android:layout_height="wrap_content"
+                                    android:layout_weight="1"
+                                    android:fontFamily="@font/rubik"
+                                    android:text="Device Telemetry"
+                                    android:textColor="@color/ks_on_surface"
+                                    android:textSize="14sp"
+                                    android:textStyle="bold" />
+
+                                <TextView
+                                    android:id="@+id/tvOverviewModelBadge"
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:background="@drawable/bg_badge_pill"
+                                    android:backgroundTint="@color/ks_teal_container"
+                                    android:paddingHorizontal="8dp"
+                                    android:paddingVertical="2dp"
+                                    android:text="Portal"
+                                    android:textColor="@color/ks_teal"
+                                    android:textSize="10sp"
+                                    android:textStyle="bold" />
+                            </LinearLayout>
+
+                            <TextView
+                                android:id="@+id/tvOverviewCpu"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="8dp"
+                                android:fontFamily="@font/rubik"
+                                android:text="CPU: --%"
+                                android:textColor="@color/ks_on_surface_variant"
+                                android:textSize="12sp" />
+
+                            <TextView
+                                android:id="@+id/tvOverviewIp"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="2dp"
+                                android:fontFamily="@font/rubik"
+                                android:text="IP: --"
+                                android:textColor="@color/ks_on_surface_variant"
+                                android:textSize="12sp" />
+                        </LinearLayout>
+                    </com.google.android.material.card.MaterialCardView>
+                </LinearLayout>
+
+                <!-- 2. Deployment & OTA Controls Card -->
                 <com.google.android.material.card.MaterialCardView
                     style="@style/Widget.KS.Card"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginBottom="16dp">
+                    android:layout_marginTop="16dp">
 
                     <LinearLayout
                         android:layout_width="match_parent"
@@ -419,52 +740,30 @@
                         android:orientation="vertical"
                         android:padding="20dp">
 
-                        <!-- Header: Title + Refresh Button -->
-                        <LinearLayout
-                            android:layout_width="match_parent"
+                        <TextView
+                            android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:gravity="center_vertical"
-                            android:orientation="horizontal">
-
-                            <TextView
-                                android:layout_width="0dp"
-                                android:layout_height="wrap_content"
-                                android:layout_weight="1"
-                                android:fontFamily="@font/rubik"
-                                android:text="Version to Install"
-                                android:textColor="@color/ks_on_surface"
-                                android:textSize="18sp"
-                                android:textStyle="bold" />
-
-                            <com.google.android.material.button.MaterialButton
-                                android:id="@+id/btnRefreshVersions"
-                                style="@style/Widget.KS.Button.Pill.Outlined"
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:text="Refresh"
-                                app:icon="@drawable/ic_refresh"
-                                app:iconGravity="textStart"
-                                app:iconPadding="6dp"
-                                app:iconTint="@color/ks_on_surface" />
-                        </LinearLayout>
+                            android:fontFamily="@font/rubik"
+                            android:text="Deployment &amp; OTA Controls"
+                            android:textColor="@color/ks_on_surface"
+                            android:textSize="17sp"
+                            android:textStyle="bold" />
 
                         <TextView
-                            android:layout_width="match_parent"
+                            android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:layout_marginTop="2dp"
                             android:fontFamily="@font/rubik"
-                            android:text="Select target version for updates or fleet deployment"
+                            android:text="Select release version to install on this device or trigger updates"
                             android:textColor="@color/ks_on_surface_variant"
                             android:textSize="13sp" />
 
-                        <!-- Version Spinner / Dropdown Container -->
                         <LinearLayout
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:layout_marginTop="12dp"
+                            android:layout_marginTop="14dp"
                             android:background="@drawable/bg_dropdown_box"
-                            android:paddingHorizontal="4dp"
-                            android:paddingVertical="2dp">
+                            android:paddingHorizontal="4dp">
 
                             <Spinner
                                 android:id="@+id/spnVersionToInstall"
@@ -474,106 +773,51 @@
                                 android:spinnerMode="dropdown" />
                         </LinearLayout>
 
-                        <!-- Release Details Summary -->
                         <LinearLayout
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:layout_marginTop="14dp"
-                            android:orientation="vertical">
-
-                            <TextView
-                                android:id="@+id/tvTargetVersionStatus"
-                                android:layout_width="match_parent"
-                                android:layout_height="wrap_content"
-                                android:fontFamily="@font/rubik"
-                                android:text="GitHub Latest: Checking..."
-                                android:textColor="@color/ks_on_surface"
-                                android:textSize="14sp"
-                                android:textStyle="bold" />
-
-                            <TextView
-                                android:id="@+id/tvInstalledVersion"
-                                android:layout_width="match_parent"
-                                android:layout_height="wrap_content"
-                                android:layout_marginTop="4dp"
-                                android:fontFamily="@font/rubik"
-                                android:text="Installed Satellite: Checking..."
-                                android:textColor="@color/ks_on_surface_variant"
-                                android:textSize="13sp" />
-                        </LinearLayout>
-
-                        <!-- Auto-Update Toggle Section (Shown only if Latest is selected) -->
-                        <LinearLayout
-                            android:id="@+id/layoutAutoUpdate"
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
                             android:layout_marginTop="12dp"
-                            android:orientation="vertical">
+                            android:gravity="center_vertical"
+                            android:orientation="horizontal">
+
+                            <CheckBox
+                                android:id="@+id/chkForceUpdate"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:buttonTint="@color/ks_teal"
+                                android:fontFamily="@font/rubik"
+                                android:text="Force Reinstall"
+                                android:textColor="@color/ks_on_surface"
+                                android:textSize="13sp" />
 
                             <View
-                                android:layout_width="match_parent"
+                                android:layout_width="0dp"
                                 android:layout_height="1dp"
-                                android:layout_marginBottom="12dp"
-                                android:background="@color/ks_outline_variant" />
+                                android:layout_weight="1" />
 
-                            <LinearLayout
-                                android:layout_width="match_parent"
+                            <com.google.android.material.button.MaterialButton
+                                android:id="@+id/btnToggleAdb"
+                                style="@style/Widget.KS.Button.Pill.Outlined"
+                                android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
-                                android:gravity="center_vertical"
-                                android:orientation="horizontal">
+                                android:text="Toggle ADB" />
 
-                                <LinearLayout
-                                    android:layout_width="0dp"
-                                    android:layout_height="wrap_content"
-                                    android:layout_weight="1"
-                                    android:orientation="vertical">
-
-                                    <TextView
-                                        android:layout_width="wrap_content"
-                                        android:layout_height="wrap_content"
-                                        android:fontFamily="@font/rubik"
-                                        android:text="Auto-Update Kiosk Satellite"
-                                        android:textColor="@color/ks_on_surface"
-                                        android:textSize="15sp"
-                                        android:textStyle="bold" />
-
-                                    <TextView
-                                        android:layout_width="wrap_content"
-                                        android:layout_height="wrap_content"
-                                        android:layout_marginTop="2dp"
-                                        android:fontFamily="@font/rubik"
-                                        android:text="@string/auto_update_description"
-                                        android:textColor="@color/ks_on_surface_variant"
-                                        android:textSize="12sp" />
-                                </LinearLayout>
-
-                                <androidx.appcompat.widget.SwitchCompat
-                                    android:id="@+id/switchAutoUpdate"
-                                    android:layout_width="wrap_content"
-                                    android:layout_height="wrap_content"
-                                    app:thumbTint="@color/ks_sage"
-                                    app:trackTint="@color/ks_sage_container" />
-                            </LinearLayout>
+                            <com.google.android.material.button.MaterialButton
+                                android:id="@+id/btnTriggerUpdate"
+                                style="@style/Widget.KS.Button.Pill"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:layout_marginStart="10dp"
+                                android:text="Install on This Device" />
                         </LinearLayout>
 
-                        <!-- Update All Button -->
-                        <com.google.android.material.button.MaterialButton
-                            android:id="@+id/btnUpdateAll"
-                            style="@style/Widget.KS.Button.Pill"
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:layout_marginTop="16dp"
-                            android:text="Update All Units"
-                            tools:visibility="visible" />
-
-                        <!-- Progress Section -->
+                        <!-- Progress Bar & Status -->
                         <ProgressBar
                             android:id="@+id/progressBar"
                             style="?android:attr/progressBarStyleHorizontal"
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:layout_marginTop="16dp"
-                            android:indeterminate="false"
+                            android:layout_marginTop="14dp"
                             android:max="100"
                             android:progressTint="@color/ks_sage"
                             android:visibility="gone" />
@@ -588,76 +832,6 @@
                             android:textColor="@color/ks_on_surface_variant"
                             android:textSize="13sp"
                             android:visibility="gone" />
-
-                    </LinearLayout>
-                </com.google.android.material.card.MaterialCardView>
-
-                <!-- 2. Portal Mesh Fleet Card -->
-                <com.google.android.material.card.MaterialCardView
-                    style="@style/Widget.KS.Card"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginBottom="16dp">
-
-                    <LinearLayout
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:orientation="vertical"
-                        android:padding="20dp">
-
-                        <LinearLayout
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:gravity="center_vertical"
-                            android:orientation="horizontal">
-
-                            <LinearLayout
-                                android:layout_width="0dp"
-                                android:layout_height="wrap_content"
-                                android:layout_weight="1"
-                                android:orientation="vertical">
-
-                                <TextView
-                                    android:layout_width="wrap_content"
-                                    android:layout_height="wrap_content"
-                                    android:fontFamily="@font/rubik"
-                                    android:text="Portal Mesh Fleet"
-                                    android:textColor="@color/ks_on_surface"
-                                    android:textSize="18sp"
-                                    android:textStyle="bold" />
-
-                                <TextView
-                                    android:id="@+id/tvMeshCount"
-                                    android:layout_width="wrap_content"
-                                    android:layout_height="wrap_content"
-                                    android:layout_marginTop="2dp"
-                                    android:fontFamily="@font/rubik"
-                                    android:text="Active Nodes: 1 (This device)"
-                                    android:textColor="@color/ks_on_surface_variant"
-                                    android:textSize="13sp" />
-                            </LinearLayout>
-
-                            <com.google.android.material.button.MaterialButton
-                                android:id="@+id/btnMeshBeacon"
-                                style="@style/Widget.KS.Button.Pill.Outlined"
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:text="Scan" />
-                        </LinearLayout>
-
-                        <View
-                            android:layout_width="match_parent"
-                            android:layout_height="1dp"
-                            android:layout_marginVertical="14dp"
-                            android:background="@color/ks_outline_variant" />
-
-                        <!-- Dynamic peer rows container -->
-                        <LinearLayout
-                            android:id="@+id/layoutMeshPeers"
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:orientation="vertical" />
-
                     </LinearLayout>
                 </com.google.android.material.card.MaterialCardView>
 
@@ -665,7 +839,8 @@
                 <com.google.android.material.card.MaterialCardView
                     style="@style/Widget.KS.Card"
                     android:layout_width="match_parent"
-                    android:layout_height="wrap_content">
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="16dp">
 
                     <LinearLayout
                         android:layout_width="match_parent"
@@ -682,613 +857,60 @@
                             android:textSize="16sp"
                             android:textStyle="bold" />
 
-                        <LinearLayout
+                        <TextView
+                            android:id="@+id/tvAccessibilityStatus"
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
                             android:layout_marginTop="10dp"
-                            android:orientation="vertical">
-
-                            <TextView
-                                android:id="@+id/tvAccessibilityStatus"
-                                android:layout_width="match_parent"
-                                android:layout_height="wrap_content"
-                                android:background="?attr/selectableItemBackground"
-                                android:fontFamily="@font/rubik"
-                                android:paddingVertical="4dp"
-                                android:text="Accessibility Service: Unknown"
-                                android:textColor="@color/ks_ochre"
-                                android:textSize="13sp" />
-
-                            <TextView
-                                android:id="@+id/tvInstallPermissionStatus"
-                                android:layout_width="match_parent"
-                                android:layout_height="wrap_content"
-                                android:layout_marginTop="4dp"
-                                android:background="?attr/selectableItemBackground"
-                                android:fontFamily="@font/rubik"
-                                android:paddingVertical="4dp"
-                                android:text="Install Unknown Apps: Unknown"
-                                android:textColor="@color/ks_ochre"
-                                android:textSize="13sp" />
-
-                            <TextView
-                                android:id="@+id/tvAdbStatus"
-                                android:layout_width="match_parent"
-                                android:layout_height="wrap_content"
-                                android:layout_marginTop="4dp"
-                                android:background="?attr/selectableItemBackground"
-                                android:fontFamily="@font/rubik"
-                                android:paddingVertical="4dp"
-                                android:text="ADB Debugging: Unknown (Tap to toggle)"
-                                android:textColor="@color/ks_ochre"
-                                android:textSize="13sp" />
-
-                            <TextView
-                                android:id="@+id/tvServerStatus"
-                                android:layout_width="match_parent"
-                                android:layout_height="wrap_content"
-                                android:layout_marginTop="4dp"
-                                android:fontFamily="@font/rubik"
-                                android:paddingVertical="4dp"
-                                android:text="HTTP Trigger Server: Listening on :2325"
-                                android:textColor="@color/ks_sage"
-                                android:textSize="13sp" />
-                        </LinearLayout>
-                    </LinearLayout>
-                </com.google.android.material.card.MaterialCardView>
-
-            </LinearLayout>
-        </androidx.core.widget.NestedScrollView>
-
-        <!-- 2B. TAB: ABOUT (Replicated from Kiosk Satellite) -->
-        <androidx.core.widget.NestedScrollView
-            android:id="@+id/paneAbout"
-            android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:fillViewport="true"
-            android:visibility="gone">
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:paddingHorizontal="24dp"
-                android:paddingTop="20dp"
-                android:paddingBottom="32dp">
-
-                <!-- Page Heading -->
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginBottom="16dp"
-                    android:fontFamily="@font/rubik"
-                    android:text="About"
-                    android:textColor="@color/ks_on_surface"
-                    android:textSize="22sp"
-                    android:textStyle="bold" />
-
-                <!-- Section Heading: App -->
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginBottom="8dp"
-                    android:fontFamily="@font/rubik"
-                    android:text="App"
-                    android:textColor="@color/ks_sage"
-                    android:textSize="14sp"
-                    android:textStyle="bold" />
-
-                <!-- App Details Card -->
-                <com.google.android.material.card.MaterialCardView
-                    style="@style/Widget.KS.Card"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginBottom="20dp">
-
-                    <LinearLayout
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:orientation="vertical"
-                        android:paddingHorizontal="20dp"
-                        android:paddingVertical="8dp">
-
-                        <!-- App Version -->
-                        <LinearLayout
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:paddingVertical="12dp">
-
-                            <TextView
-                                android:layout_width="0dp"
-                                android:layout_height="wrap_content"
-                                android:layout_weight="1"
-                                android:fontFamily="@font/rubik"
-                                android:text="App version"
-                                android:textColor="@color/ks_on_surface"
-                                android:textSize="14sp" />
-
-                            <TextView
-                                android:id="@+id/tvAboutAppVersion"
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:fontFamily="@font/rubik"
-                                android:text="1.0.0 (1)"
-                                android:textColor="@color/ks_on_surface_variant"
-                                android:textSize="14sp" />
-                        </LinearLayout>
-
-                        <View
-                            android:layout_width="match_parent"
-                            android:layout_height="1dp"
-                            android:background="@color/ks_outline_variant" />
-
-                        <!-- Build Type -->
-                        <LinearLayout
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:paddingVertical="12dp">
-
-                            <TextView
-                                android:layout_width="0dp"
-                                android:layout_height="wrap_content"
-                                android:layout_weight="1"
-                                android:fontFamily="@font/rubik"
-                                android:text="Build"
-                                android:textColor="@color/ks_on_surface"
-                                android:textSize="14sp" />
-
-                            <TextView
-                                android:id="@+id/tvAboutBuild"
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:fontFamily="@font/rubik"
-                                android:text="release"
-                                android:textColor="@color/ks_on_surface_variant"
-                                android:textSize="14sp" />
-                        </LinearLayout>
-
-                        <View
-                            android:layout_width="match_parent"
-                            android:layout_height="1dp"
-                            android:background="@color/ks_outline_variant" />
-
-                        <!-- Package -->
-                        <LinearLayout
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:paddingVertical="12dp">
-
-                            <TextView
-                                android:layout_width="0dp"
-                                android:layout_height="wrap_content"
-                                android:layout_weight="1"
-                                android:fontFamily="@font/rubik"
-                                android:text="Package"
-                                android:textColor="@color/ks_on_surface"
-                                android:textSize="14sp" />
-
-                            <TextView
-                                android:id="@+id/tvAboutPackage"
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:fontFamily="@font/rubik"
-                                android:text="com.cfox.droidmesh"
-                                android:textColor="@color/ks_on_surface_variant"
-                                android:textSize="14sp" />
-                        </LinearLayout>
-
-                        <View
-                            android:layout_width="match_parent"
-                            android:layout_height="1dp"
-                            android:background="@color/ks_outline_variant" />
-
-                        <!-- Target Package -->
-                        <LinearLayout
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:paddingVertical="12dp">
-
-                            <TextView
-                                android:layout_width="0dp"
-                                android:layout_height="wrap_content"
-                                android:layout_weight="1"
-                                android:fontFamily="@font/rubik"
-                                android:text="Target satellite"
-                                android:textColor="@color/ks_on_surface"
-                                android:textSize="14sp" />
-
-                            <TextView
-                                android:id="@+id/tvAboutTargetPackage"
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:fontFamily="@font/rubik"
-                                android:text="me.jxl.kiosk_satellite"
-                                android:textColor="@color/ks_on_surface_variant"
-                                android:textSize="14sp" />
-                        </LinearLayout>
-
-                        <View
-                            android:layout_width="match_parent"
-                            android:layout_height="1dp"
-                            android:background="@color/ks_outline_variant" />
-
-                        <!-- Target Status -->
-                        <LinearLayout
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:paddingVertical="12dp">
-
-                            <TextView
-                                android:layout_width="0dp"
-                                android:layout_height="wrap_content"
-                                android:layout_weight="1"
-                                android:fontFamily="@font/rubik"
-                                android:text="Satellite installed"
-                                android:textColor="@color/ks_on_surface"
-                                android:textSize="14sp" />
-
-                            <TextView
-                                android:id="@+id/tvAboutTargetStatus"
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:fontFamily="@font/rubik"
-                                android:text="Checking..."
-                                android:textColor="@color/ks_sage"
-                                android:textSize="14sp" />
-                        </LinearLayout>
-
-                        <View
-                            android:layout_width="match_parent"
-                            android:layout_height="1dp"
-                            android:background="@color/ks_outline_variant" />
-
-                        <!-- HTTP Server Port -->
-                        <LinearLayout
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:paddingVertical="12dp">
-
-                            <TextView
-                                android:layout_width="0dp"
-                                android:layout_height="wrap_content"
-                                android:layout_weight="1"
-                                android:fontFamily="@font/rubik"
-                                android:text="HTTP REST API"
-                                android:textColor="@color/ks_on_surface"
-                                android:textSize="14sp" />
-
-                            <TextView
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:fontFamily="@font/rubik"
-                                android:text="Port 2325"
-                                android:textColor="@color/ks_on_surface_variant"
-                                android:textSize="14sp" />
-                        </LinearLayout>
-
-                        <View
-                            android:layout_width="match_parent"
-                            android:layout_height="1dp"
-                            android:background="@color/ks_outline_variant" />
-
-                        <!-- Peer Mesh Discovery -->
-                        <LinearLayout
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:paddingVertical="12dp">
-
-                            <TextView
-                                android:layout_width="0dp"
-                                android:layout_height="wrap_content"
-                                android:layout_weight="1"
-                                android:fontFamily="@font/rubik"
-                                android:text="Peer mesh discovery"
-                                android:textColor="@color/ks_on_surface"
-                                android:textSize="14sp" />
-
-                            <TextView
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:fontFamily="@font/rubik"
-                                android:text="UDP Port 23250"
-                                android:textColor="@color/ks_on_surface_variant"
-                                android:textSize="14sp" />
-                        </LinearLayout>
-                    </LinearLayout>
-                </com.google.android.material.card.MaterialCardView>
-
-                <!-- Section Heading: Attribution -->
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginBottom="8dp"
-                    android:fontFamily="@font/rubik"
-                    android:text="Attribution"
-                    android:textColor="@color/ks_sage"
-                    android:textSize="14sp"
-                    android:textStyle="bold" />
-
-                <!-- Attribution Card -->
-                <com.google.android.material.card.MaterialCardView
-                    style="@style/Widget.KS.Card"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginBottom="16dp">
-
-                    <LinearLayout
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:orientation="vertical"
-                        android:paddingHorizontal="20dp"
-                        android:paddingVertical="8dp">
-
-                        <!-- Companion For -->
-                        <LinearLayout
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:paddingVertical="12dp">
-
-                            <TextView
-                                android:layout_width="0dp"
-                                android:layout_height="wrap_content"
-                                android:layout_weight="1"
-                                android:fontFamily="@font/rubik"
-                                android:text="Companion for"
-                                android:textColor="@color/ks_on_surface"
-                                android:textSize="14sp" />
-
-                            <TextView
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:fontFamily="@font/rubik"
-                                android:text="Kiosk Satellite"
-                                android:textColor="@color/ks_on_surface_variant"
-                                android:textSize="14sp" />
-                        </LinearLayout>
-
-                        <View
-                            android:layout_width="match_parent"
-                            android:layout_height="1dp"
-                            android:background="@color/ks_outline_variant" />
-
-                        <!-- Author -->
-                        <LinearLayout
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:paddingVertical="12dp">
-
-                            <TextView
-                                android:layout_width="0dp"
-                                android:layout_height="wrap_content"
-                                android:layout_weight="1"
-                                android:fontFamily="@font/rubik"
-                                android:text="Author"
-                                android:textColor="@color/ks_on_surface"
-                                android:textSize="14sp" />
-
-                            <TextView
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:fontFamily="@font/rubik"
-                                android:text="Chris Fox"
-                                android:textColor="@color/ks_on_surface_variant"
-                                android:textSize="14sp" />
-                        </LinearLayout>
-
-                        <View
-                            android:layout_width="match_parent"
-                            android:layout_height="1dp"
-                            android:background="@color/ks_outline_variant" />
-
-                        <!-- Repository -->
-                        <LinearLayout
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:paddingVertical="12dp">
-
-                            <TextView
-                                android:layout_width="0dp"
-                                android:layout_height="wrap_content"
-                                android:layout_weight="1"
-                                android:fontFamily="@font/rubik"
-                                android:text="Source code"
-                                android:textColor="@color/ks_on_surface"
-                                android:textSize="14sp" />
-
-                            <TextView
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:fontFamily="@font/rubik"
-                                android:text="cfoxga/kiosk-satellite-updater"
-                                android:textColor="@color/ks_on_surface_variant"
-                                android:textSize="14sp" />
-                        </LinearLayout>
-
-                        <View
-                            android:layout_width="match_parent"
-                            android:layout_height="1dp"
-                            android:background="@color/ks_outline_variant" />
-
-                        <!-- License -->
-                        <LinearLayout
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:paddingVertical="12dp">
-
-                            <TextView
-                                android:layout_width="0dp"
-                                android:layout_height="wrap_content"
-                                android:layout_weight="1"
-                                android:fontFamily="@font/rubik"
-                                android:text="License"
-                                android:textColor="@color/ks_on_surface"
-                                android:textSize="14sp" />
-
-                            <TextView
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:fontFamily="@font/rubik"
-                                android:text="MIT License"
-                                android:textColor="@color/ks_on_surface_variant"
-                                android:textSize="14sp" />
-                        </LinearLayout>
-                    </LinearLayout>
-                </com.google.android.material.card.MaterialCardView>
-
-                <!-- Disclaimer & Notice -->
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginHorizontal="8dp"
-                    android:fontFamily="@font/rubik"
-                    android:text="Disclaimer: Kiosk Satellite Updater (KSU) is an independent, unofficial companion utility. It is not affiliated with, endorsed by, or sponsored by the creator of Kiosk Satellite."
-                    android:textColor="@color/ks_on_surface_variant"
-                    android:textSize="12sp" />
-
-            </LinearLayout>
-        </androidx.core.widget.NestedScrollView>
-
-        <!-- 2C. TAB: LOGS -->
-        <LinearLayout
-            android:id="@+id/paneLogs"
-            android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:orientation="vertical"
-            android:paddingHorizontal="24dp"
-            android:paddingTop="20dp"
-            android:paddingBottom="24dp"
-            android:visibility="gone">
-
-            <!-- Page Heading -->
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginBottom="16dp"
-                android:fontFamily="@font/rubik"
-                android:text="Logs"
-                android:textColor="@color/ks_on_surface"
-                android:textSize="22sp"
-                android:textStyle="bold" />
-
-            <!-- Console Log Container Card -->
-            <com.google.android.material.card.MaterialCardView
-                style="@style/Widget.KS.Card"
-                android:layout_width="match_parent"
-                android:layout_height="0dp"
-                android:layout_weight="1">
-
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="match_parent"
-                    android:orientation="vertical">
-
-                    <!-- Toolbar / Header in Card -->
-                    <LinearLayout
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:gravity="center_vertical"
-                        android:orientation="horizontal"
-                        android:paddingHorizontal="16dp"
-                        android:paddingVertical="12dp">
-
-                        <LinearLayout
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_weight="1"
-                            android:orientation="vertical">
-
-                            <TextView
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:fontFamily="@font/rubik"
-                                android:text="Live Log Output"
-                                android:textColor="@color/ks_on_surface"
-                                android:textSize="16sp"
-                                android:textStyle="bold" />
-
-                            <TextView
-                                android:id="@+id/tvLogsMeta"
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:layout_marginTop="2dp"
-                                android:fontFamily="@font/rubik"
-                                android:text="0 entries"
-                                android:textColor="@color/ks_on_surface_variant"
-                                android:textSize="12sp" />
-                        </LinearLayout>
-
-                        <!-- Actions -->
-                        <com.google.android.material.button.MaterialButton
-                            android:id="@+id/btnCopyLogs"
-                            style="@style/Widget.KS.Button.Pill.Outlined"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="Copy"
-                            app:icon="@drawable/ic_copy"
-                            app:iconGravity="textStart"
-                            app:iconPadding="4dp"
-                            app:iconTint="@color/ks_on_surface" />
-
-                        <com.google.android.material.button.MaterialButton
-                            android:id="@+id/btnClearLogs"
-                            style="@style/Widget.KS.Button.Pill.Outlined"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:layout_marginStart="8dp"
-                            android:text="Clear"
-                            app:icon="@drawable/ic_clear"
-                            app:iconGravity="textStart"
-                            app:iconPadding="4dp"
-                            app:iconTint="@color/ks_on_surface" />
-
-                        <com.google.android.material.button.MaterialButton
-                            android:id="@+id/btnRefreshLogs"
-                            style="@style/Widget.KS.Button.Pill.Outlined"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:layout_marginStart="8dp"
-                            android:text="Refresh"
-                            app:icon="@drawable/ic_refresh"
-                            app:iconGravity="textStart"
-                            app:iconPadding="4dp"
-                            app:iconTint="@color/ks_on_surface" />
-                    </LinearLayout>
-
-                    <View
-                        android:layout_width="match_parent"
-                        android:layout_height="1dp"
-                        android:background="@color/ks_outline_variant" />
-
-                    <!-- Monospace Scrollable Console Output Area -->
-                    <androidx.core.widget.NestedScrollView
-                        android:id="@+id/scrollLogConsole"
-                        android:layout_width="match_parent"
-                        android:layout_height="0dp"
-                        android:layout_weight="1"
-                        android:background="@color/ks_surface_lowest"
-                        android:fillViewport="true">
+                            android:background="?attr/selectableItemBackground"
+                            android:fontFamily="@font/rubik"
+                            android:paddingVertical="4dp"
+                            android:text="Accessibility Service: Unknown"
+                            android:textColor="@color/ks_sage"
+                            android:textSize="13sp" />
 
                         <TextView
-                            android:id="@+id/tvLogConsole"
+                            android:id="@+id/tvInstallPermissionStatus"
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:fontFamily="monospace"
-                            android:lineSpacingExtra="3dp"
-                            android:padding="16dp"
-                            android:textIsSelectable="true"
-                            android:text="[Ready] Initialized Kiosk Satellite Updater."
+                            android:layout_marginTop="4dp"
+                            android:background="?attr/selectableItemBackground"
+                            android:fontFamily="@font/rubik"
+                            android:paddingVertical="4dp"
+                            android:text="Install Unknown Apps: Unknown"
                             android:textColor="@color/ks_sage"
-                            android:textSize="12sp" />
-                    </androidx.core.widget.NestedScrollView>
+                            android:textSize="13sp" />
 
-                </LinearLayout>
-            </com.google.android.material.card.MaterialCardView>
+                        <TextView
+                            android:id="@+id/tvAdbStatus"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="4dp"
+                            android:background="?attr/selectableItemBackground"
+                            android:fontFamily="@font/rubik"
+                            android:paddingVertical="4dp"
+                            android:text="ADB Debugging: Unknown"
+                            android:textColor="@color/ks_sage"
+                            android:textSize="13sp" />
 
-        </LinearLayout>
+                        <TextView
+                            android:id="@+id/tvServerStatus"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="4dp"
+                            android:fontFamily="@font/rubik"
+                            android:paddingVertical="4dp"
+                            android:text="HTTP Server: Listening on :2325"
+                            android:textColor="@color/ks_sage"
+                            android:textSize="13sp" />
+                    </LinearLayout>
+                </com.google.android.material.card.MaterialCardView>
+            </LinearLayout>
+        </androidx.core.widget.NestedScrollView>
 
-        <!-- 2D. TAB: REMOTE MANAGEMENT -->
+        <!-- 2C. TAB: SETTINGS -->
         <androidx.core.widget.NestedScrollView
-            android:id="@+id/paneRemote"
+            android:id="@+id/paneSettings"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
             android:fillViewport="true"
@@ -1302,23 +924,152 @@
                 android:paddingTop="20dp"
                 android:paddingBottom="32dp">
 
-                <!-- Page Heading -->
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:layout_marginBottom="16dp"
                     android:fontFamily="@font/rubik"
-                    android:text="Remote Management"
+                    android:text="Application Settings"
                     android:textColor="@color/ks_on_surface"
                     android:textSize="22sp"
                     android:textStyle="bold" />
 
-                <!-- Web Server Card -->
+                <!-- Mesh Identity Card -->
                 <com.google.android.material.card.MaterialCardView
                     style="@style/Widget.KS.Card"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginBottom="16dp">
+                    android:layout_marginTop="16dp">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:padding="20dp">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:fontFamily="@font/rubik"
+                            android:text="Mesh Identity &amp; Partition"
+                            android:textColor="@color/ks_on_surface"
+                            android:textSize="16sp"
+                            android:textStyle="bold" />
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="2dp"
+                            android:fontFamily="@font/rubik"
+                            android:text="Identifies this device's local mesh group (e.g. meta-portals, googletv)"
+                            android:textColor="@color/ks_on_surface_variant"
+                            android:textSize="12sp" />
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="12dp"
+                            android:fontFamily="@font/rubik"
+                            android:text="Mesh ID (Slug)"
+                            android:textColor="@color/ks_on_surface_variant"
+                            android:textSize="12sp" />
+
+                        <EditText
+                            android:id="@+id/etSettingMeshId"
+                            android:layout_width="match_parent"
+                            android:layout_height="44dp"
+                            android:layout_marginTop="4dp"
+                            android:background="@drawable/bg_dropdown_box"
+                            android:fontFamily="@font/rubik"
+                            android:hint="meta-portals"
+                            android:paddingHorizontal="12dp"
+                            android:textColor="@color/ks_on_surface"
+                            android:textSize="14sp" />
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="10dp"
+                            android:fontFamily="@font/rubik"
+                            android:text="Display Name"
+                            android:textColor="@color/ks_on_surface_variant"
+                            android:textSize="12sp" />
+
+                        <EditText
+                            android:id="@+id/etSettingMeshName"
+                            android:layout_width="match_parent"
+                            android:layout_height="44dp"
+                            android:layout_marginTop="4dp"
+                            android:background="@drawable/bg_dropdown_box"
+                            android:fontFamily="@font/rubik"
+                            android:hint="Meta Portals"
+                            android:paddingHorizontal="12dp"
+                            android:textColor="@color/ks_on_surface"
+                            android:textSize="14sp" />
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/btnSaveMeshIdentity"
+                            style="@style/Widget.KS.Button.Pill"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="14dp"
+                            android:text="Save Mesh Identity" />
+                    </LinearLayout>
+                </com.google.android.material.card.MaterialCardView>
+
+                <!-- Persistent Cross-VLAN Seeds Card -->
+                <com.google.android.material.card.MaterialCardView
+                    style="@style/Widget.KS.Card"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="16dp">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:padding="20dp">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:fontFamily="@font/rubik"
+                            android:text="Persistent Cross-VLAN Seeds"
+                            android:textColor="@color/ks_on_surface"
+                            android:textSize="16sp"
+                            android:textStyle="bold" />
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="2dp"
+                            android:fontFamily="@font/rubik"
+                            android:text="Configured seed nodes across other subnets. DroidMesh automatically reconnects across power outages."
+                            android:textColor="@color/ks_on_surface_variant"
+                            android:textSize="12sp" />
+
+                        <LinearLayout
+                            android:id="@+id/layoutSeedList"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="12dp"
+                            android:orientation="vertical" />
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/btnAddSeedIp"
+                            style="@style/Widget.KS.Button.Pill.Outlined"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="8dp"
+                            android:text="+ Add Seed IP" />
+                    </LinearLayout>
+                </com.google.android.material.card.MaterialCardView>
+
+                <!-- Auto-Update Engine Card -->
+                <com.google.android.material.card.MaterialCardView
+                    style="@style/Widget.KS.Card"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="16dp">
 
                     <LinearLayout
                         android:layout_width="match_parent"
@@ -1329,8 +1080,7 @@
                         <LinearLayout
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:gravity="center_vertical"
-                            android:orientation="horizontal">
+                            android:gravity="center_vertical">
 
                             <LinearLayout
                                 android:layout_width="0dp"
@@ -1342,24 +1092,23 @@
                                     android:layout_width="wrap_content"
                                     android:layout_height="wrap_content"
                                     android:fontFamily="@font/rubik"
-                                    android:text="Web Administration Server"
+                                    android:text="Auto-Update Engine"
                                     android:textColor="@color/ks_on_surface"
-                                    android:textSize="17sp"
+                                    android:textSize="16sp"
                                     android:textStyle="bold" />
 
                                 <TextView
-                                    android:id="@+id/tvWebServerDesc"
                                     android:layout_width="wrap_content"
                                     android:layout_height="wrap_content"
                                     android:layout_marginTop="2dp"
                                     android:fontFamily="@font/rubik"
-                                    android:text="Exposes the web management console on local network"
+                                    android:text="Automatically checks and silently installs latest target app releases"
                                     android:textColor="@color/ks_on_surface_variant"
                                     android:textSize="12sp" />
                             </LinearLayout>
 
                             <androidx.appcompat.widget.SwitchCompat
-                                android:id="@+id/switchWebServer"
+                                android:id="@+id/switchAutoUpdate"
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
                                 app:thumbTint="@color/ks_sage"
@@ -1372,7 +1121,7 @@
                             android:layout_marginVertical="14dp"
                             android:background="@color/ks_outline_variant" />
 
-                        <!-- Port Setting -->
+                        <!-- HTTP Server Port -->
                         <LinearLayout
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
@@ -1424,25 +1173,15 @@
                                 android:layout_marginStart="8dp"
                                 android:text="Set" />
                         </LinearLayout>
-
-                        <TextView
-                            android:id="@+id/tvWebConsoleUrl"
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:layout_marginTop="14dp"
-                            android:fontFamily="@font/rubik"
-                            android:text="Web URL: http://0.0.0.0:2325/"
-                            android:textColor="@color/ks_sage"
-                            android:textSize="13sp" />
-
                     </LinearLayout>
                 </com.google.android.material.card.MaterialCardView>
 
-                <!-- Admin Password Card -->
+                <!-- Web Admin Password Card -->
                 <com.google.android.material.card.MaterialCardView
                     style="@style/Widget.KS.Card"
                     android:layout_width="match_parent"
-                    android:layout_height="wrap_content">
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="16dp">
 
                     <LinearLayout
                         android:layout_width="match_parent"
@@ -1454,9 +1193,9 @@
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:fontFamily="@font/rubik"
-                            android:text="Admin Password Protection"
+                            android:text="Web Admin Password Protection"
                             android:textColor="@color/ks_on_surface"
-                            android:textSize="17sp"
+                            android:textSize="16sp"
                             android:textStyle="bold" />
 
                         <TextView
@@ -1469,42 +1208,17 @@
                             android:textColor="@color/ks_ochre"
                             android:textSize="13sp" />
 
-                        <TextView
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:layout_marginTop="6dp"
-                            android:fontFamily="@font/rubik"
-                            android:text="Protect settings, remote updates, logs, and ADB toggles from unauthenticated network access."
-                            android:textColor="@color/ks_on_surface_variant"
-                            android:textSize="12sp" />
-
-                        <View
-                            android:layout_width="match_parent"
-                            android:layout_height="1dp"
-                            android:layout_marginVertical="14dp"
-                            android:background="@color/ks_outline_variant" />
-
-                        <TextView
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:fontFamily="@font/rubik"
-                            android:text="Set New Password"
-                            android:textColor="@color/ks_on_surface"
-                            android:textSize="14sp"
-                            android:textStyle="bold" />
-
                         <EditText
                             android:id="@+id/etAdminPassword"
                             android:layout_width="match_parent"
-                            android:layout_height="46dp"
-                            android:layout_marginTop="8dp"
+                            android:layout_height="44dp"
+                            android:layout_marginTop="10dp"
                             android:background="@drawable/bg_dropdown_box"
                             android:fontFamily="@font/rubik"
-                            android:hint="Enter admin password"
+                            android:hint="Enter new admin password"
                             android:inputType="textPassword"
-                            android:paddingHorizontal="14dp"
+                            android:paddingHorizontal="12dp"
                             android:textColor="@color/ks_on_surface"
-                            android:textColorHint="@color/ks_outline"
                             android:textSize="14sp" />
 
                         <LinearLayout
@@ -1529,14 +1243,205 @@
                                 android:layout_marginStart="10dp"
                                 android:text="Remove" />
                         </LinearLayout>
-
                     </LinearLayout>
                 </com.google.android.material.card.MaterialCardView>
 
+                <!-- About Card -->
+                <com.google.android.material.card.MaterialCardView
+                    style="@style/Widget.KS.Card"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="16dp">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:padding="20dp">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:fontFamily="@font/rubik"
+                            android:text="About DroidMesh"
+                            android:textColor="@color/ks_on_surface"
+                            android:textSize="16sp"
+                            android:textStyle="bold" />
+
+                        <TextView
+                            android:id="@+id/tvAboutAppVersion"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="8dp"
+                            android:fontFamily="@font/rubik"
+                            android:text="Version: 0.0.1 (build 1)"
+                            android:textColor="@color/ks_on_surface_variant"
+                            android:textSize="13sp" />
+
+                        <TextView
+                            android:id="@+id/tvAboutPackage"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="2dp"
+                            android:fontFamily="@font/rubik"
+                            android:text="Package: com.cfox.droidmesh"
+                            android:textColor="@color/ks_on_surface_variant"
+                            android:textSize="13sp" />
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="2dp"
+                            android:fontFamily="@font/rubik"
+                            android:text="Author: Chris Fox • License: MIT"
+                            android:textColor="@color/ks_on_surface_variant"
+                            android:textSize="13sp" />
+                    </LinearLayout>
+                </com.google.android.material.card.MaterialCardView>
             </LinearLayout>
         </androidx.core.widget.NestedScrollView>
 
+        <!-- 2D. TAB: LOGS CONSOLE -->
+        <LinearLayout
+            android:id="@+id/paneLogs"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:orientation="vertical"
+            android:paddingHorizontal="24dp"
+            android:paddingTop="20dp"
+            android:paddingBottom="24dp"
+            android:visibility="gone">
+
+            <!-- Toolbar Header -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:fontFamily="@font/rubik"
+                        android:text="Runtime Logs"
+                        android:textColor="@color/ks_on_surface"
+                        android:textSize="22sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/tvLogsMeta"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="2dp"
+                        android:fontFamily="@font/rubik"
+                        android:text="0 entries"
+                        android:textColor="@color/ks_on_surface_variant"
+                        android:textSize="12sp" />
+                </LinearLayout>
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnCopyLogs"
+                    style="@style/Widget.KS.Button.Pill.Outlined"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Copy"
+                    app:icon="@drawable/ic_copy"
+                    app:iconGravity="textStart"
+                    app:iconPadding="4dp" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnClearLogs"
+                    style="@style/Widget.KS.Button.Pill.Outlined"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="8dp"
+                    android:text="Clear"
+                    app:icon="@drawable/ic_clear"
+                    app:iconGravity="textStart"
+                    app:iconPadding="4dp" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnRefreshLogs"
+                    style="@style/Widget.KS.Button.Pill.Outlined"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="8dp"
+                    android:text="Refresh"
+                    app:icon="@drawable/ic_refresh"
+                    app:iconGravity="textStart"
+                    app:iconPadding="4dp" />
+            </LinearLayout>
+
+            <!-- Filter and auto-scroll row -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <EditText
+                    android:id="@+id/etLogFilter"
+                    android:layout_width="0dp"
+                    android:layout_height="38dp"
+                    android:layout_weight="1"
+                    android:background="@drawable/bg_dropdown_box"
+                    android:fontFamily="@font/rubik"
+                    android:hint="Filter logs (e.g. error, update, mesh)..."
+                    android:paddingHorizontal="12dp"
+                    android:textColor="@color/ks_on_surface"
+                    android:textColorHint="@color/ks_outline"
+                    android:textSize="12sp" />
+
+                <CheckBox
+                    android:id="@+id/chkAutoScroll"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="12dp"
+                    android:buttonTint="@color/ks_teal"
+                    android:checked="true"
+                    android:fontFamily="@font/rubik"
+                    android:text="Auto-scroll"
+                    android:textColor="@color/ks_on_surface_variant"
+                    android:textSize="12sp" />
+            </LinearLayout>
+
+            <!-- Log Console Output -->
+            <com.google.android.material.card.MaterialCardView
+                style="@style/Widget.KS.Card"
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_marginTop="12dp"
+                android:layout_weight="1">
+
+                <androidx.core.widget.NestedScrollView
+                    android:id="@+id/scrollLogConsole"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:background="@color/ks_surface_lowest"
+                    android:fillViewport="true">
+
+                    <TextView
+                        android:id="@+id/tvLogConsole"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:fontFamily="monospace"
+                        android:lineSpacingExtra="3dp"
+                        android:padding="16dp"
+                        android:text="[Ready] Initialized DroidMesh."
+                        android:textColor="@color/ks_sage"
+                        android:textIsSelectable="true"
+                        android:textSize="12sp" />
+                </androidx.core.widget.NestedScrollView>
+            </com.google.android.material.card.MaterialCardView>
+
+        </LinearLayout>
+
     </FrameLayout>
-
-
 </LinearLayout>

@@ -2,17 +2,22 @@ package com.cfox.droidmesh.settings
 
 import android.content.Context
 import android.content.SharedPreferences
+import org.json.JSONArray
+import org.json.JSONObject
 import java.security.MessageDigest
 import java.security.SecureRandom
+import java.util.concurrent.CopyOnWriteArraySet
 import javax.crypto.Mac
 import javax.crypto.spec.SecretKeySpec
 
 /**
  * Persisted user-facing configuration for DroidMesh / KSU.
- * Manages auto-update toggle, web admin password, and authentication tokens.
+ * Manages auto-update toggle, web admin password, web server settings,
+ * mesh parameters, and mesh-wide configuration synchronization.
  */
 object SettingsStore {
     private const val PREFS_NAME = "kiosk_satellite_updater_settings"
+    private const val KEY_CONFIG_VERSION = "config_version"
     private const val KEY_AUTO_UPDATE_ENABLED = "auto_update_enabled"
     private const val KEY_WEB_SERVER_ENABLED = "web_server_enabled"
     private const val KEY_WEB_SERVER_PORT = "web_server_port"
@@ -27,11 +32,68 @@ object SettingsStore {
     private const val DEFAULT_WEB_SERVER_ENABLED = true
     private const val DEFAULT_WEB_SERVER_PORT = 2325
 
+    data class ConfigImportResult(
+        val applied: Boolean,
+        val oldVersion: Long,
+        val newVersion: Long,
+        val portChanged: Boolean = false,
+        val webServerToggled: Boolean = false,
+        val autoUpdateToggled: Boolean = false,
+        val passwordChanged: Boolean = false,
+        val seedsChanged: Boolean = false
+    )
+
+    fun interface OnConfigChangeListener {
+        fun onConfigChanged(result: ConfigImportResult)
+    }
+
+    private val listeners = CopyOnWriteArraySet<OnConfigChangeListener>()
+
+    fun addConfigChangeListener(listener: OnConfigChangeListener) {
+        listeners.add(listener)
+    }
+
+    fun removeConfigChangeListener(listener: OnConfigChangeListener) {
+        listeners.remove(listener)
+    }
+
+    fun notifyListeners(result: ConfigImportResult) {
+        for (l in listeners) {
+            try {
+                l.onConfigChanged(result)
+            } catch (_: Exception) {}
+        }
+    }
+
+    fun getConfigVersion(context: Context): Long =
+        prefs(context).getLong(KEY_CONFIG_VERSION, 0L)
+
+    fun updateConfigVersion(context: Context): Long {
+        val current = getConfigVersion(context)
+        val next = maxOf(System.currentTimeMillis(), current + 1L)
+        prefs(context).edit().putLong(KEY_CONFIG_VERSION, next).apply()
+        return next
+    }
+
     fun isWebServerEnabled(context: Context): Boolean =
         prefs(context).getBoolean(KEY_WEB_SERVER_ENABLED, DEFAULT_WEB_SERVER_ENABLED)
 
     fun setWebServerEnabled(context: Context, enabled: Boolean) {
-        prefs(context).edit().putBoolean(KEY_WEB_SERVER_ENABLED, enabled).apply()
+        val prev = isWebServerEnabled(context)
+        if (prev == enabled) return
+        val editor = prefs(context).edit()
+        val ver = maxOf(System.currentTimeMillis(), getConfigVersion(context) + 1L)
+        editor.putBoolean(KEY_WEB_SERVER_ENABLED, enabled)
+        editor.putLong(KEY_CONFIG_VERSION, ver)
+        editor.apply()
+        notifyListeners(
+            ConfigImportResult(
+                applied = true,
+                oldVersion = ver - 1,
+                newVersion = ver,
+                webServerToggled = true
+            )
+        )
     }
 
     fun getWebServerPort(context: Context): Int =
@@ -39,7 +101,21 @@ object SettingsStore {
 
     fun setWebServerPort(context: Context, port: Int) {
         val validPort = if (port in 1024..65535) port else DEFAULT_WEB_SERVER_PORT
-        prefs(context).edit().putInt(KEY_WEB_SERVER_PORT, validPort).apply()
+        val prev = getWebServerPort(context)
+        if (prev == validPort) return
+        val ver = maxOf(System.currentTimeMillis(), getConfigVersion(context) + 1L)
+        val editor = prefs(context).edit()
+        editor.putInt(KEY_WEB_SERVER_PORT, validPort)
+        editor.putLong(KEY_CONFIG_VERSION, ver)
+        editor.apply()
+        notifyListeners(
+            ConfigImportResult(
+                applied = true,
+                oldVersion = ver - 1,
+                newVersion = ver,
+                portChanged = true
+            )
+        )
     }
 
 
@@ -90,7 +166,21 @@ object SettingsStore {
     }
 
     fun setCrossVlanSeeds(context: Context, seeds: Set<String>) {
-        prefs(context).edit().putStringSet(KEY_CROSS_VLAN_SEEDS, seeds).apply()
+        val prev = getCrossVlanSeeds(context)
+        if (prev == seeds) return
+        val ver = maxOf(System.currentTimeMillis(), getConfigVersion(context) + 1L)
+        val editor = prefs(context).edit()
+        editor.putStringSet(KEY_CROSS_VLAN_SEEDS, seeds)
+        editor.putLong(KEY_CONFIG_VERSION, ver)
+        editor.apply()
+        notifyListeners(
+            ConfigImportResult(
+                applied = true,
+                oldVersion = ver - 1,
+                newVersion = ver,
+                seedsChanged = true
+            )
+        )
     }
 
     fun addCrossVlanSeed(context: Context, seed: String): Boolean {
@@ -118,7 +208,21 @@ object SettingsStore {
         prefs(context).getBoolean(KEY_AUTO_UPDATE_ENABLED, DEFAULT_AUTO_UPDATE_ENABLED)
 
     fun setAutoUpdateEnabled(context: Context, enabled: Boolean) {
-        prefs(context).edit().putBoolean(KEY_AUTO_UPDATE_ENABLED, enabled).apply()
+        val prev = isAutoUpdateEnabled(context)
+        if (prev == enabled) return
+        val ver = maxOf(System.currentTimeMillis(), getConfigVersion(context) + 1L)
+        val editor = prefs(context).edit()
+        editor.putBoolean(KEY_AUTO_UPDATE_ENABLED, enabled)
+        editor.putLong(KEY_CONFIG_VERSION, ver)
+        editor.apply()
+        notifyListeners(
+            ConfigImportResult(
+                applied = true,
+                oldVersion = ver - 1,
+                newVersion = ver,
+                autoUpdateToggled = true
+            )
+        )
     }
 
     fun isPasswordSet(context: Context): Boolean =
@@ -126,10 +230,21 @@ object SettingsStore {
 
     fun setPassword(context: Context, password: String): Boolean {
         val editor = prefs(context).edit()
+        val ver = maxOf(System.currentTimeMillis(), getConfigVersion(context) + 1L)
+        editor.putLong(KEY_CONFIG_VERSION, ver)
+
         if (password.isBlank()) {
             editor.remove(KEY_WEB_PASSWORD_HASH)
             editor.remove(KEY_WEB_PASSWORD_SALT)
             editor.apply()
+            notifyListeners(
+                ConfigImportResult(
+                    applied = true,
+                    oldVersion = ver - 1,
+                    newVersion = ver,
+                    passwordChanged = true
+                )
+            )
             return true
         }
 
@@ -144,6 +259,15 @@ object SettingsStore {
         SecureRandom().nextBytes(newSecret)
         editor.putString(KEY_AUTH_SECRET, bytesToHex(newSecret))
         editor.apply()
+
+        notifyListeners(
+            ConfigImportResult(
+                applied = true,
+                oldVersion = ver - 1,
+                newVersion = ver,
+                passwordChanged = true
+            )
+        )
         return true
     }
 
@@ -161,10 +285,137 @@ object SettingsStore {
     }
 
     fun clearPassword(context: Context) {
+        val ver = maxOf(System.currentTimeMillis(), getConfigVersion(context) + 1L)
         prefs(context).edit()
             .remove(KEY_WEB_PASSWORD_HASH)
             .remove(KEY_WEB_PASSWORD_SALT)
+            .putLong(KEY_CONFIG_VERSION, ver)
             .apply()
+        notifyListeners(
+            ConfigImportResult(
+                applied = true,
+                oldVersion = ver - 1,
+                newVersion = ver,
+                passwordChanged = true
+            )
+        )
+    }
+
+    fun exportConfigJson(context: Context): JSONObject = JSONObject().apply {
+        put("config_version", getConfigVersion(context))
+        put("web_server_enabled", isWebServerEnabled(context))
+        put("web_server_port", getWebServerPort(context))
+        val salt = prefs(context).getString(KEY_WEB_PASSWORD_SALT, null)
+        val hash = prefs(context).getString(KEY_WEB_PASSWORD_HASH, null)
+        val secret = prefs(context).getString(KEY_AUTH_SECRET, null)
+        put("web_password_salt", salt ?: JSONObject.NULL)
+        put("web_password_hash", hash ?: JSONObject.NULL)
+        put("auth_secret", secret ?: JSONObject.NULL)
+        put("auto_update_enabled", isAutoUpdateEnabled(context))
+        val seedsArr = JSONArray()
+        getCrossVlanSeeds(context).forEach { seedsArr.put(it) }
+        put("cross_vlan_seeds", seedsArr)
+    }
+
+    fun importConfigJson(context: Context, json: JSONObject): ConfigImportResult {
+        val incomingVersion = json.optLong("config_version", 0L)
+        val currentVersion = getConfigVersion(context)
+
+        if (incomingVersion <= 0L || incomingVersion <= currentVersion) {
+            return ConfigImportResult(
+                applied = false,
+                oldVersion = currentVersion,
+                newVersion = incomingVersion
+            )
+        }
+
+        val editor = prefs(context).edit()
+        var portChanged = false
+        var webServerToggled = false
+        var autoUpdateToggled = false
+        var passwordChanged = false
+        var seedsChanged = false
+
+        if (json.has("web_server_enabled")) {
+            val enabled = json.getBoolean("web_server_enabled")
+            if (isWebServerEnabled(context) != enabled) {
+                editor.putBoolean(KEY_WEB_SERVER_ENABLED, enabled)
+                webServerToggled = true
+            }
+        }
+
+        if (json.has("web_server_port")) {
+            val port = json.getInt("web_server_port")
+            if (port in 1024..65535 && getWebServerPort(context) != port) {
+                editor.putInt(KEY_WEB_SERVER_PORT, port)
+                portChanged = true
+            }
+        }
+
+        if (json.has("auto_update_enabled")) {
+            val autoUpdate = json.getBoolean("auto_update_enabled")
+            if (isAutoUpdateEnabled(context) != autoUpdate) {
+                editor.putBoolean(KEY_AUTO_UPDATE_ENABLED, autoUpdate)
+                autoUpdateToggled = true
+            }
+        }
+
+        // Synchronize password hash, salt, and auth secret
+        if (json.has("web_password_hash")) {
+            val hash = if (json.isNull("web_password_hash")) null else json.optString("web_password_hash")
+            val salt = if (json.isNull("web_password_salt")) null else json.optString("web_password_salt")
+            val secret = if (json.isNull("auth_secret")) null else json.optString("auth_secret")
+
+            val currentHash = prefs(context).getString(KEY_WEB_PASSWORD_HASH, null)
+            val currentSalt = prefs(context).getString(KEY_WEB_PASSWORD_SALT, null)
+            val currentSecret = prefs(context).getString(KEY_AUTH_SECRET, null)
+
+            if (hash != currentHash || salt != currentSalt || secret != currentSecret) {
+                if (hash.isNullOrBlank()) {
+                    editor.remove(KEY_WEB_PASSWORD_HASH)
+                    editor.remove(KEY_WEB_PASSWORD_SALT)
+                } else {
+                    editor.putString(KEY_WEB_PASSWORD_HASH, hash)
+                    if (!salt.isNullOrBlank()) editor.putString(KEY_WEB_PASSWORD_SALT, salt)
+                    if (!secret.isNullOrBlank()) editor.putString(KEY_AUTH_SECRET, secret)
+                }
+                passwordChanged = true
+            }
+        }
+
+        // Synchronize cross-VLAN seeds
+        if (json.has("cross_vlan_seeds")) {
+            val seedsArr = json.optJSONArray("cross_vlan_seeds")
+            val newSeeds = mutableSetOf<String>()
+            if (seedsArr != null) {
+                for (i in 0 until seedsArr.length()) {
+                    val s = seedsArr.optString(i, "").trim()
+                    if (s.isNotBlank()) newSeeds.add(s)
+                }
+            }
+            val currentSeeds = getCrossVlanSeeds(context)
+            if (currentSeeds != newSeeds) {
+                editor.putStringSet(KEY_CROSS_VLAN_SEEDS, newSeeds)
+                seedsChanged = true
+            }
+        }
+
+        editor.putLong(KEY_CONFIG_VERSION, incomingVersion)
+        editor.apply()
+
+        val result = ConfigImportResult(
+            applied = true,
+            oldVersion = currentVersion,
+            newVersion = incomingVersion,
+            portChanged = portChanged,
+            webServerToggled = webServerToggled,
+            autoUpdateToggled = autoUpdateToggled,
+            passwordChanged = passwordChanged,
+            seedsChanged = seedsChanged
+        )
+
+        notifyListeners(result)
+        return result
     }
 
     fun generateToken(context: Context, ttlSeconds: Long = 7 * 86400): String {

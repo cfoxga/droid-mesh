@@ -138,6 +138,8 @@ class LocalHttpServer(
 
                 // Peer Mesh Fleet
                 (uri == "/mesh" || uri == "/peers" || uri == "/api/mesh") && method == Method.GET -> handleMesh()
+                uri == "/api/mesh/config" && method == Method.GET -> handleMeshConfigGet()
+                uri == "/api/mesh/sync-config" && method == Method.POST -> handleMeshConfigSync(session)
                 uri == "/api/mesh/beacon" && (method == Method.POST || method == Method.GET) -> handleMeshBeacon(session)
                 uri == "/api/mesh/connect" && method == Method.POST -> handleMeshConnect(session)
                 uri == "/api/mesh/handshake" && method == Method.POST -> handleMeshHandshake(session)
@@ -319,6 +321,7 @@ class LocalHttpServer(
         }
 
         SettingsStore.setPassword(context, newPassword)
+        meshManager?.syncConfigToMesh()
         val newToken = if (newPassword.isNotBlank()) SettingsStore.generateToken(context) else null
 
         val json = JSONObject().apply {
@@ -335,6 +338,7 @@ class LocalHttpServer(
 
     private fun handleStatus(): Response {
         val installed = AppVersionHelper.getInstalledVersion(context)
+        val installedApps = AppVersionHelper.getUserInstalledApps(context)
         val currentStatus = coordinator.statusFlow.value
         val telemetry = CpuStatsHelper.readTelemetry()
 
@@ -345,6 +349,18 @@ class LocalHttpServer(
             put("targetInstalled", installed.isInstalled)
             put("installedVersionName", installed.versionName ?: JSONObject.NULL)
             put("installedVersionCode", installed.versionCode ?: JSONObject.NULL)
+
+            val appsArray = JSONArray()
+            for (app in installedApps) {
+                appsArray.put(JSONObject().apply {
+                    put("packageName", app.packageName)
+                    put("appName", app.appName)
+                    put("versionName", app.versionName ?: JSONObject.NULL)
+                    put("versionCode", app.versionCode ?: JSONObject.NULL)
+                })
+            }
+            put("installedApps", appsArray)
+
             put("accessibilityServiceActive", AutoInstallService.isServiceRunning)
             put("autoUpdateEnabled", SettingsStore.isAutoUpdateEnabled(context))
             put("webServerEnabled", SettingsStore.isWebServerEnabled(context))
@@ -357,6 +373,7 @@ class LocalHttpServer(
             put("cpuUsage", telemetry.usagePercent ?: JSONObject.NULL)
             put("cpuTemp", telemetry.tempCelsius ?: JSONObject.NULL)
             put("passwordConfigured", SettingsStore.isPasswordSet(context))
+            put("configVersion", SettingsStore.getConfigVersion(context))
         }
 
         return jsonResponse(Response.Status.OK, json)
@@ -376,6 +393,7 @@ class LocalHttpServer(
             put("localMeshId", SettingsStore.getLocalMeshId(context))
             put("localMeshName", SettingsStore.getLocalMeshName(context))
             put("crossVlanSeeds", seedsJson)
+            put("configVersion", SettingsStore.getConfigVersion(context))
         }
         return jsonResponse(Response.Status.OK, json)
     }
@@ -389,26 +407,31 @@ class LocalHttpServer(
         }
 
         val body = parseJsonBody(session)
+        var settingsChanged = false
         if (body.has("autoUpdateEnabled")) {
             val enabled = body.getBoolean("autoUpdateEnabled")
             SettingsStore.setAutoUpdateEnabled(context, enabled)
             Logger.i("Auto-update toggled via HTTP API: $enabled")
+            settingsChanged = true
         }
         if (body.has("webServerEnabled")) {
             val enabled = body.getBoolean("webServerEnabled")
             SettingsStore.setWebServerEnabled(context, enabled)
             Logger.i("Web server toggled via HTTP API: $enabled")
+            settingsChanged = true
         }
         if (body.has("webServerPort")) {
             val port = body.getInt("webServerPort")
             SettingsStore.setWebServerPort(context, port)
             Logger.i("Web server port updated via HTTP API: $port")
+            settingsChanged = true
         }
         if (body.has("localMeshId")) {
             val meshId = body.getString("localMeshId").trim()
             if (meshId.isNotBlank()) {
                 SettingsStore.setLocalMeshId(context, meshId)
                 Logger.i("Local mesh ID updated: $meshId")
+                settingsChanged = true
             }
         }
         if (body.has("localMeshName")) {
@@ -416,12 +439,16 @@ class LocalHttpServer(
             if (meshName.isNotBlank()) {
                 SettingsStore.setLocalMeshName(context, meshName)
                 Logger.i("Local mesh name updated: $meshName")
+                settingsChanged = true
             }
+        }
+
+        if (settingsChanged) {
+            meshManager?.syncConfigToMesh()
         }
 
         return handleGetSettings()
     }
-
 
     private fun handleCheck(session: IHTTPSession): Response {
         val force = session.parms["force"]?.toBoolean() ?: false
@@ -566,6 +593,7 @@ class LocalHttpServer(
 
         val result = meshManager?.addCrossVlanSeed(ip, reciprocal = true)
         val normalized = result?.getOrNull() ?: ip
+        meshManager?.syncConfigToMesh()
 
         val json = JSONObject().apply {
             put("status", "ok")
@@ -589,6 +617,37 @@ class LocalHttpServer(
         }
         responseJson.put("status", "ok")
         return jsonResponse(Response.Status.OK, responseJson)
+    }
+
+    private fun handleMeshConfigGet(): Response {
+        val json = JSONObject().apply {
+            put("status", "ok")
+            put("config", SettingsStore.exportConfigJson(context))
+        }
+        return jsonResponse(Response.Status.OK, json)
+    }
+
+    private fun handleMeshConfigSync(session: IHTTPSession): Response {
+        val body = parseJsonBody(session)
+        val configJson = body.optJSONObject("config") ?: body
+        val result = SettingsStore.importConfigJson(context, configJson)
+        if (result.applied) {
+            Logger.i("Applied incoming mesh config v${result.newVersion} via sync API from ${session.remoteIpAddress} (portChanged=${result.portChanged}, pwdChanged=${result.passwordChanged}, seedsChanged=${result.seedsChanged})")
+            meshManager?.triggerBeacon()
+        }
+        val json = JSONObject().apply {
+            put("status", "ok")
+            put("applied", result.applied)
+            put("old_version", result.oldVersion)
+            put("new_version", result.newVersion)
+            put("port_changed", result.portChanged)
+            put("web_server_toggled", result.webServerToggled)
+            put("auto_update_toggled", result.autoUpdateToggled)
+            put("password_changed", result.passwordChanged)
+            put("seeds_changed", result.seedsChanged)
+            put("config_version", SettingsStore.getConfigVersion(context))
+        }
+        return jsonResponse(Response.Status.OK, json)
     }
 
     private fun handleMeshSeedsGet(): Response {

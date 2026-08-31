@@ -793,7 +793,10 @@ input:checked + .slider:before {
     <!-- TAB: SETTINGS -->
     <section id="tab-settings" class="tab-pane">
       <div class="header-bar">
-        <h1>Application Settings</h1>
+        <div>
+          <h1>Application Settings</h1>
+          <span style="font-size: 12px; color: var(--teal); font-weight: 500;">✓ Synchronized across all active nodes in the mesh fleet</span>
+        </div>
       </div>
 
       <div class="grid-2">
@@ -945,6 +948,17 @@ let state = {
   logs: [],
   initialLoaded: false
 };
+
+// Helper
+function escapeHtml(str) {
+  if (str === null || str === undefined) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
 
 // API Helper
 async function apiCall(endpoint, options = {}) {
@@ -1382,30 +1396,52 @@ function renderMeshPeers(peers) {
     const badgeClass = isOnline ? (peer.updaterState === 'IDLE' ? 'badge-sage' : 'badge-teal') : 'badge-gray';
     const stateText = isOnline ? (peer.updaterState || 'ONLINE') : 'OFFLINE';
 
+    const apps = peer.installedApps || [];
+    let appsHtml = '';
+    if (apps.length > 0) {
+      appsHtml = apps.map(app => `
+        <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; padding: 3px 0;">
+          <span style="font-weight: 500; color: var(--text-primary); font-size: 13px;">${escapeHtml(app.appName || app.packageName)}</span>
+          <span class="badge badge-teal" style="font-size: 11px; padding: 2px 6px;">${app.versionName ? `v${escapeHtml(app.versionName)}` : (app.versionCode ? `build ${escapeHtml(app.versionCode)}` : 'Installed')}</span>
+        </div>
+      `).join('');
+    } else if (peer.targetInstalled && peer.installedVersionName) {
+      appsHtml = `
+        <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; padding: 3px 0;">
+          <span style="font-weight: 500; color: var(--text-primary); font-size: 13px;">Kiosk Satellite</span>
+          <span class="badge badge-teal" style="font-size: 11px; padding: 2px 6px;">v${escapeHtml(peer.installedVersionName)}</span>
+        </div>
+      `;
+    } else {
+      appsHtml = `<span style="color: var(--text-muted); font-size: 12px;">No user apps installed</span>`;
+    }
+
     card.innerHTML = `
       <div class="card-header">
         <div class="card-title">
           <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
-          ${peer.deviceModel} ${peer.isSelf ? '<span class="badge badge-teal">This Device</span>' : ''} ${peer.isCrossVlan ? '<span class="badge badge-gray" style="font-size:10px;">VLAN</span>' : ''}
+          ${escapeHtml(peer.deviceModel)} ${peer.isSelf ? '<span class="badge badge-teal">This Device</span>' : ''} ${peer.isCrossVlan ? '<span class="badge badge-gray" style="font-size:10px;">VLAN</span>' : ''}
         </div>
         <span class="badge ${badgeClass}">${stateText}</span>
       </div>
       <div class="kv-list">
         <div class="kv-row">
           <span class="kv-key">IP & Port</span>
-          <span class="kv-val">${peer.ip}:${peer.port}</span>
-        </div>
-        <div class="kv-row">
-          <span class="kv-key">Target App</span>
-          <span class="kv-val">${peer.targetInstalled && peer.installedVersionName ? `v${peer.installedVersionName}` : 'Not Installed'}</span>
+          <span class="kv-val">${escapeHtml(peer.ip)}:${escapeHtml(peer.port)}</span>
         </div>
         <div class="kv-row">
           <span class="kv-key">Network ADB</span>
           <span class="kv-val">${peer.adbEnabled ? '<span style="color:var(--sage)">Enabled</span>' : '<span style="color:var(--rust)">Disabled</span>'}</span>
         </div>
+        <div class="kv-row" style="flex-direction: column; align-items: flex-start; gap: 6px; border-bottom: 1px solid rgba(255, 255, 255, 0.04); padding-bottom: 8px;">
+          <span class="kv-key" style="font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">Installed Apps</span>
+          <div style="display: flex; flex-direction: column; gap: 2px; width: 100%; background: var(--bg-surface-elevated); padding: 8px 10px; border-radius: var(--radius-sm); border: 1px solid var(--border-subtle);">
+            ${appsHtml}
+          </div>
+        </div>
         <div class="kv-row">
           <span class="kv-key">Status Message</span>
-          <span class="kv-val" style="font-size:11px; color:var(--text-secondary);">${peer.updaterMessage || 'Ready'}</span>
+          <span class="kv-val" style="font-size:11px; color:var(--text-secondary);">${escapeHtml(peer.updaterMessage || 'Ready')}</span>
         </div>
       </div>
       ${!peer.isSelf ? `
@@ -1497,9 +1533,9 @@ async function loadSettings() {
         seedsList.appendChild(row);
       });
     }
-    if (res.webServerPort) {
+    if (data.webServerPort) {
       const portEl = document.getElementById('settingWebServerPort');
-      if (portEl) portEl.value = res.webServerPort;
+      if (portEl) portEl.value = data.webServerPort;
     }
   } catch (e) {
     console.warn('Failed to load settings:', e);

@@ -2,123 +2,242 @@
 <com.google.android.material.card.MaterialCardView xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
-    style="@style/Widget.KS.NestedCard"
+    style="@style/Widget.KS.Card"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:layout_marginBottom="12dp">
+    android:layout_marginBottom="14dp">
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:padding="16dp">
+        android:padding="18dp">
 
-        <!-- Top Row: Device title and status badge -->
+        <!-- Top Header Row: Device Title, Self/VLAN Badges, State Badge -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:gravity="center_vertical"
             android:orientation="horizontal">
 
+            <ImageView
+                android:id="@+id/ivPeerDeviceIcon"
+                android:layout_width="20dp"
+                android:layout_height="20dp"
+                android:src="@drawable/ic_tab_overview"
+                app:tint="@color/ks_teal" />
+
             <TextView
                 android:id="@+id/tvPeerTitle"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
+                android:layout_marginStart="10dp"
                 android:layout_weight="1"
+                android:ellipsize="end"
                 android:fontFamily="@font/rubik"
+                android:maxLines="1"
                 android:textColor="@color/ks_on_surface"
-                android:textSize="16sp"
+                android:textSize="15sp"
                 android:textStyle="bold"
-                tools:text="Portal 10 (192.168.40.250) [This Device]" />
+                tools:text="Facebook PortalMini" />
 
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btnPeerAdbStatus"
-                style="@style/Widget.KS.Button.Pill.Small"
+            <TextView
+                android:id="@+id/tvPeerSelfBadge"
                 android:layout_width="wrap_content"
-                android:layout_height="28dp"
-                android:layout_marginEnd="8dp"
-                android:paddingHorizontal="10dp"
-                android:backgroundTint="@color/ks_surface_container"
-                android:textColor="@color/ks_on_surface"
-                app:strokeColor="@color/ks_outline"
-                app:strokeWidth="1dp"
-                android:text="ADB: ON" />
+                android:layout_height="wrap_content"
+                android:layout_marginEnd="6dp"
+                android:background="@drawable/bg_badge_pill"
+                android:backgroundTint="@color/ks_teal_container"
+                android:fontFamily="@font/rubik"
+                android:paddingHorizontal="8dp"
+                android:paddingVertical="2dp"
+                android:text="This Device"
+                android:textColor="@color/ks_teal"
+                android:textSize="10sp"
+                android:textStyle="bold"
+                android:visibility="gone"
+                tools:visibility="visible" />
+
+            <TextView
+                android:id="@+id/tvPeerVlanBadge"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginEnd="6dp"
+                android:background="@drawable/bg_badge_pill"
+                android:backgroundTint="@color/ks_surface_highest"
+                android:fontFamily="@font/rubik"
+                android:paddingHorizontal="8dp"
+                android:paddingVertical="2dp"
+                android:text="VLAN"
+                android:textColor="@color/ks_on_surface_variant"
+                android:textSize="10sp"
+                android:textStyle="bold"
+                android:visibility="gone"
+                tools:visibility="visible" />
 
             <TextView
                 android:id="@+id/tvPeerStateBadge"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:background="@drawable/bg_badge_pill"
+                android:backgroundTint="@color/ks_sage_container"
                 android:fontFamily="@font/rubik"
                 android:paddingHorizontal="10dp"
-                android:paddingVertical="4dp"
-                android:text="IDLE"
-                android:textColor="@color/white"
+                android:paddingVertical="3dp"
+                android:text="ONLINE"
+                android:textColor="@color/ks_sage"
                 android:textSize="11sp"
                 android:textStyle="bold" />
         </LinearLayout>
 
-        <!-- Middle: Installed version & target match status -->
-        <TextView
-            android:id="@+id/tvPeerVersion"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="6dp"
-            android:fontFamily="@font/rubik"
-            android:textColor="@color/ks_on_surface_variant"
-            android:textSize="14sp"
-            tools:text="Installed Satellite: v2026.8.105 (build 105)" />
-
         <View
             android:layout_width="match_parent"
             android:layout_height="1dp"
-            android:layout_marginVertical="10dp"
+            android:layout_marginVertical="12dp"
             android:background="@color/ks_outline_variant" />
 
-        <!-- Bottom: Status message / Last seen and conditional Update button -->
+        <!-- Key-Value Rows Container -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:gravity="center_vertical"
-            android:orientation="horizontal">
+            android:orientation="vertical">
 
+            <!-- Row 1: IP & Port -->
             <LinearLayout
-                android:layout_width="0dp"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_weight="1"
+                android:paddingVertical="3dp">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:fontFamily="@font/rubik"
+                    android:text="IP &amp; Port"
+                    android:textColor="@color/ks_on_surface_variant"
+                    android:textSize="13sp" />
+
+                <TextView
+                    android:id="@+id/tvPeerIpPort"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:fontFamily="@font/rubik"
+                    android:textColor="@color/ks_on_surface"
+                    android:textSize="13sp"
+                    android:textStyle="bold"
+                    tools:text="192.168.40.250:2325" />
+            </LinearLayout>
+
+            <!-- Row 2: Network ADB -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:paddingVertical="3dp">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:fontFamily="@font/rubik"
+                    android:text="Network ADB"
+                    android:textColor="@color/ks_on_surface_variant"
+                    android:textSize="13sp" />
+
+                <TextView
+                    android:id="@+id/tvPeerAdbStatus"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:fontFamily="@font/rubik"
+                    android:textColor="@color/ks_sage"
+                    android:textSize="13sp"
+                    android:textStyle="bold"
+                    tools:text="Enabled (:5555)" />
+            </LinearLayout>
+
+            <!-- Row 3: Installed Apps Section -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
                 android:orientation="vertical">
 
                 <TextView
-                    android:id="@+id/tvPeerMessage"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
+                    android:fontFamily="@font/rubik"
+                    android:text="INSTALLED APPS"
+                    android:textColor="@color/ks_outline"
+                    android:textSize="11sp"
+                    android:textStyle="bold" />
+
+                <LinearLayout
+                    android:id="@+id/layoutPeerApps"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:background="@drawable/bg_dropdown_box"
+                    android:orientation="vertical"
+                    android:paddingHorizontal="10dp"
+                    android:paddingVertical="6dp" />
+            </LinearLayout>
+
+            <!-- Row 4: Status Message / Last seen -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:paddingVertical="3dp">
+
+                <TextView
+                    android:id="@+id/tvPeerMessage"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
                     android:ellipsize="end"
                     android:fontFamily="@font/rubik"
-                    android:maxLines="1"
+                    android:maxLines="2"
                     android:textColor="@color/ks_on_surface_variant"
                     android:textSize="12sp"
-                    tools:text="Status: Listening on port 2325" />
+                    tools:text="Status: Ready" />
 
                 <TextView
                     android:id="@+id/tvPeerLastSeen"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="2dp"
+                    android:layout_marginStart="8dp"
                     android:fontFamily="@font/rubik"
                     android:textColor="@color/ks_outline"
                     android:textSize="11sp"
-                    tools:text="Last seen: Just now" />
+                    tools:text="Just now" />
             </LinearLayout>
+        </LinearLayout>
+
+        <!-- Action Buttons (Toggle ADB, Update Node) -->
+        <LinearLayout
+            android:id="@+id/layoutPeerActions"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:gravity="end"
+            android:orientation="horizontal"
+            android:visibility="gone"
+            tools:visibility="visible">
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnPeerToggleAdb"
+                style="@style/Widget.KS.Button.Pill.Outlined"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Toggle ADB" />
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btnPeerUpdate"
                 style="@style/Widget.KS.Button.Pill.Small"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginStart="12dp"
-                android:text="Update"
-                android:visibility="gone"
-                tools:visibility="visible" />
+                android:layout_marginStart="8dp"
+                android:text="Update Node" />
         </LinearLayout>
 
     </LinearLayout>

@@ -187,6 +187,19 @@ class MeshDiscoveryManager(
             val peer = PeerNode.fromBeaconJson(json, senderIp) ?: return
             peersMap[peer.id] = peer
             updatePeersList()
+
+            // Check config version and synchronize if needed
+            val peerConfigVersion = peer.configVersion
+            val localConfigVersion = SettingsStore.getConfigVersion(context)
+            if (peerConfigVersion > localConfigVersion) {
+                scope.launch(Dispatchers.IO) {
+                    pullConfigFromPeer(peer.ip, peer.port)
+                }
+            } else if (peerConfigVersion < localConfigVersion && localConfigVersion > 0L) {
+                scope.launch(Dispatchers.IO) {
+                    pushConfigToPeer(peer.ip, peer.port)
+                }
+            }
         } catch (e: Exception) {
             Logger.e("Error parsing mesh beacon from $senderIp", e)
         }
@@ -201,23 +214,103 @@ class MeshDiscoveryManager(
         }
     }
 
+    fun syncConfigToMesh() {
+        scope.launch(Dispatchers.IO) {
+            sendBeacon()
+            val configJson = SettingsStore.exportConfigJson(context)
+            val targets = mutableSetOf<String>()
+            for (peer in _peersFlow.value) {
+                if (!peer.isSelf && peer.isOnline) {
+                    targets.add("${peer.ip}:${peer.port}")
+                }
+            }
+            for (seed in SettingsStore.getCrossVlanSeeds(context)) {
+                targets.add(normalizeSeedAddress(seed))
+            }
+            for (target in targets) {
+                val host = target.substringBefore(":")
+                val port = target.substringAfter(":", "2325").toIntOrNull() ?: 2325
+                pushConfigToPeer(host, port, configJson)
+            }
+        }
+    }
+
+    suspend fun pullConfigFromPeer(ip: String, port: Int) = withContext(Dispatchers.IO) {
+        try {
+            val url = "http://$ip:$port/api/mesh/config"
+            val req = Request.Builder()
+                .url(url)
+                .header("Accept", "application/json")
+                .header("User-Agent", "DroidMesh-ConfigSync")
+                .build()
+            httpClient.newCall(req).execute().use { res ->
+                if (res.isSuccessful) {
+                    val body = res.body?.string() ?: return@use
+                    val json = JSONObject(body)
+                    val config = json.optJSONObject("config") ?: json
+                    val result = SettingsStore.importConfigJson(context, config)
+                    if (result.applied) {
+                        Logger.i("Pulled newer mesh config v${result.newVersion} from $ip:$port (portChanged=${result.portChanged}, pwdChanged=${result.passwordChanged}, seedsChanged=${result.seedsChanged})")
+                        sendBeacon()
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Logger.w("Failed to pull config from $ip:$port: ${e.message}")
+        }
+    }
+
+    suspend fun pushConfigToPeer(ip: String, port: Int, configJson: JSONObject = SettingsStore.exportConfigJson(context)) = withContext(Dispatchers.IO) {
+        try {
+            val url = "http://$ip:$port/api/mesh/sync-config"
+            val mediaType = "application/json; charset=utf-8".toMediaType()
+            val req = Request.Builder()
+                .url(url)
+                .post(configJson.toString().toRequestBody(mediaType))
+                .header("User-Agent", "DroidMesh-ConfigSync")
+                .build()
+            httpClient.newCall(req).execute().use { res ->
+                if (res.isSuccessful) {
+                    Logger.i("Successfully pushed config v${configJson.optLong("config_version")} to $ip:$port")
+                }
+            }
+        } catch (e: Exception) {
+            Logger.w("Failed to push config to $ip:$port: ${e.message}")
+        }
+    }
+
     private fun sendBeacon() {
         try {
             val installed = AppVersionHelper.getInstalledVersion(context)
+            val installedApps = AppVersionHelper.getUserInstalledApps(context)
             val currentStatus = coordinator.statusFlow.value
             val localIp = getLocalIpAddress() ?: "127.0.0.1"
+            val activePort = SettingsStore.getWebServerPort(context)
 
             val json = JSONObject().apply {
                 put("type", "ks_mesh_beacon")
                 put("id", deviceId)
                 put("ip", localIp)
-                put("port", 2325)
+                put("port", activePort)
                 put("meshId", localMeshId)
                 put("meshName", localMeshName)
                 put("deviceModel", deviceModel)
+                put("config_version", SettingsStore.getConfigVersion(context))
                 put("targetInstalled", installed.isInstalled)
                 put("installedVersionName", installed.versionName ?: JSONObject.NULL)
                 put("installedVersionCode", installed.versionCode ?: JSONObject.NULL)
+
+                val appsArray = JSONArray()
+                for (app in installedApps) {
+                    appsArray.put(JSONObject().apply {
+                        put("packageName", app.packageName)
+                        put("appName", app.appName)
+                        put("versionName", app.versionName ?: JSONObject.NULL)
+                        put("versionCode", app.versionCode ?: JSONObject.NULL)
+                    })
+                }
+                put("installedApps", appsArray)
+
                 put("updaterState", currentStatus.state)
                 put("updaterMessage", currentStatus.message)
                 put("adbEnabled", com.cfox.droidmesh.utils.AdbHelper.isAdbEnabled(context))
@@ -282,6 +375,17 @@ class MeshDiscoveryManager(
             if (peersArray != null) {
                 ingestRemotePeers(peersArray, seed)
             }
+
+            // Check remote config version from seed
+            val seedConfigVer = json.optLong("config_version", 0L)
+            val localConfigVer = SettingsStore.getConfigVersion(context)
+            val host = normalized.substringBefore(":")
+            val port = normalized.substringAfter(":", "2325").toIntOrNull() ?: 2325
+            if (seedConfigVer > localConfigVer) {
+                pullConfigFromPeer(host, port)
+            } else if (seedConfigVer < localConfigVer && localConfigVer > 0L) {
+                pushConfigToPeer(host, port)
+            }
         }
     }
 
@@ -305,14 +409,17 @@ class MeshDiscoveryManager(
         val normalized = normalizeSeedAddress(seed)
         val localIp = getLocalIpAddress() ?: "127.0.0.1"
         val handshakeUrl = "http://$normalized/api/mesh/handshake"
+        val activePort = SettingsStore.getWebServerPort(context)
 
         val payload = JSONObject().apply {
             put("sender_ip", localIp)
-            put("sender_port", 2325)
+            put("sender_port", activePort)
             put("mesh_id", localMeshId)
             put("mesh_name", localMeshName)
             put("device_id", deviceId)
             put("device_model", deviceModel)
+            put("config_version", SettingsStore.getConfigVersion(context))
+            put("config", SettingsStore.exportConfigJson(context))
             put("reciprocal", reciprocal)
         }
 
@@ -332,6 +439,10 @@ class MeshDiscoveryManager(
                     if (peersArray != null) {
                         ingestRemotePeers(peersArray, normalized)
                     }
+                    val remoteConfig = json.optJSONObject("config")
+                    if (remoteConfig != null) {
+                        SettingsStore.importConfigJson(context, remoteConfig)
+                    }
                 }
                 Logger.i("Successfully performed handshake with cross-VLAN seed $normalized")
             } else {
@@ -350,6 +461,15 @@ class MeshDiscoveryManager(
         SettingsStore.addCrossVlanSeed(context, remoteSeed)
         Logger.i("Registered incoming cross-VLAN handshake from $remoteSeed (Mesh: ${json.optString("mesh_id")})")
 
+        // Import config if provided
+        val incomingConfig = json.optJSONObject("config")
+        if (incomingConfig != null) {
+            val result = SettingsStore.importConfigJson(context, incomingConfig)
+            if (result.applied) {
+                Logger.i("Imported config v${result.newVersion} during incoming handshake from $remoteSeed")
+            }
+        }
+
         // Trigger reciprocal connect if requested
         if (reciprocal) {
             scope.launch(Dispatchers.IO) {
@@ -361,7 +481,9 @@ class MeshDiscoveryManager(
             }
         }
 
-        return getMeshesGrouped()
+        val res = getMeshesGrouped()
+        res.put("config", SettingsStore.exportConfigJson(context))
+        return res
     }
 
     fun removeCrossVlanSeed(rawIp: String): Boolean {
@@ -403,6 +525,36 @@ class MeshDiscoveryManager(
             val targetInstalled = peerJson.optBoolean("targetInstalled", false)
             val installedVersionName = if (peerJson.isNull("installedVersionName")) null else peerJson.optString("installedVersionName")
             val installedVersionCode = if (peerJson.isNull("installedVersionCode")) null else peerJson.optLong("installedVersionCode")
+
+            val appsList = mutableListOf<AppVersionHelper.InstalledAppInfo>()
+            val appsJsonArray = peerJson.optJSONArray("installedApps") ?: peerJson.optJSONArray("installed_apps")
+            if (appsJsonArray != null) {
+                for (j in 0 until appsJsonArray.length()) {
+                    val appObj = appsJsonArray.optJSONObject(j) ?: continue
+                    val pkgName = appObj.optString("packageName", appObj.optString("package_name", ""))
+                    if (pkgName.isNotBlank()) {
+                        appsList.add(
+                            AppVersionHelper.InstalledAppInfo(
+                                packageName = pkgName,
+                                appName = appObj.optString("appName", appObj.optString("app_name", pkgName)),
+                                versionName = if (appObj.isNull("versionName")) null else appObj.optString("versionName"),
+                                versionCode = if (appObj.isNull("versionCode")) null else appObj.optLong("versionCode")
+                            )
+                        )
+                    }
+                }
+            }
+            if (appsList.isEmpty() && targetInstalled) {
+                appsList.add(
+                    AppVersionHelper.InstalledAppInfo(
+                        packageName = AppVersionHelper.TARGET_PACKAGE,
+                        appName = "Kiosk Satellite",
+                        versionName = installedVersionName,
+                        versionCode = installedVersionCode
+                    )
+                )
+            }
+
             val updaterState = peerJson.optString("updaterState", "IDLE")
             val updaterMessage = if (peerJson.isNull("updaterMessage")) null else peerJson.optString("updaterMessage")
             val adbEnabled = peerJson.optBoolean("adbEnabled", false)
@@ -415,6 +567,7 @@ class MeshDiscoveryManager(
                 targetInstalled = targetInstalled,
                 installedVersionName = installedVersionName,
                 installedVersionCode = installedVersionCode,
+                installedApps = appsList,
                 updaterState = updaterState,
                 updaterMessage = updaterMessage,
                 adbEnabled = adbEnabled,
@@ -466,6 +619,7 @@ class MeshDiscoveryManager(
 
     private fun updatePeersList() {
         val installed = AppVersionHelper.getInstalledVersion(context)
+        val installedApps = AppVersionHelper.getUserInstalledApps(context)
         val currentStatus = coordinator.statusFlow.value
         val localIp = getLocalIpAddress() ?: "127.0.0.1"
 
@@ -477,6 +631,7 @@ class MeshDiscoveryManager(
             targetInstalled = installed.isInstalled,
             installedVersionName = installed.versionName,
             installedVersionCode = installed.versionCode,
+            installedApps = installedApps,
             updaterState = currentStatus.state,
             updaterMessage = currentStatus.message,
             adbEnabled = com.cfox.droidmesh.utils.AdbHelper.isAdbEnabled(context),

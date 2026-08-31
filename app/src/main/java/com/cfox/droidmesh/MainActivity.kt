@@ -1,18 +1,23 @@
 package com.cfox.droidmesh
 
+import android.app.AlertDialog
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
-import android.graphics.Color
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
+import android.text.Editable
+import android.text.TextWatcher
+import android.view.LayoutInflater
 import android.view.View
 import android.view.WindowInsets
 import android.view.WindowInsetsController
 import android.widget.AdapterView
 import android.widget.ArrayAdapter
+import android.widget.LinearLayout
+import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
@@ -21,8 +26,12 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.lifecycleScope
 import com.cfox.droidmesh.api.ReleaseInfo
 import com.cfox.droidmesh.databinding.ActivityMainBinding
+import com.cfox.droidmesh.databinding.DialogConnectVlanBinding
 import com.cfox.droidmesh.databinding.ItemMeshPeerBinding
+import com.cfox.droidmesh.databinding.ItemSeedRowBinding
+import com.cfox.droidmesh.databinding.ItemSidebarMeshBinding
 import com.cfox.droidmesh.installer.AppVersionHelper
+import com.cfox.droidmesh.mesh.MeshDiscoveryManager
 import com.cfox.droidmesh.mesh.PeerNode
 import com.cfox.droidmesh.server.UpdateCoordinator
 import com.cfox.droidmesh.service.AutoInstallService
@@ -37,22 +46,24 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
-import java.net.URLEncoder
+import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 
 class MainActivity : AppCompatActivity() {
 
     enum class NavTab {
-        OVERVIEW, REMOTE, ABOUT, LOGS
+        MESH, OVERVIEW, SETTINGS, LOGS
     }
-
 
     private lateinit var binding: ActivityMainBinding
     private var coordinator: UpdateCoordinator? = null
     private var availableReleases: List<ReleaseInfo> = emptyList()
     private var selectedReleaseIndex: Int = 0 // 0 = "Latest"
-    private var currentTab: NavTab = NavTab.OVERVIEW
+    private var currentTab: NavTab = NavTab.MESH
+    private var selectedMeshId: String? = null
+    private var lastGroupedData: JSONObject? = null
 
     private val httpClient = OkHttpClient.Builder()
         .connectTimeout(6, TimeUnit.SECONDS)
@@ -66,33 +77,30 @@ class MainActivity : AppCompatActivity() {
 
         applyImmersiveMode()
 
-        // Handle edge insets gracefully
         ViewCompat.setOnApplyWindowInsetsListener(binding.rootLayout) { v, insets ->
             val systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
-            v.setPadding(
-                systemBars.left,
-                systemBars.top,
-                systemBars.right,
-                systemBars.bottom
-            )
+            v.setPadding(systemBars.left, systemBars.top, systemBars.right, systemBars.bottom)
             insets
         }
 
-        // Ensure foreground service is running
         UpdaterForegroundService.startService(this)
         coordinator = UpdaterForegroundService.activeCoordinator ?: UpdateCoordinator(this)
 
+        selectedMeshId = SettingsStore.getLocalMeshId(this)
+
         setupNavigation()
-        setupUI()
-        setupRemoteUI()
-        setupLogActions()
+        setupOverviewUI()
+        setupSettingsUI()
+        setupMeshActions()
+        setupLogsUI()
+
         observeCoordinator()
         observeLogs()
-        observeMeshPeers()
+        observeMeshDiscovery()
         startCpuTelemetryLoop()
+
         refreshStatus()
-        refreshRemoteUI()
-        refreshAbout()
+        refreshSettingsUI()
         loadAvailableReleases(forceRefresh = false)
     }
 
@@ -100,21 +108,15 @@ class MainActivity : AppCompatActivity() {
         super.onResume()
         applyImmersiveMode()
         refreshStatus()
-        refreshRemoteUI()
-        refreshAbout()
+        refreshSettingsUI()
         loadAvailableReleases(forceRefresh = false)
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
-        if (hasFocus) {
-            applyImmersiveMode()
-        }
+        if (hasFocus) applyImmersiveMode()
     }
 
-    /**
-     * Auto-hide Navigation Bar and Status Bar (Immersive Sticky mode matching KS).
-     */
     private fun applyImmersiveMode() {
         if (Build.VERSION.SDK_INT >= 30) {
             window.setDecorFitsSystemWindows(false)
@@ -135,20 +137,21 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    // ==================== NAVIGATION ====================
+
     private fun setupNavigation() {
-        // Resolve and display device name at top of sidebar
         binding.tvSidebarDeviceName.text = CpuStatsHelper.getDeviceName(this)
+
+        binding.btnSidebarConnectVlan.setOnClickListener {
+            showConnectVlanDialog()
+        }
 
         binding.btnNavOverview.setOnClickListener {
             switchTab(NavTab.OVERVIEW)
         }
 
-        binding.btnNavRemote.setOnClickListener {
-            switchTab(NavTab.REMOTE)
-        }
-
-        binding.btnNavAbout.setOnClickListener {
-            switchTab(NavTab.ABOUT)
+        binding.btnNavSettings.setOnClickListener {
+            switchTab(NavTab.SETTINGS)
         }
 
         binding.btnNavLogs.setOnClickListener {
@@ -159,155 +162,426 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun switchTab(tab: NavTab) {
-        if (currentTab == tab) return
         currentTab = tab
         updateNavSelectionUI()
 
-        if (tab == NavTab.REMOTE) {
-            refreshRemoteUI()
-        } else if (tab == NavTab.ABOUT) {
-            refreshAbout()
+        if (tab == NavTab.SETTINGS) {
+            refreshSettingsUI()
+        } else if (tab == NavTab.OVERVIEW) {
+            refreshStatus()
         } else if (tab == NavTab.LOGS) {
             scrollLogsToBottom()
+        } else if (tab == NavTab.MESH) {
+            renderCurrentMeshView()
         }
+    }
+
+    private fun selectMesh(meshId: String) {
+        selectedMeshId = meshId
+        currentTab = NavTab.MESH
+        updateNavSelectionUI()
+        renderCurrentMeshView()
     }
 
     private fun updateNavSelectionUI() {
-        // Tab panes visibility
+        binding.paneMesh.visibility = if (currentTab == NavTab.MESH) View.VISIBLE else View.GONE
         binding.paneOverview.visibility = if (currentTab == NavTab.OVERVIEW) View.VISIBLE else View.GONE
-        binding.paneRemote.visibility = if (currentTab == NavTab.REMOTE) View.VISIBLE else View.GONE
-        binding.paneAbout.visibility = if (currentTab == NavTab.ABOUT) View.VISIBLE else View.GONE
+        binding.paneSettings.visibility = if (currentTab == NavTab.SETTINGS) View.VISIBLE else View.GONE
         binding.paneLogs.visibility = if (currentTab == NavTab.LOGS) View.VISIBLE else View.GONE
 
-        // Sidebar rail item backgrounds
         val selectedBg = ContextCompat.getDrawable(this, R.drawable.bg_rail_item_selected)
 
         binding.btnNavOverview.background = if (currentTab == NavTab.OVERVIEW) selectedBg else null
-        binding.btnNavRemote.background = if (currentTab == NavTab.REMOTE) selectedBg else null
-        binding.btnNavAbout.background = if (currentTab == NavTab.ABOUT) selectedBg else null
+        binding.btnNavSettings.background = if (currentTab == NavTab.SETTINGS) selectedBg else null
         binding.btnNavLogs.background = if (currentTab == NavTab.LOGS) selectedBg else null
+
+        renderSidebarMeshes()
     }
 
-    private fun setupRemoteUI() {
-        binding.switchWebServer.isChecked = SettingsStore.isWebServerEnabled(this)
-        binding.switchWebServer.setOnCheckedChangeListener { _, isChecked ->
-            SettingsStore.setWebServerEnabled(this, isChecked)
-            Logger.i("Web server ${if (isChecked) "enabled" else "disabled"} by user on device")
-            UpdaterForegroundService.startService(this)
-            refreshRemoteUI()
+    // ==================== MESH NETWORK VIEW ====================
+
+    private fun setupMeshActions() {
+        binding.btnMeshConnectVlan.setOnClickListener {
+            showConnectVlanDialog()
         }
 
-        binding.etWebServerPort.setText(SettingsStore.getWebServerPort(this).toString())
-        binding.btnSaveWebServerPort.setOnClickListener {
-            val portText = binding.etWebServerPort.text?.toString()?.trim() ?: ""
-            val port = portText.toIntOrNull()
-            if (port != null && port in 1024..65535) {
-                SettingsStore.setWebServerPort(this, port)
-                Logger.i("Web server port set to $port by user on device")
-                UpdaterForegroundService.startService(this)
-                refreshRemoteUI()
-                Toast.makeText(this, "Port updated to $port", Toast.LENGTH_SHORT).show()
+        binding.btnMeshBeacon.setOnClickListener {
+            UpdaterForegroundService.activeMeshManager?.triggerBeacon()
+            Logger.i("Broadcast manual mesh beacon scan")
+            Toast.makeText(this, "Beacon broadcast sent", Toast.LENGTH_SHORT).show()
+        }
+
+        binding.btnMeshUpdateAll.setOnClickListener {
+            triggerMeshUpdateAll()
+        }
+    }
+
+    private fun observeMeshDiscovery() {
+        lifecycleScope.launch {
+            while (isActive) {
+                val meshManager = UpdaterForegroundService.activeMeshManager
+                if (meshManager != null) {
+                    val grouped = meshManager.getMeshesGrouped()
+                    lastGroupedData = grouped
+                    withContext(Dispatchers.Main) {
+                        renderSidebarMeshes()
+                        if (currentTab == NavTab.MESH) {
+                            renderCurrentMeshView()
+                        }
+                    }
+                }
+                delay(2000)
+            }
+        }
+    }
+
+    private fun renderSidebarMeshes() {
+        val grouped = lastGroupedData ?: return
+        val meshesArray = grouped.optJSONArray("meshes") ?: return
+        val localMeshId = grouped.optString("local_mesh_id", SettingsStore.getLocalMeshId(this))
+
+        binding.layoutSidebarMeshes.removeAllViews()
+
+        val inflater = layoutInflater
+        for (i in 0 until meshesArray.length()) {
+            val meshObj = meshesArray.optJSONObject(i) ?: continue
+            val id = meshObj.optString("id")
+            val name = meshObj.optString("name", id)
+            val peerCount = meshObj.optInt("peer_count", 0)
+
+            val itemBinding = ItemSidebarMeshBinding.inflate(inflater, binding.layoutSidebarMeshes, false)
+            itemBinding.tvMeshTitle.text = name
+            itemBinding.tvMeshNodeBadge.text = peerCount.toString()
+
+            val isSelected = (currentTab == NavTab.MESH && (selectedMeshId == id || (selectedMeshId == null && id == localMeshId)))
+            itemBinding.root.background = if (isSelected) ContextCompat.getDrawable(this, R.drawable.bg_rail_item_selected) else null
+
+            val isTv = id.contains("tv", ignoreCase = true) || name.contains("tv", ignoreCase = true)
+            if (isTv) {
+                itemBinding.ivMeshIcon.setImageResource(R.drawable.ic_device_tv)
+                itemBinding.layoutMeshDisc.setBackgroundResource(R.drawable.bg_disc_ochre)
             } else {
-                Toast.makeText(this, "Please enter a valid port (1024-65535)", Toast.LENGTH_SHORT).show()
-                binding.etWebServerPort.setText(SettingsStore.getWebServerPort(this).toString())
+                itemBinding.ivMeshIcon.setImageResource(R.drawable.ic_device_tablet)
+                itemBinding.layoutMeshDisc.setBackgroundResource(R.drawable.bg_disc_teal)
             }
-        }
 
-        binding.btnSaveAdminPassword.setOnClickListener {
-            val newPass = binding.etAdminPassword.text?.toString() ?: ""
-            if (newPass.isBlank()) {
-                Toast.makeText(this, "Password cannot be empty", Toast.LENGTH_SHORT).show()
-                return@setOnClickListener
+            itemBinding.root.setOnClickListener {
+                selectMesh(id)
             }
-            SettingsStore.setPassword(this, newPass)
-            binding.etAdminPassword.setText("")
-            Logger.i("Admin password configured on device")
-            refreshRemoteUI()
-            Toast.makeText(this, "Admin password saved", Toast.LENGTH_SHORT).show()
-        }
 
-        binding.btnClearAdminPassword.setOnClickListener {
-            SettingsStore.clearPassword(this)
-            binding.etAdminPassword.setText("")
-            Logger.i("Admin password removed on device")
-            refreshRemoteUI()
-            Toast.makeText(this, "Admin password removed", Toast.LENGTH_SHORT).show()
+            binding.layoutSidebarMeshes.addView(itemBinding.root)
         }
     }
 
-    private fun refreshRemoteUI() {
-        val isEnabled = SettingsStore.isWebServerEnabled(this)
-        val port = SettingsStore.getWebServerPort(this)
-        val hasPassword = SettingsStore.isPasswordSet(this)
+    private fun renderCurrentMeshView() {
+        val grouped = lastGroupedData ?: UpdaterForegroundService.activeMeshManager?.getMeshesGrouped() ?: return
+        val localMeshId = grouped.optString("local_mesh_id", SettingsStore.getLocalMeshId(this))
+        val activeMeshId = selectedMeshId ?: localMeshId
 
-        binding.switchWebServer.isChecked = isEnabled
-        binding.etWebServerPort.setText(port.toString())
+        val meshesArray = grouped.optJSONArray("meshes")
+        var targetMeshObj: JSONObject? = null
 
-        if (hasPassword) {
-            binding.tvPasswordStatusBadge.text = "Status: Password Configured (Protected)"
-            binding.tvPasswordStatusBadge.setTextColor(ContextCompat.getColor(this, R.color.ks_sage))
-        } else {
-            binding.tvPasswordStatusBadge.text = "Status: No password set (Open Access)"
-            binding.tvPasswordStatusBadge.setTextColor(ContextCompat.getColor(this, R.color.ks_ochre))
+        if (meshesArray != null) {
+            for (i in 0 until meshesArray.length()) {
+                val m = meshesArray.optJSONObject(i) ?: continue
+                if (m.optString("id") == activeMeshId) {
+                    targetMeshObj = m
+                    break
+                }
+            }
         }
 
-        val ip = getLocalIpAddress() ?: "0.0.0.0"
-        if (isEnabled) {
-            binding.tvWebConsoleUrl.text = "Web URL: http://$ip:$port/"
-            binding.tvWebConsoleUrl.setTextColor(ContextCompat.getColor(this, R.color.ks_sage))
+        val meshName = targetMeshObj?.optString("name") ?: if (activeMeshId == localMeshId) SettingsStore.getLocalMeshName(this) else activeMeshId
+        val isLocal = targetMeshObj?.optBoolean("is_local", activeMeshId == localMeshId) ?: (activeMeshId == localMeshId)
+        val peerCount = targetMeshObj?.optInt("peer_count", 0) ?: 0
+        val onlineCount = targetMeshObj?.optInt("online_count", 0) ?: 0
+
+        binding.tvMeshViewTitle.text = "$meshName Mesh"
+        binding.tvMeshViewSubtitle.text = "Partition: $activeMeshId • $onlineCount/$peerCount nodes online"
+        binding.btnMeshUpdateAll.text = "Update All in $meshName"
+
+        if (isLocal) {
+            binding.tvMeshViewBadge.text = "Local Subnet"
+            binding.tvMeshViewBadge.setTextColor(getColor(R.color.ks_teal))
+            binding.tvMeshViewBadge.backgroundTintList = ContextCompat.getColorStateList(this, R.color.ks_teal_container)
         } else {
-            binding.tvWebConsoleUrl.text = "Web URL: Server Disabled"
-            binding.tvWebConsoleUrl.setTextColor(ContextCompat.getColor(this, R.color.ks_rust))
+            binding.tvMeshViewBadge.text = "Cross-VLAN Peered"
+            binding.tvMeshViewBadge.setTextColor(getColor(R.color.ks_sage))
+            binding.tvMeshViewBadge.backgroundTintList = ContextCompat.getColorStateList(this, R.color.ks_sage_container)
+        }
+
+        val allPeers = UpdaterForegroundService.activeMeshManager?.peersFlow?.value ?: emptyList()
+        val meshPeers = allPeers.filter { (it.meshId) == activeMeshId }
+
+        renderMeshPeerCards(meshPeers)
+    }
+
+    private fun renderMeshPeerCards(peers: List<PeerNode>) {
+        binding.layoutMeshPeers.removeAllViews()
+
+        if (peers.isEmpty()) {
+            val emptyTv = TextView(this).apply {
+                text = "No nodes detected in this mesh partition."
+                setTextColor(getColor(R.color.ks_on_surface_variant))
+                textSize = 14f
+                setPadding(16, 32, 16, 32)
+                gravity = android.view.Gravity.CENTER
+            }
+            binding.layoutMeshPeers.addView(emptyTv)
+            return
+        }
+
+        val inflater = layoutInflater
+        for (peer in peers) {
+            val itemBinding = ItemMeshPeerBinding.inflate(inflater, binding.layoutMeshPeers, false)
+
+            itemBinding.tvPeerTitle.text = peer.deviceModel
+            itemBinding.tvPeerIpPort.text = "${peer.ip}:${peer.port}"
+
+            val isTv = peer.deviceModel.contains("tv", ignoreCase = true) || peer.deviceModel.contains("onn", ignoreCase = true)
+            itemBinding.ivPeerDeviceIcon.setImageResource(if (isTv) R.drawable.ic_device_tv else R.drawable.ic_device_tablet)
+
+            itemBinding.tvPeerSelfBadge.visibility = if (peer.isSelf) View.VISIBLE else View.GONE
+            itemBinding.tvPeerVlanBadge.visibility = if (peer.isCrossVlan) View.VISIBLE else View.GONE
+
+            val isOnline = peer.isOnline
+            if (isOnline) {
+                if (peer.updaterState == "IDLE") {
+                    itemBinding.tvPeerStateBadge.text = "IDLE"
+                    itemBinding.tvPeerStateBadge.setTextColor(getColor(R.color.ks_sage))
+                    itemBinding.tvPeerStateBadge.backgroundTintList = ContextCompat.getColorStateList(this, R.color.ks_sage_container)
+                } else if (peer.updaterState == "ERROR") {
+                    itemBinding.tvPeerStateBadge.text = "ERROR"
+                    itemBinding.tvPeerStateBadge.setTextColor(getColor(R.color.ks_rust))
+                    itemBinding.tvPeerStateBadge.backgroundTintList = ContextCompat.getColorStateList(this, R.color.ks_rust_container)
+                } else {
+                    itemBinding.tvPeerStateBadge.text = peer.updaterState
+                    itemBinding.tvPeerStateBadge.setTextColor(getColor(R.color.ks_teal))
+                    itemBinding.tvPeerStateBadge.backgroundTintList = ContextCompat.getColorStateList(this, R.color.ks_teal_container)
+                }
+            } else {
+                itemBinding.tvPeerStateBadge.text = "OFFLINE"
+                itemBinding.tvPeerStateBadge.setTextColor(getColor(R.color.ks_outline))
+                itemBinding.tvPeerStateBadge.backgroundTintList = ContextCompat.getColorStateList(this, R.color.ks_surface_highest)
+            }
+
+            if (peer.adbEnabled) {
+                itemBinding.tvPeerAdbStatus.text = "Enabled (:5555)"
+                itemBinding.tvPeerAdbStatus.setTextColor(getColor(R.color.ks_sage))
+            } else {
+                itemBinding.tvPeerAdbStatus.text = "Disabled"
+                itemBinding.tvPeerAdbStatus.setTextColor(getColor(R.color.ks_rust))
+            }
+
+            itemBinding.layoutPeerApps.removeAllViews()
+            val apps = peer.installedApps
+            if (apps.isNotEmpty()) {
+                for (app in apps) {
+                    val appRow = LinearLayout(this).apply {
+                        orientation = LinearLayout.HORIZONTAL
+                        gravity = android.view.Gravity.CENTER_VERTICAL
+                        setPadding(0, 4, 0, 4)
+                    }
+
+                    val nameTv = TextView(this).apply {
+                        layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                        text = app.appName.ifBlank { app.packageName }
+                        setTextColor(getColor(R.color.ks_on_surface))
+                        textSize = 13f
+                    }
+
+                    val verPill = TextView(this).apply {
+                        text = if (!app.versionName.isNullOrBlank()) "v${app.versionName}" else if (app.versionCode != null) "build ${app.versionCode}" else "Installed"
+                        setTextColor(getColor(R.color.ks_teal))
+                        background = ContextCompat.getDrawable(this@MainActivity, R.drawable.bg_badge_pill)
+                        backgroundTintList = ContextCompat.getColorStateList(this@MainActivity, R.color.ks_teal_container)
+                        setPadding(16, 4, 16, 4)
+                        textSize = 11f
+                    }
+
+                    appRow.addView(nameTv)
+                    appRow.addView(verPill)
+                    itemBinding.layoutPeerApps.addView(appRow)
+                }
+            } else if (peer.targetInstalled && !peer.installedVersionName.isNullOrBlank()) {
+                val appRow = LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = android.view.Gravity.CENTER_VERTICAL
+                    setPadding(0, 4, 0, 4)
+                }
+                val nameTv = TextView(this).apply {
+                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                    text = "Kiosk Satellite"
+                    setTextColor(getColor(R.color.ks_on_surface))
+                    textSize = 13f
+                }
+                val verPill = TextView(this).apply {
+                    text = "v${peer.installedVersionName}"
+                    setTextColor(getColor(R.color.ks_teal))
+                    background = ContextCompat.getDrawable(this@MainActivity, R.drawable.bg_badge_pill)
+                    backgroundTintList = ContextCompat.getColorStateList(this@MainActivity, R.color.ks_teal_container)
+                    setPadding(16, 4, 16, 4)
+                    textSize = 11f
+                }
+                appRow.addView(nameTv)
+                appRow.addView(verPill)
+                itemBinding.layoutPeerApps.addView(appRow)
+            } else {
+                val noAppsTv = TextView(this).apply {
+                    text = "No user apps reported"
+                    setTextColor(getColor(R.color.ks_outline))
+                    textSize = 12f
+                }
+                itemBinding.layoutPeerApps.addView(noAppsTv)
+            }
+
+            itemBinding.tvPeerMessage.text = peer.updaterMessage ?: "Status: Ready"
+            itemBinding.tvPeerLastSeen.text = if (peer.isSelf) "Local" else if (peer.lastSeenSecondsAgo <= 5) "Just now" else "${peer.lastSeenSecondsAgo}s ago"
+
+            if (!peer.isSelf) {
+                itemBinding.layoutPeerActions.visibility = View.VISIBLE
+                itemBinding.btnPeerToggleAdb.setOnClickListener {
+                    toggleRemoteAdb(peer)
+                }
+                itemBinding.btnPeerUpdate.setOnClickListener {
+                    triggerRemoteUpdate(peer)
+                }
+            } else {
+                itemBinding.layoutPeerActions.visibility = View.GONE
+            }
+
+            binding.layoutMeshPeers.addView(itemBinding.root)
         }
     }
 
-    private fun getLocalIpAddress(): String? {
-        try {
-            val interfaces = java.net.NetworkInterface.getNetworkInterfaces()
-            while (interfaces.hasMoreElements()) {
-                val iface = interfaces.nextElement()
-                if (iface.isLoopback || !iface.isUp) continue
-                val addresses = iface.inetAddresses
-                while (addresses.hasMoreElements()) {
-                    val addr = addresses.nextElement()
-                    if (!addr.isLoopbackAddress && addr is java.net.Inet4Address) {
-                        return addr.hostAddress
+    private fun triggerMeshUpdateAll() {
+        val targetRelease = getSelectedRelease()
+        val allPeers = UpdaterForegroundService.activeMeshManager?.peersFlow?.value ?: emptyList()
+        val localMeshId = SettingsStore.getLocalMeshId(this)
+        val activeMeshId = selectedMeshId ?: localMeshId
+        val meshPeers = allPeers.filter { it.meshId == activeMeshId }
+
+        Logger.i("Triggering Update All in mesh partition $activeMeshId (${meshPeers.size} nodes)")
+
+        val selfNode = meshPeers.firstOrNull { it.isSelf }
+        if (selfNode != null && targetRelease != null) {
+            val activeCoordinator = coordinator ?: UpdateCoordinator(this)
+            activeCoordinator.startUpdateForRelease(targetRelease, force = true)
+        }
+
+        val remotes = meshPeers.filter { !it.isSelf && it.isOnline }
+        if (remotes.isNotEmpty()) {
+            lifecycleScope.launch(Dispatchers.IO) {
+                for (peer in remotes) {
+                    try {
+                        val tag = targetRelease?.tagName ?: "latest"
+                        val url = "http://${peer.ip}:${peer.port}/update?force=true&tag=$tag"
+                        val request = Request.Builder()
+                            .url(url)
+                            .post(ByteArray(0).toRequestBody(null, 0, 0))
+                            .build()
+                        httpClient.newCall(request).execute().close()
+                        Logger.i("Dispatched update to ${peer.deviceModel} (${peer.ip})")
+                    } catch (e: Exception) {
+                        Logger.e("Error updating ${peer.ip}: ${e.message}")
                     }
                 }
             }
-        } catch (_: Exception) {}
-        return null
+        }
+        Toast.makeText(this, "Update broadcast sent to all nodes in mesh", Toast.LENGTH_SHORT).show()
     }
 
+    private fun toggleRemoteAdb(peer: PeerNode) {
+        lifecycleScope.launch(Dispatchers.IO) {
+            try {
+                val url = "http://${peer.ip}:${peer.port}/api/peers/adb/toggle"
+                val payload = JSONObject().apply {
+                    put("ip", peer.ip)
+                    put("port", peer.port)
+                }
+                val request = Request.Builder()
+                    .url(url)
+                    .post(payload.toString().toRequestBody("application/json; charset=utf-8".toMediaType()))
+                    .build()
+                httpClient.newCall(request).execute().close()
+                Logger.i("Toggled ADB on ${peer.ip}")
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(this@MainActivity, "Toggled ADB on ${peer.deviceModel}", Toast.LENGTH_SHORT).show()
+                }
+            } catch (e: Exception) {
+                Logger.e("Failed to toggle ADB on ${peer.ip}: ${e.message}")
+            }
+        }
+    }
 
-    private fun setupUI() {
-        // Auto-update switch toggle
-        binding.switchAutoUpdate.isChecked = SettingsStore.isAutoUpdateEnabled(this)
-        binding.switchAutoUpdate.setOnCheckedChangeListener { _, isChecked ->
-            SettingsStore.setAutoUpdateEnabled(this, isChecked)
-            Logger.i("Auto-update ${if (isChecked) "enabled" else "disabled"} by user")
-            UpdaterForegroundService.startService(this)
-            updateVersionActionVisibility()
-            renderMeshPeers(UpdaterForegroundService.activeMeshManager?.peersFlow?.value ?: emptyList())
+    private fun triggerRemoteUpdate(peer: PeerNode) {
+        val targetRelease = getSelectedRelease()
+        lifecycleScope.launch(Dispatchers.IO) {
+            try {
+                val tag = targetRelease?.tagName ?: "latest"
+                val url = "http://${peer.ip}:${peer.port}/update?force=true&tag=$tag"
+                val request = Request.Builder()
+                    .url(url)
+                    .post(ByteArray(0).toRequestBody(null, 0, 0))
+                    .build()
+                httpClient.newCall(request).execute().close()
+                Logger.i("Dispatched update to ${peer.deviceModel} (${peer.ip})")
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(this@MainActivity, "Update dispatched to ${peer.deviceModel}", Toast.LENGTH_SHORT).show()
+                }
+            } catch (e: Exception) {
+                Logger.e("Failed to update peer ${peer.ip}: ${e.message}")
+            }
+        }
+    }
+
+    private fun showConnectVlanDialog() {
+        val dialogBinding = DialogConnectVlanBinding.inflate(layoutInflater)
+        val dialog = AlertDialog.Builder(this)
+            .setView(dialogBinding.root)
+            .create()
+
+        dialogBinding.btnCancelConnect.setOnClickListener {
+            dialog.dismiss()
         }
 
-        // Refresh releases button
-        binding.btnRefreshVersions.setOnClickListener {
+        dialogBinding.btnSubmitConnect.setOnClickListener {
+            val ip = dialogBinding.etSeedIpInput.text?.toString()?.trim() ?: ""
+            if (ip.isNotBlank()) {
+                dialogBinding.btnSubmitConnect.isEnabled = false
+                val meshManager = UpdaterForegroundService.activeMeshManager
+                meshManager?.addCrossVlanSeed(ip, reciprocal = true)
+                Logger.i("Added cross-VLAN seed: $ip")
+                Toast.makeText(this, "Connecting to $ip...", Toast.LENGTH_SHORT).show()
+                dialog.dismiss()
+                refreshSettingsUI()
+            }
+        }
+
+        dialog.show()
+    }
+
+    private fun setupOverviewUI() {
+        binding.btnRefreshOverview.setOnClickListener {
+            refreshStatus()
             loadAvailableReleases(forceRefresh = true)
         }
 
-        // Update All button
-        binding.btnUpdateAll.setOnClickListener {
-            triggerUpdateAll()
+        binding.btnToggleAdb.setOnClickListener {
+            com.cfox.droidmesh.utils.AdbHelper.toggleAdb(this)
+            refreshStatus()
         }
 
-        // Mesh scan button
-        binding.btnMeshBeacon.setOnClickListener {
-            UpdaterForegroundService.activeMeshManager?.triggerBeacon()
-            Logger.i("Triggered manual mesh beacon scan")
+        binding.btnTriggerUpdate.setOnClickListener {
+            val release = getSelectedRelease()
+            if (release != null) {
+                val activeCoordinator = coordinator ?: UpdateCoordinator(this)
+                val force = binding.chkForceUpdate.isChecked
+                activeCoordinator.startUpdateForRelease(release, force = force)
+                Logger.i("Triggered local install for ${release.tagName} (force=$force)")
+            }
         }
 
-        // System Permissions Shortcuts
         binding.tvAccessibilityStatus.setOnClickListener {
             try {
                 startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
@@ -329,27 +603,193 @@ class MainActivity : AppCompatActivity() {
         binding.tvAdbStatus.setOnClickListener {
             com.cfox.droidmesh.utils.AdbHelper.toggleAdb(this)
             refreshStatus()
-            populateVersionSpinner()
-            updateVersionSelectionUI()
         }
 
-        // Version Spinner Listener
         binding.spnVersionToInstall.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
             override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
                 selectedReleaseIndex = position
-                updateVersionSelectionUI()
             }
-
             override fun onNothingSelected(parent: AdapterView<*>?) {}
         }
     }
 
-    private fun setupLogActions() {
+    private fun refreshStatus() {
+        val installed = AppVersionHelper.getInstalledVersion(this)
+        if (installed.isInstalled) {
+            binding.tvOverviewTargetBadge.text = "Installed"
+            binding.tvOverviewTargetBadge.setTextColor(getColor(R.color.ks_sage))
+            binding.tvOverviewTargetBadge.backgroundTintList = ContextCompat.getColorStateList(this, R.color.ks_sage_container)
+            binding.tvOverviewInstalledVer.text = "Installed: v${installed.versionName}"
+        } else {
+            binding.tvOverviewTargetBadge.text = "Not Installed"
+            binding.tvOverviewTargetBadge.setTextColor(getColor(R.color.ks_ochre))
+            binding.tvOverviewTargetBadge.backgroundTintList = ContextCompat.getColorStateList(this, R.color.ks_ochre_container)
+            binding.tvOverviewInstalledVer.text = "Installed: None"
+        }
+
+        val isA11y = AutoInstallService.isServiceRunning
+        binding.tvOverviewA11y.text = "A11y: ${if (isA11y) "Active (Auto-Click Ready)" else "Disabled"}"
+        binding.tvAccessibilityStatus.text = "Accessibility Service: ${if (isA11y) "ACTIVE" else "DISABLED (Tap to enable)"}"
+        binding.tvAccessibilityStatus.setTextColor(getColor(if (isA11y) R.color.ks_sage else R.color.ks_rust))
+
+        val isAdb = com.cfox.droidmesh.utils.AdbHelper.isAdbEnabled(this)
+        binding.tvOverviewAdb.text = "ADB :5555: ${if (isAdb) "Enabled" else "Disabled"}"
+        binding.tvAdbStatus.text = "ADB Debugging: ${if (isAdb) "ENABLED" else "DISABLED (Tap to toggle)"}"
+        binding.tvAdbStatus.setTextColor(getColor(if (isAdb) R.color.ks_sage else R.color.ks_rust))
+        binding.btnToggleAdb.text = if (isAdb) "Disable ADB" else "Enable ADB"
+
+        val canInstall = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) packageManager.canRequestPackageInstalls() else true
+        binding.tvInstallPermissionStatus.text = "Install Unknown Apps: ${if (canInstall) "GRANTED" else "NOT GRANTED (Tap to grant)"}"
+        binding.tvInstallPermissionStatus.setTextColor(getColor(if (canInstall) R.color.ks_sage else R.color.ks_ochre))
+
+        val ip = getLocalIpAddress() ?: "127.0.0.1"
+        binding.tvOverviewIp.text = "IP: $ip"
+        binding.tvOverviewModelBadge.text = Build.MODEL
+    }
+
+    private fun loadAvailableReleases(forceRefresh: Boolean = false) {
+        lifecycleScope.launch {
+            val activeCoordinator = coordinator ?: UpdateCoordinator(this@MainActivity)
+            val result = activeCoordinator.fetchAvailableReleases(forceRefresh = forceRefresh)
+            if (result.isSuccess) {
+                availableReleases = result.getOrThrow()
+                populateVersionSpinner()
+                val latest = availableReleases.firstOrNull()?.tagName
+                binding.tvOverviewLatestVer.text = "Latest: ${latest ?: "None"}"
+            }
+        }
+    }
+
+    private fun populateVersionSpinner() {
+        val options = mutableListOf<String>()
+        val latestTag = availableReleases.firstOrNull()?.tagName
+        if (latestTag != null) options.add("Latest ($latestTag)") else options.add("Latest")
+
+        for (rel in availableReleases) {
+            options.add(rel.tagName)
+        }
+
+        val adapter = ArrayAdapter(this, R.layout.item_version_dropdown, options)
+        adapter.setDropDownViewResource(R.layout.item_version_dropdown)
+        binding.spnVersionToInstall.adapter = adapter
+    }
+
+    private fun getSelectedRelease(): ReleaseInfo? {
+        if (availableReleases.isEmpty()) return null
+        return if (selectedReleaseIndex == 0) availableReleases.firstOrNull() else {
+            val idx = selectedReleaseIndex - 1
+            if (idx in availableReleases.indices) availableReleases[idx] else availableReleases.firstOrNull()
+        }
+    }
+
+    private fun setupSettingsUI() {
+        binding.btnSaveMeshIdentity.setOnClickListener {
+            val meshId = binding.etSettingMeshId.text?.toString()?.trim() ?: ""
+            val meshName = binding.etSettingMeshName.text?.toString()?.trim() ?: ""
+            if (meshId.isNotBlank() && meshName.isNotBlank()) {
+                SettingsStore.setLocalMeshId(this, meshId)
+                SettingsStore.setLocalMeshName(this, meshName)
+                selectedMeshId = meshId
+                Logger.i("Saved mesh identity: $meshId ($meshName)")
+                Toast.makeText(this, "Mesh identity updated", Toast.LENGTH_SHORT).show()
+                refreshSettingsUI()
+                renderCurrentMeshView()
+            }
+        }
+
+        binding.btnAddSeedIp.setOnClickListener {
+            showConnectVlanDialog()
+        }
+
+        binding.switchAutoUpdate.setOnCheckedChangeListener { _, isChecked ->
+            SettingsStore.setAutoUpdateEnabled(this, isChecked)
+            Logger.i("Auto-update preference set to $isChecked")
+        }
+
+        binding.btnSaveWebServerPort.setOnClickListener {
+            val portText = binding.etWebServerPort.text?.toString()?.trim() ?: ""
+            val port = portText.toIntOrNull()
+            if (port != null && port in 1024..65535) {
+                SettingsStore.setWebServerPort(this, port)
+                UpdaterForegroundService.startService(this)
+                Logger.i("Web server port set to $port")
+                Toast.makeText(this, "Port set to $port", Toast.LENGTH_SHORT).show()
+            } else {
+                Toast.makeText(this, "Invalid port (1024-65535)", Toast.LENGTH_SHORT).show()
+            }
+        }
+
+        binding.btnSaveAdminPassword.setOnClickListener {
+            val pass = binding.etAdminPassword.text?.toString() ?: ""
+            if (pass.isNotBlank()) {
+                SettingsStore.setPassword(this, pass)
+                binding.etAdminPassword.setText("")
+                Logger.i("Admin password configured")
+                refreshSettingsUI()
+                Toast.makeText(this, "Admin password saved", Toast.LENGTH_SHORT).show()
+            }
+        }
+
+        binding.btnClearAdminPassword.setOnClickListener {
+            SettingsStore.clearPassword(this)
+            binding.etAdminPassword.setText("")
+            Logger.i("Admin password removed")
+            refreshSettingsUI()
+            Toast.makeText(this, "Admin password removed", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun refreshSettingsUI() {
+        binding.etSettingMeshId.setText(SettingsStore.getLocalMeshId(this))
+        binding.etSettingMeshName.setText(SettingsStore.getLocalMeshName(this))
+        binding.switchAutoUpdate.isChecked = SettingsStore.isAutoUpdateEnabled(this)
+        binding.etWebServerPort.setText(SettingsStore.getWebServerPort(this).toString())
+
+        val isPassSet = SettingsStore.isPasswordSet(this)
+        if (isPassSet) {
+            binding.tvPasswordStatusBadge.text = "Status: Password Configured (Protected)"
+            binding.tvPasswordStatusBadge.setTextColor(getColor(R.color.ks_sage))
+        } else {
+            binding.tvPasswordStatusBadge.text = "Status: No password set (Open Access)"
+            binding.tvPasswordStatusBadge.setTextColor(getColor(R.color.ks_ochre))
+        }
+
+        binding.layoutSeedList.removeAllViews()
+        val seeds = SettingsStore.getCrossVlanSeeds(this)
+        if (seeds.isEmpty()) {
+            val emptyTv = TextView(this).apply {
+                text = "No cross-VLAN seeds configured."
+                setTextColor(getColor(R.color.ks_outline))
+                textSize = 13f
+                setPadding(0, 4, 0, 4)
+            }
+            binding.layoutSeedList.addView(emptyTv)
+        } else {
+            val inflater = layoutInflater
+            for (seed in seeds) {
+                val seedBinding = ItemSeedRowBinding.inflate(inflater, binding.layoutSeedList, false)
+                seedBinding.tvSeedIp.text = seed
+                seedBinding.btnRemoveSeed.setOnClickListener {
+                    val meshManager = UpdaterForegroundService.activeMeshManager
+                    meshManager?.removeCrossVlanSeed(seed)
+                    SettingsStore.removeCrossVlanSeed(this, seed)
+                    refreshSettingsUI()
+                    Logger.i("Removed seed $seed")
+                }
+                binding.layoutSeedList.addView(seedBinding.root)
+            }
+        }
+
+        val selfInfo = AppVersionHelper.getInstalledVersion(this, packageName)
+        binding.tvAboutAppVersion.text = "Version: ${selfInfo.versionName ?: "0.0.1"} (build ${selfInfo.versionCode ?: 1})"
+        binding.tvAboutPackage.text = "Package: $packageName"
+    }
+
+    private fun setupLogsUI() {
         binding.btnCopyLogs.setOnClickListener {
-            val fullLogs = Logger.getRecentLogs().joinToString("\n")
+            val logs = Logger.getRecentLogs().joinToString("\n")
             val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-            val clip = ClipData.newPlainText("KSU Logs", fullLogs)
-            clipboard.setPrimaryClip(clip)
+            clipboard.setPrimaryClip(ClipData.newPlainText("DroidMesh Logs", logs))
             Toast.makeText(this, "Logs copied to clipboard", Toast.LENGTH_SHORT).show()
         }
 
@@ -360,10 +800,87 @@ class MainActivity : AppCompatActivity() {
         }
 
         binding.btnRefreshLogs.setOnClickListener {
-            val logs = Logger.getRecentLogs()
-            binding.tvLogConsole.text = if (logs.isEmpty()) "[Ready] Initialized Kiosk Satellite Updater." else logs.joinToString("\n")
-            binding.tvLogsMeta.text = "${logs.size} entries"
+            renderLogs()
+        }
+
+        binding.etLogFilter.addTextChangedListener(object : TextWatcher {
+            override fun afterTextChanged(s: Editable?) { renderLogs() }
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+        })
+    }
+
+    private fun renderLogs() {
+        val filter = binding.etLogFilter.text?.toString()?.lowercase() ?: ""
+        val allLogs = Logger.getRecentLogs()
+        val filtered = if (filter.isBlank()) allLogs else allLogs.filter { it.lowercase().contains(filter) }
+
+        binding.tvLogsMeta.text = "${filtered.size} entries"
+        binding.tvLogConsole.text = if (filtered.isEmpty()) "[No log entries matched filter]" else filtered.joinToString("\n")
+
+        if (binding.chkAutoScroll.isChecked) {
             scrollLogsToBottom()
+        }
+    }
+
+    private fun scrollLogsToBottom() {
+        binding.scrollLogConsole.post {
+            binding.scrollLogConsole.fullScroll(View.FOCUS_DOWN)
+        }
+    }
+
+    private fun observeLogs() {
+        lifecycleScope.launch {
+            renderLogs()
+            Logger.logFlow.collect {
+                withContext(Dispatchers.Main) {
+                    renderLogs()
+                }
+            }
+        }
+    }
+
+    private fun observeCoordinator() {
+        val activeCoordinator = coordinator ?: return
+        lifecycleScope.launch {
+            activeCoordinator.statusFlow.collect { status ->
+                binding.tvOverviewServiceBadge.text = status.state
+                when (status.state) {
+                    "DOWNLOADING" -> {
+                        binding.progressBar.visibility = View.VISIBLE
+                        binding.tvProgressText.visibility = View.VISIBLE
+                        binding.progressBar.isIndeterminate = false
+                        binding.progressBar.progress = status.progressPercent
+                        binding.tvProgressText.text = status.message
+                        binding.btnTriggerUpdate.isEnabled = false
+                    }
+                    "INSTALLING", "CHECKING" -> {
+                        binding.progressBar.visibility = View.VISIBLE
+                        binding.tvProgressText.visibility = View.VISIBLE
+                        binding.progressBar.isIndeterminate = true
+                        binding.tvProgressText.text = status.message
+                        binding.btnTriggerUpdate.isEnabled = false
+                    }
+                    "COMPLETED" -> {
+                        binding.progressBar.visibility = View.GONE
+                        binding.tvProgressText.visibility = View.VISIBLE
+                        binding.tvProgressText.text = status.message
+                        binding.btnTriggerUpdate.isEnabled = true
+                        refreshStatus()
+                    }
+                    "ERROR" -> {
+                        binding.progressBar.visibility = View.GONE
+                        binding.tvProgressText.visibility = View.VISIBLE
+                        binding.tvProgressText.text = "Error: ${status.message}"
+                        binding.btnTriggerUpdate.isEnabled = true
+                    }
+                    else -> {
+                        binding.progressBar.visibility = View.GONE
+                        binding.tvProgressText.visibility = View.GONE
+                        binding.btnTriggerUpdate.isEnabled = true
+                    }
+                }
+            }
         }
     }
 
@@ -374,476 +891,28 @@ class MainActivity : AppCompatActivity() {
                 withContext(Dispatchers.Main) {
                     binding.tvStatCpu.text = telemetry.usageDisplay
                     binding.tvStatTemp.text = telemetry.tempDisplay
+                    binding.tvOverviewCpu.text = "CPU: ${telemetry.usageDisplay}"
                 }
                 delay(3000)
             }
         }
     }
 
-    private fun refreshAbout() {
-        val selfInfo = AppVersionHelper.getInstalledVersion(this, packageName)
-        val targetInfo = AppVersionHelper.getInstalledVersion(this)
-
-        binding.tvAboutAppVersion.text = if (selfInfo.isInstalled) {
-            "v${selfInfo.versionName ?: "1.0.0"} (build ${selfInfo.versionCode ?: 1})"
-        } else {
-            "v1.0.0 (build 1)"
-        }
-
-        binding.tvAboutBuild.text = BuildConfig.BUILD_TYPE
-        binding.tvAboutPackage.text = packageName
-        binding.tvAboutTargetPackage.text = AppVersionHelper.TARGET_PACKAGE
-
-        if (targetInfo.isInstalled) {
-            binding.tvAboutTargetStatus.text = "Installed (v${targetInfo.versionName})"
-            binding.tvAboutTargetStatus.setTextColor(getColor(R.color.ks_sage))
-        } else {
-            binding.tvAboutTargetStatus.text = "Not Installed"
-            binding.tvAboutTargetStatus.setTextColor(getColor(R.color.ks_ochre))
-        }
-    }
-
-    private fun loadAvailableReleases(forceRefresh: Boolean = false) {
-        lifecycleScope.launch {
-            if (forceRefresh) {
-                binding.btnRefreshVersions.isEnabled = false
-                binding.tvTargetVersionStatus.text = "GitHub Releases: Fetching..."
-            }
-
-            val activeCoordinator = coordinator ?: UpdateCoordinator(this@MainActivity)
-            val result = activeCoordinator.fetchAvailableReleases(forceRefresh = forceRefresh)
-
-            if (result.isSuccess) {
-                availableReleases = result.getOrThrow()
-                populateVersionSpinner()
-                updateVersionSelectionUI()
-                if (forceRefresh) {
-                    Logger.i("Releases refreshed: ${availableReleases.size} versions available (Latest: ${availableReleases.firstOrNull()?.tagName})")
-                }
-            } else {
-                val err = result.exceptionOrNull()?.message ?: "Failed to fetch releases"
-                binding.tvTargetVersionStatus.text = "GitHub Releases: Error ($err)"
-                binding.tvTargetVersionStatus.setTextColor(getColor(R.color.ks_rust))
-                Logger.e("Failed to fetch available releases: $err")
-            }
-
-            binding.btnRefreshVersions.isEnabled = true
-        }
-    }
-
-    private fun populateVersionSpinner() {
-        val options = mutableListOf<String>()
-        val latestTag = availableReleases.firstOrNull()?.tagName
-        val isAdb = com.cfox.droidmesh.utils.AdbHelper.isAdbEnabled(this)
-        val installed = AppVersionHelper.getInstalledVersion(this)
-
-        if (latestTag != null) {
-            options.add("Latest ($latestTag)")
-        } else {
-            options.add("Latest")
-        }
-
-        for (release in availableReleases) {
-            if (isAdb || !installed.isInstalled || installed.versionName == null) {
-                options.add(release.tagName)
-            } else {
-                // If ADB is disabled, allow only same or newer versions (no downgrades)
-                val isDowngrade = AppVersionHelper.isUpdateAvailable(release.tagName, installed.versionName) &&
-                        release.tagName.trim().removePrefix("v") != installed.versionName.trim().removePrefix("v")
-                if (!isDowngrade) {
-                    options.add(release.tagName)
-                }
-            }
-        }
-
-        val adapter = ArrayAdapter(this, R.layout.item_version_dropdown, options)
-        adapter.setDropDownViewResource(R.layout.item_version_dropdown)
-        binding.spnVersionToInstall.adapter = adapter
-
-        if (selectedReleaseIndex < options.size) {
-            binding.spnVersionToInstall.setSelection(selectedReleaseIndex)
-        } else {
-            binding.spnVersionToInstall.setSelection(0)
-            selectedReleaseIndex = 0
-        }
-    }
-
-    private fun updateVersionSelectionUI() {
-        val isLatestSelected = (selectedReleaseIndex == 0)
-        val selectedRelease = getSelectedRelease()
-
-        if (selectedRelease != null) {
-            val pubDate = if (selectedRelease.publishedAt.isNotEmpty()) {
-                " · " + selectedRelease.publishedAt.take(10)
-            } else ""
-
-            if (isLatestSelected) {
-                binding.tvTargetVersionStatus.text = "GitHub Latest: ${selectedRelease.tagName}$pubDate"
-                binding.tvTargetVersionStatus.setTextColor(getColor(R.color.ks_sage))
-            } else {
-                binding.tvTargetVersionStatus.text = "Selected Release: ${selectedRelease.tagName}$pubDate"
-                binding.tvTargetVersionStatus.setTextColor(getColor(R.color.ks_teal))
-            }
-        } else {
-            binding.tvTargetVersionStatus.text = "Target Version: Latest"
-            binding.tvTargetVersionStatus.setTextColor(getColor(R.color.ks_on_surface))
-        }
-
-        updateVersionActionVisibility()
-        renderMeshPeers(UpdaterForegroundService.activeMeshManager?.peersFlow?.value ?: emptyList())
-    }
-
-    private fun updateVersionActionVisibility() {
-        val isLatestSelected = (selectedReleaseIndex == 0)
-        val isAutoUpdateEnabled = SettingsStore.isAutoUpdateEnabled(this)
-        val targetRelease = getSelectedRelease()
-        val targetTag = targetRelease?.tagName ?: "latest"
-
-        // Auto-update section: Visible ONLY when "Latest" is selected
-        binding.layoutAutoUpdate.visibility = if (isLatestSelected) View.VISIBLE else View.GONE
-
-        // Update All button: Visible if Auto-Update is NOT enabled OR a specific version is selected
-        val showUpdateAll = !isAutoUpdateEnabled || !isLatestSelected
-        binding.btnUpdateAll.visibility = if (showUpdateAll) View.VISIBLE else View.GONE
-
-        if (isLatestSelected) {
-            binding.btnUpdateAll.text = "Update All Units (Latest: $targetTag)"
-        } else {
-            binding.btnUpdateAll.text = "Update All Units to $targetTag"
-        }
-    }
-
-    private fun getSelectedRelease(): ReleaseInfo? {
-        if (availableReleases.isEmpty()) return null
-        return if (selectedReleaseIndex == 0) {
-            availableReleases.firstOrNull()
-        } else {
-            val releaseIdx = selectedReleaseIndex - 1
-            if (releaseIdx in availableReleases.indices) availableReleases[releaseIdx] else availableReleases.firstOrNull()
-        }
-    }
-
-    private fun refreshStatus() {
-        val installed = AppVersionHelper.getInstalledVersion(this)
-        if (installed.isInstalled) {
-            binding.tvInstalledVersion.text = "Installed on this device: v${installed.versionName} (build ${installed.versionCode})"
-            binding.tvInstalledVersion.setTextColor(getColor(R.color.ks_on_surface_variant))
-        } else {
-            binding.tvInstalledVersion.text = "Installed on this device: NOT INSTALLED"
-            binding.tvInstalledVersion.setTextColor(getColor(R.color.ks_ochre))
-        }
-
-        // Accessibility service status
-        val isA11yActive = AutoInstallService.isServiceRunning
-        if (isA11yActive) {
-            binding.tvAccessibilityStatus.text = "Accessibility Service: ACTIVE (Auto-Install Ready)"
-            binding.tvAccessibilityStatus.setTextColor(getColor(R.color.ks_sage))
-        } else {
-            binding.tvAccessibilityStatus.text = "Accessibility Service: DISABLED (Tap to enable)"
-            binding.tvAccessibilityStatus.setTextColor(getColor(R.color.ks_rust))
-        }
-
-        // Unknown app install permission status
-        val canInstall = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            packageManager.canRequestPackageInstalls()
-        } else {
-            true
-        }
-
-        if (canInstall) {
-            binding.tvInstallPermissionStatus.text = "Install Unknown Apps: GRANTED"
-            binding.tvInstallPermissionStatus.setTextColor(getColor(R.color.ks_sage))
-        } else {
-            binding.tvInstallPermissionStatus.text = "Install Unknown Apps: NOT GRANTED (Tap to grant)"
-            binding.tvInstallPermissionStatus.setTextColor(getColor(R.color.ks_ochre))
-        }
-
-        // ADB Status
-        val isAdb = com.cfox.droidmesh.utils.AdbHelper.isAdbEnabled(this)
-        if (isAdb) {
-            binding.tvAdbStatus.text = "ADB Debugging: ENABLED (Tap to toggle)"
-            binding.tvAdbStatus.setTextColor(getColor(R.color.ks_sage))
-        } else {
-            binding.tvAdbStatus.text = "ADB Debugging: DISABLED (Tap to toggle)"
-            binding.tvAdbStatus.setTextColor(getColor(R.color.ks_rust))
-        }
-
-        binding.tvServerStatus.text = "HTTP Trigger Server: Listening on :2325"
-    }
-
-    private fun triggerUpdateAll() {
-        val targetRelease = getSelectedRelease()
-        if (targetRelease == null) {
-            Logger.w("Cannot update all: no target release selected")
-            return
-        }
-
-        Logger.i("Dispatched 'Update All' to target version ${targetRelease.tagName}")
-
-        // 1. Trigger local update
-        val activeCoordinator = coordinator ?: UpdateCoordinator(this)
-        activeCoordinator.startUpdateForRelease(targetRelease, force = true) { result ->
-            lifecycleScope.launch(Dispatchers.Main) {
-                if (result.isSuccess) {
-                    Logger.i("Local update sequence dispatched successfully for ${targetRelease.tagName}")
-                } else {
-                    Logger.e("Local update failed: ${result.exceptionOrNull()?.message}")
-                }
-            }
-        }
-
-        // 2. Broadcast / trigger update to all online mesh peers
-        val peers = UpdaterForegroundService.activeMeshManager?.peersFlow?.value ?: emptyList()
-        val remotePeers = peers.filter { !it.isSelf && it.isOnline }
-
-        if (remotePeers.isNotEmpty()) {
-            lifecycleScope.launch(Dispatchers.IO) {
-                for (peer in remotePeers) {
-                    triggerRemotePeerUpdate(peer, targetRelease)
-                }
-            }
-        }
-    }
-
-    private fun triggerSinglePeerUpdate(peer: PeerNode, targetRelease: ReleaseInfo) {
-        if (peer.isSelf) {
-            val activeCoordinator = coordinator ?: UpdateCoordinator(this)
-            activeCoordinator.startUpdateForRelease(targetRelease, force = true)
-            Logger.i("Triggered local update to ${targetRelease.tagName}")
-        } else {
-            lifecycleScope.launch(Dispatchers.IO) {
-                triggerRemotePeerUpdate(peer, targetRelease)
-            }
-        }
-    }
-
-    private suspend fun triggerRemotePeerUpdate(peer: PeerNode, targetRelease: ReleaseInfo) {
+    private fun getLocalIpAddress(): String? {
         try {
-            val encodedUrl = URLEncoder.encode(targetRelease.apkAssetUrl, "UTF-8")
-            val url = "http://${peer.ip}:${peer.port}/update?force=true&tag=${targetRelease.tagName}&url=$encodedUrl"
-            Logger.i("Sending update trigger to ${peer.deviceModel} (${peer.ip}) -> ${targetRelease.tagName}")
-
-            val request = Request.Builder()
-                .url(url)
-                .post(ByteArray(0).toRequestBody(null, 0, 0))
-                .build()
-
-            httpClient.newCall(request).execute().use { response ->
-                if (response.isSuccessful) {
-                    Logger.i("Update trigger accepted by ${peer.deviceModel} (${peer.ip})")
-                } else {
-                    Logger.e("Failed to trigger update on ${peer.ip}: HTTP ${response.code}")
-                }
-            }
-        } catch (e: Exception) {
-            Logger.e("Error triggering update on peer ${peer.ip}: ${e.message}")
-        }
-    }
-
-    private fun observeCoordinator() {
-        val activeCoordinator = coordinator ?: return
-        lifecycleScope.launch {
-            activeCoordinator.statusFlow.collect { status ->
-                when (status.state) {
-                    "DOWNLOADING" -> {
-                        binding.progressBar.visibility = View.VISIBLE
-                        binding.tvProgressText.visibility = View.VISIBLE
-                        binding.progressBar.isIndeterminate = false
-                        binding.progressBar.progress = status.progressPercent
-                        binding.tvProgressText.text = status.message
-                        binding.btnUpdateAll.isEnabled = false
-                    }
-                    "INSTALLING", "CHECKING" -> {
-                        binding.progressBar.visibility = View.VISIBLE
-                        binding.tvProgressText.visibility = View.VISIBLE
-                        binding.progressBar.isIndeterminate = true
-                        binding.tvProgressText.text = status.message
-                        binding.btnUpdateAll.isEnabled = false
-                    }
-                    "COMPLETED" -> {
-                        binding.progressBar.visibility = View.GONE
-                        binding.tvProgressText.visibility = View.VISIBLE
-                        binding.tvProgressText.text = status.message
-                        binding.btnUpdateAll.isEnabled = true
-                        refreshStatus()
-                        refreshAbout()
-                    }
-                    "ERROR" -> {
-                        binding.progressBar.visibility = View.GONE
-                        binding.tvProgressText.visibility = View.VISIBLE
-                        binding.tvProgressText.text = "Error: ${status.message}"
-                        binding.btnUpdateAll.isEnabled = true
-                    }
-                    else -> {
-                        binding.progressBar.visibility = View.GONE
-                        binding.tvProgressText.visibility = View.GONE
-                        binding.btnUpdateAll.isEnabled = true
+            val interfaces = java.net.NetworkInterface.getNetworkInterfaces()
+            while (interfaces.hasMoreElements()) {
+                val iface = interfaces.nextElement()
+                if (iface.isLoopback || !iface.isUp) continue
+                val addresses = iface.inetAddresses
+                while (addresses.hasMoreElements()) {
+                    val addr = addresses.nextElement()
+                    if (!addr.isLoopbackAddress && addr is java.net.Inet4Address) {
+                        return addr.hostAddress
                     }
                 }
             }
-        }
-    }
-
-    private fun observeLogs() {
-        lifecycleScope.launch {
-            val existing = Logger.getRecentLogs()
-            if (existing.isNotEmpty()) {
-                binding.tvLogConsole.text = existing.joinToString("\n")
-                binding.tvLogsMeta.text = "${existing.size} entries"
-            }
-
-            Logger.logFlow.collect { _ ->
-                withContext(Dispatchers.Main) {
-                    val logs = Logger.getRecentLogs()
-                    binding.tvLogConsole.text = logs.joinToString("\n")
-                    binding.tvLogsMeta.text = "${logs.size} entries"
-                    if (currentTab == NavTab.LOGS) {
-                        scrollLogsToBottom()
-                    }
-                }
-            }
-        }
-    }
-
-    private fun scrollLogsToBottom() {
-        binding.scrollLogConsole.post {
-            binding.scrollLogConsole.fullScroll(View.FOCUS_DOWN)
-        }
-    }
-
-    private fun observeMeshPeers() {
-        lifecycleScope.launch {
-            while (true) {
-                val meshManager = UpdaterForegroundService.activeMeshManager
-                if (meshManager != null) {
-                    meshManager.peersFlow.collect { peers ->
-                        renderMeshPeers(peers)
-                    }
-                }
-                delay(1000)
-            }
-        }
-    }
-
-    private fun isVersionMatching(installed: String?, targetTag: String?): Boolean {
-        if (installed.isNullOrBlank() || targetTag.isNullOrBlank()) return false
-        val cleanInstalled = installed.trim().removePrefix("v").removePrefix("V")
-        val cleanTarget = targetTag.trim().removePrefix("v").removePrefix("V")
-        return cleanInstalled.equals(cleanTarget, ignoreCase = true)
-    }
-
-    private fun renderMeshPeers(peers: List<PeerNode>) {
-        val onlineCount = peers.count { it.isOnline }
-        binding.tvMeshCount.text = "Active Nodes: ${peers.size} ($onlineCount online)"
-
-        binding.layoutMeshPeers.removeAllViews()
-
-        if (peers.isEmpty()) {
-            val emptyTv = android.widget.TextView(this).apply {
-                text = "Scanning for nearby Portals on mesh..."
-                setTextColor(getColor(R.color.ks_on_surface_variant))
-                typeface = binding.tvMeshCount.typeface
-                textSize = 13f
-                setPadding(0, 8, 0, 8)
-            }
-            binding.layoutMeshPeers.addView(emptyTv)
-            return
-        }
-
-        val isAutoUpdateEnabled = SettingsStore.isAutoUpdateEnabled(this)
-        val isLatestSelected = (selectedReleaseIndex == 0)
-        val targetRelease = getSelectedRelease()
-        val targetTag = targetRelease?.tagName
-
-        val inflater = layoutInflater
-        for (peer in peers) {
-            val itemBinding = ItemMeshPeerBinding.inflate(inflater, binding.layoutMeshPeers, false)
-
-            val titleSuffix = if (peer.isSelf) " [This Device]" else ""
-            itemBinding.tvPeerTitle.text = "${peer.deviceModel} (${peer.ip})$titleSuffix"
-
-            val isVersionMatch = isVersionMatching(peer.installedVersionName, targetTag)
-
-            if (peer.targetInstalled && !peer.installedVersionName.isNullOrBlank()) {
-                val matchSuffix = if (isVersionMatch) " ✓" else " (Target: ${targetTag ?: "latest"})"
-                itemBinding.tvPeerVersion.text = "Kiosk Satellite: v${peer.installedVersionName}$matchSuffix"
-                itemBinding.tvPeerVersion.setTextColor(
-                    if (isVersionMatch) getColor(R.color.ks_sage) else getColor(R.color.ks_on_surface_variant)
-                )
-            } else {
-                itemBinding.tvPeerVersion.text = "Kiosk Satellite: Not Installed"
-                itemBinding.tvPeerVersion.setTextColor(getColor(R.color.ks_ochre))
-            }
-
-            itemBinding.tvPeerMessage.text = peer.updaterMessage ?: "Status: ${peer.updaterState}"
-
-            if (peer.isSelf) {
-                itemBinding.tvPeerLastSeen.text = "Local"
-            } else {
-                val sec = peer.lastSeenSecondsAgo
-                itemBinding.tvPeerLastSeen.text = if (sec <= 5) "Just now" else "${sec}s ago"
-            }
-
-            // ADB Status Button
-            if (peer.adbEnabled) {
-                itemBinding.btnPeerAdbStatus.text = "ADB: ON"
-                itemBinding.btnPeerAdbStatus.setTextColor(getColor(R.color.ks_sage))
-                itemBinding.btnPeerAdbStatus.strokeColor = android.content.res.ColorStateList.valueOf(getColor(R.color.ks_sage))
-            } else {
-                itemBinding.btnPeerAdbStatus.text = "ADB: OFF"
-                itemBinding.btnPeerAdbStatus.setTextColor(getColor(R.color.ks_rust))
-                itemBinding.btnPeerAdbStatus.strokeColor = android.content.res.ColorStateList.valueOf(getColor(R.color.ks_rust))
-            }
-
-            itemBinding.btnPeerAdbStatus.setOnClickListener {
-                if (peer.isSelf) {
-                    com.cfox.droidmesh.utils.AdbHelper.toggleAdb(this)
-                    refreshStatus()
-                    populateVersionSpinner()
-                } else {
-                    lifecycleScope.launch(Dispatchers.IO) {
-                        try {
-                            val req = Request.Builder().url("http://${peer.ip}:${peer.port}/adb/toggle").post("{}".toRequestBody()).build()
-                            httpClient.newCall(req).execute().close()
-                        } catch (e: Exception) {
-                            Logger.e("Failed to toggle ADB on ${peer.ip}", e)
-                        }
-                    }
-                }
-            }
-
-            val (badgeBg, badgeText) = when {
-                !peer.isOnline -> Pair("#5F6368", "OFFLINE")
-                peer.updaterState == "DOWNLOADING" -> Pair("#6C9B9F", "DOWNLOADING")
-                peer.updaterState == "INSTALLING" -> Pair("#CE9C3E", "INSTALLING")
-                peer.updaterState == "CHECKING" -> Pair("#558387", "CHECKING")
-                peer.updaterState == "ERROR" -> Pair("#D97E4C", "ERROR")
-                else -> Pair("#749C6F", "IDLE")
-            }
-
-            itemBinding.tvPeerStateBadge.text = badgeText
-            itemBinding.tvPeerStateBadge.setBackgroundColor(Color.parseColor(badgeBg))
-
-            // Add an "Update" button when the current version does not match the selected version,
-            // unless auto-update is enabled (with Latest selected).
-            val shouldShowPeerUpdate = (!isVersionMatch || !peer.targetInstalled) &&
-                !(isAutoUpdateEnabled && isLatestSelected) &&
-                peer.isOnline &&
-                targetRelease != null
-
-            if (shouldShowPeerUpdate) {
-                itemBinding.btnPeerUpdate.visibility = View.VISIBLE
-                itemBinding.btnPeerUpdate.text = if (peer.targetInstalled) "Update" else "Install"
-                itemBinding.btnPeerUpdate.setOnClickListener {
-                    if (targetRelease != null) {
-                        triggerSinglePeerUpdate(peer, targetRelease)
-                    }
-                }
-            } else {
-                itemBinding.btnPeerUpdate.visibility = View.GONE
-            }
-
-            binding.layoutMeshPeers.addView(itemBinding.root)
-        }
+        } catch (_: Exception) {}
+        return null
     }
 }

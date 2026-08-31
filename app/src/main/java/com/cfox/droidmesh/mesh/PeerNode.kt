@@ -1,5 +1,7 @@
 package com.cfox.droidmesh.mesh
 
+import com.cfox.droidmesh.installer.AppVersionHelper
+import org.json.JSONArray
 import org.json.JSONObject
 
 data class PeerNode(
@@ -10,6 +12,7 @@ data class PeerNode(
     val targetInstalled: Boolean = false,
     val installedVersionName: String? = null,
     val installedVersionCode: Long? = null,
+    val installedApps: List<AppVersionHelper.InstalledAppInfo> = emptyList(),
     val updaterState: String = "IDLE",
     val updaterMessage: String? = null,
     val adbEnabled: Boolean = false,
@@ -17,7 +20,8 @@ data class PeerNode(
     val isSelf: Boolean = false,
     val meshId: String = "meta-portals",
     val meshName: String = "Meta Portals",
-    val isCrossVlan: Boolean = false
+    val isCrossVlan: Boolean = false,
+    val configVersion: Long = 0L
 ) {
     val isOnline: Boolean
         get() = isSelf || (System.currentTimeMillis() - lastSeenTimestamp) < 30_000L
@@ -33,9 +37,22 @@ data class PeerNode(
         put("meshId", meshId)
         put("meshName", meshName)
         put("isCrossVlan", isCrossVlan)
+        put("configVersion", configVersion)
         put("targetInstalled", targetInstalled)
         put("installedVersionName", installedVersionName ?: JSONObject.NULL)
         put("installedVersionCode", installedVersionCode ?: JSONObject.NULL)
+
+        val appsArray = JSONArray()
+        for (app in installedApps) {
+            appsArray.put(JSONObject().apply {
+                put("packageName", app.packageName)
+                put("appName", app.appName)
+                put("versionName", app.versionName ?: JSONObject.NULL)
+                put("versionCode", app.versionCode ?: JSONObject.NULL)
+            })
+        }
+        put("installedApps", appsArray)
+
         put("updaterState", if (isOnline) updaterState else "OFFLINE")
         put("updaterMessage", updaterMessage ?: JSONObject.NULL)
         put("adbEnabled", adbEnabled)
@@ -58,9 +75,40 @@ data class PeerNode(
                 val targetInstalled = json.optBoolean("targetInstalled", false)
                 val installedVersionName = if (json.isNull("installedVersionName")) null else json.optString("installedVersionName")
                 val installedVersionCode = if (json.isNull("installedVersionCode")) null else json.optLong("installedVersionCode")
+
+                val appsList = mutableListOf<AppVersionHelper.InstalledAppInfo>()
+                val appsJsonArray = json.optJSONArray("installedApps") ?: json.optJSONArray("installed_apps")
+                if (appsJsonArray != null) {
+                    for (i in 0 until appsJsonArray.length()) {
+                        val appObj = appsJsonArray.optJSONObject(i) ?: continue
+                        val pkgName = appObj.optString("packageName", appObj.optString("package_name", ""))
+                        if (pkgName.isNotBlank()) {
+                            appsList.add(
+                                AppVersionHelper.InstalledAppInfo(
+                                    packageName = pkgName,
+                                    appName = appObj.optString("appName", appObj.optString("app_name", pkgName)),
+                                    versionName = if (appObj.isNull("versionName")) null else appObj.optString("versionName"),
+                                    versionCode = if (appObj.isNull("versionCode")) null else appObj.optLong("versionCode")
+                                )
+                            )
+                        }
+                    }
+                }
+                if (appsList.isEmpty() && targetInstalled) {
+                    appsList.add(
+                        AppVersionHelper.InstalledAppInfo(
+                            packageName = AppVersionHelper.TARGET_PACKAGE,
+                            appName = "Kiosk Satellite",
+                            versionName = installedVersionName,
+                            versionCode = installedVersionCode
+                        )
+                    )
+                }
+
                 val updaterState = json.optString("updaterState", "IDLE")
                 val updaterMessage = if (json.isNull("updaterMessage")) null else json.optString("updaterMessage")
                 val adbEnabled = json.optBoolean("adbEnabled", false)
+                val configVersion = json.optLong("config_version", json.optLong("configVersion", 0L))
                 PeerNode(
                     id = id,
                     ip = ip,
@@ -69,6 +117,7 @@ data class PeerNode(
                     targetInstalled = targetInstalled,
                     installedVersionName = installedVersionName,
                     installedVersionCode = installedVersionCode,
+                    installedApps = appsList,
                     updaterState = updaterState,
                     updaterMessage = updaterMessage,
                     adbEnabled = adbEnabled,
@@ -76,7 +125,8 @@ data class PeerNode(
                     isSelf = false,
                     meshId = meshId,
                     meshName = meshName,
-                    isCrossVlan = isCrossVlan
+                    isCrossVlan = isCrossVlan,
+                    configVersion = configVersion
                 )
             } catch (e: Exception) {
                 null

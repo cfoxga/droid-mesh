@@ -81,6 +81,8 @@ class SettingsStoreTest {
         }
     }
 
+    // [PROGRAMMATIC] SET-TEST-003: Config persistence & cross-VLAN seeds
+    // [PROGRAMMATIC] MESH-TEST-004: Config sync across nodes with versioning
     @Test
     fun testExportAndImportConfig() {
         // Configure node A
@@ -120,6 +122,8 @@ class SettingsStoreTest {
         assertFalse(reimportResult.applied)
     }
 
+    // [PROGRAMMATIC] SET-TEST-001: Password verification
+    // [PROGRAMMATIC] SET-TEST-002: Token generation and validation
     @Test
     fun testPasswordTokenVerificationAcrossNodes() {
         SettingsStore.setPassword(mockContext, "superSecretKey")

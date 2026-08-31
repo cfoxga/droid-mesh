@@ -12,6 +12,7 @@ import org.mockito.kotlin.whenever
 
 class AppVersionHelperTest {
 
+    // [PROGRAMMATIC] APP-TEST-001: System & OEM package filtering
     // [PROGRAMMATIC] UPD-TEST-001: Package filtering and version extraction
     @Test
     fun testIsOemOrSystemPackage() {
@@ -32,6 +33,7 @@ class AppVersionHelperTest {
         assertFalse(AppVersionHelper.isOemOrSystemPackage("com.disney.disneyplus"))
     }
 
+    // [PROGRAMMATIC] APP-TEST-002: User installed apps filtering
     @Test
     fun testGetUserInstalledAppsFiltersSystemAndOem() {
         val mockPm: PackageManager = mock()

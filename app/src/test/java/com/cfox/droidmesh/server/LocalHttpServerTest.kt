@@ -151,6 +151,7 @@ class LocalHttpServerTest {
     }
 
     // [PROGRAMMATIC] API-TEST-003: Protected endpoints and settings configuration
+    // [PROGRAMMATIC] API-TEST-004: Token generation and auth login
     @Test
     fun testLoginAndProtectedEndpoints() {
         // Set password

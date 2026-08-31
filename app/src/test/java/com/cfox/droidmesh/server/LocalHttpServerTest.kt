@@ -134,6 +134,7 @@ class LocalHttpServerTest {
 
 
 
+    // [PROGRAMMATIC] API-TEST-001: LocalHttpServer status endpoint
     @Test
     fun testStatusEndpointReturnsOk() {
         val session = mockSession("/api/status")
@@ -149,6 +150,7 @@ class LocalHttpServerTest {
         assertEquals(NanoHTTPD.Response.Status.OK, response.status)
     }
 
+    // [PROGRAMMATIC] API-TEST-003: Protected endpoints and settings configuration
     @Test
     fun testLoginAndProtectedEndpoints() {
         // Set password
@@ -194,6 +196,7 @@ class LocalHttpServerTest {
         assertFalse(SettingsStore.isAutoUpdateEnabled(mockContext))
     }
 
+    // [PROGRAMMATIC] API-TEST-002: Mesh endpoint response
     @Test
     fun testMeshEndpointReturnsOk() {
         val session = mockSession("/api/mesh")
@@ -202,6 +205,7 @@ class LocalHttpServerTest {
         assertEquals("application/json; charset=utf-8", response.mimeType)
     }
 
+    // [PROGRAMMATIC] MESH-TEST-003: Mesh seeds endpoints
     @Test
     fun testMeshSeedsEndpoints() {
         // GET seeds

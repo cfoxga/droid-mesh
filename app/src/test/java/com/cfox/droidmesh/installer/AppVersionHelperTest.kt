@@ -12,6 +12,7 @@ import org.mockito.kotlin.whenever
 
 class AppVersionHelperTest {
 
+    // [PROGRAMMATIC] UPD-TEST-001: Package filtering and version extraction
     @Test
     fun testIsOemOrSystemPackage() {
         // Built-in OEM / System packages
@@ -83,6 +84,7 @@ class AppVersionHelperTest {
         assertEquals("Kiosk Satellite", installedApps[1].appName)
     }
 
+    // [PROGRAMMATIC] MESH-TEST-001: PeerNode beacon serialization and deserialization
     @Test
     fun testPeerNodeSerializationWithInstalledApps() {
         val apps = listOf(

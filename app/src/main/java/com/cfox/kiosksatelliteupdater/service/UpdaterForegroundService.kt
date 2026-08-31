@@ -13,6 +13,7 @@ import android.os.PowerManager
 import androidx.core.app.NotificationCompat
 import com.cfox.kiosksatelliteupdater.MainActivity
 import com.cfox.kiosksatelliteupdater.R
+import com.cfox.kiosksatelliteupdater.mesh.MeshDiscoveryManager
 import com.cfox.kiosksatelliteupdater.server.LocalHttpServer
 import com.cfox.kiosksatelliteupdater.server.UpdateCoordinator
 import com.cfox.kiosksatelliteupdater.settings.SettingsStore
@@ -49,6 +50,10 @@ class UpdaterForegroundService : Service() {
         var activeCoordinator: UpdateCoordinator? = null
             private set
 
+        @Volatile
+        var activeMeshManager: MeshDiscoveryManager? = null
+            private set
+
         fun startService(context: Context) {
             val intent = Intent(context, UpdaterForegroundService::class.java).apply {
                 action = ACTION_START
@@ -64,6 +69,7 @@ class UpdaterForegroundService : Service() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private var httpServer: LocalHttpServer? = null
     private var updateCoordinator: UpdateCoordinator? = null
+    private var meshDiscoveryManager: MeshDiscoveryManager? = null
     private var wakeLock: PowerManager.WakeLock? = null
     private var autoUpdateJob: Job? = null
 
@@ -76,7 +82,12 @@ class UpdaterForegroundService : Service() {
         updateCoordinator = coordinator
         activeCoordinator = coordinator
 
-        httpServer = LocalHttpServer(applicationContext, coordinator, PORT)
+        val mesh = MeshDiscoveryManager(applicationContext, coordinator, serviceScope)
+        meshDiscoveryManager = mesh
+        activeMeshManager = mesh
+        mesh.start()
+
+        httpServer = LocalHttpServer(applicationContext, coordinator, mesh, PORT)
 
         try {
             httpServer?.start()
@@ -218,10 +229,13 @@ class UpdaterForegroundService : Service() {
         releaseWakeLock()
 
         try {
+            meshDiscoveryManager?.stop()
+            meshDiscoveryManager = null
+            activeMeshManager = null
             httpServer?.stop()
             Logger.i("HTTP server stopped")
         } catch (e: Exception) {
-            Logger.e("Error stopping HTTP server", e)
+            Logger.e("Error stopping HTTP server / mesh manager", e)
         }
 
         serviceScope.cancel()

@@ -126,7 +126,54 @@ curl -X POST "http://<portal-ip>:2325/update?force=true"
 curl -X GET http://<portal-ip>:2325/status
 ```
 
-### 4. Fetch Recent Logs
+### 4. Query Portal Mesh & Discovered Peers
+```bash
+curl -X GET http://<portal-ip>:2325/mesh
+# Or alias:
+curl -X GET http://<portal-ip>:2325/peers
+```
+**Response:**
+```json
+{
+  "status": "ok",
+  "count": 2,
+  "meshPort": 23250,
+  "peers": [
+    {
+      "id": "820LCM04Z1106X07",
+      "ip": "192.168.40.59",
+      "port": 2325,
+      "deviceModel": "Portal 10 (This Device)",
+      "targetInstalled": true,
+      "installedVersionName": "2026.8.105",
+      "installedVersionCode": 196,
+      "updaterState": "IDLE",
+      "updaterMessage": "Installed version is already up to date",
+      "lastSeenTimestamp": 1725111111111,
+      "lastSeenSecondsAgo": 0,
+      "isOnline": true,
+      "isSelf": true
+    },
+    {
+      "id": "819LCM02A080PZ18",
+      "ip": "192.168.40.250",
+      "port": 2325,
+      "deviceModel": "Portal 10",
+      "targetInstalled": true,
+      "installedVersionName": "2026.8.105",
+      "installedVersionCode": 196,
+      "updaterState": "IDLE",
+      "updaterMessage": "Installed version is already up to date",
+      "lastSeenTimestamp": 1725111108000,
+      "lastSeenSecondsAgo": 3,
+      "isOnline": true,
+      "isSelf": false
+    }
+  ]
+}
+```
+
+### 5. Fetch Recent Logs
 ```bash
 curl -X GET http://<portal-ip>:2325/logs
 ```

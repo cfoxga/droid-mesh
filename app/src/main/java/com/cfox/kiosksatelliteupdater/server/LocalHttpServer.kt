@@ -2,6 +2,7 @@ package com.cfox.kiosksatelliteupdater.server
 
 import android.content.Context
 import com.cfox.kiosksatelliteupdater.installer.AppVersionHelper
+import com.cfox.kiosksatelliteupdater.mesh.MeshDiscoveryManager
 import com.cfox.kiosksatelliteupdater.service.AutoInstallService
 import com.cfox.kiosksatelliteupdater.settings.SettingsStore
 import com.cfox.kiosksatelliteupdater.utils.Logger
@@ -13,6 +14,7 @@ import org.json.JSONObject
 class LocalHttpServer(
     private val context: Context,
     private val coordinator: UpdateCoordinator,
+    private val meshManager: MeshDiscoveryManager? = null,
     port: Int = 2325
 ) : NanoHTTPD(port) {
 
@@ -27,6 +29,11 @@ class LocalHttpServer(
                 // GET / or GET /status
                 (uri == "/" || uri == "/status") && method == Method.GET -> {
                     handleStatus()
+                }
+
+                // GET /mesh or GET /peers
+                (uri == "/mesh" || uri == "/peers") && method == Method.GET -> {
+                    handleMesh()
                 }
 
                 // GET /check
@@ -90,6 +97,21 @@ class LocalHttpServer(
             put("progressPercent", currentStatus.progressPercent)
         }
 
+        return newFixedLengthResponse(Response.Status.OK, "application/json", json.toString(2))
+    }
+
+    private fun handleMesh(): Response {
+        val peers = meshManager?.peersFlow?.value ?: emptyList()
+        val json = JSONObject().apply {
+            put("status", "ok")
+            put("count", peers.size)
+            put("meshPort", MeshDiscoveryManager.MESH_PORT)
+            val arr = JSONArray()
+            for (peer in peers) {
+                arr.put(peer.toJson())
+            }
+            put("peers", arr)
+        }
         return newFixedLengthResponse(Response.Status.OK, "application/json", json.toString(2))
     }
 

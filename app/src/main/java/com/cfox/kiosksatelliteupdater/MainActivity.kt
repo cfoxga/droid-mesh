@@ -1,6 +1,7 @@
 package com.cfox.kiosksatelliteupdater
 
 import android.content.Intent
+import android.graphics.Color
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
@@ -8,13 +9,16 @@ import android.view.View
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import com.cfox.kiosksatelliteupdater.databinding.ActivityMainBinding
+import com.cfox.kiosksatelliteupdater.databinding.ItemMeshPeerBinding
 import com.cfox.kiosksatelliteupdater.installer.AppVersionHelper
+import com.cfox.kiosksatelliteupdater.mesh.PeerNode
 import com.cfox.kiosksatelliteupdater.server.UpdateCoordinator
 import com.cfox.kiosksatelliteupdater.service.AutoInstallService
 import com.cfox.kiosksatelliteupdater.service.UpdaterForegroundService
 import com.cfox.kiosksatelliteupdater.settings.SettingsStore
 import com.cfox.kiosksatelliteupdater.utils.Logger
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -35,6 +39,7 @@ class MainActivity : AppCompatActivity() {
         setupUI()
         observeCoordinator()
         observeLogs()
+        observeMeshPeers()
         refreshStatus()
     }
 
@@ -59,6 +64,11 @@ class MainActivity : AppCompatActivity() {
 
         binding.btnUpdateNow.setOnClickListener {
             triggerUpdateNow()
+        }
+
+        binding.btnMeshBeacon.setOnClickListener {
+            UpdaterForegroundService.activeMeshManager?.triggerBeacon()
+            Logger.i("Triggered manual mesh beacon scan")
         }
 
         // Tap accessibility status to open settings if not enabled
@@ -219,6 +229,76 @@ class MainActivity : AppCompatActivity() {
                     binding.tvLogConsole.text = lines.joinToString("\n")
                 }
             }
+        }
+    }
+
+    private fun observeMeshPeers() {
+        lifecycleScope.launch {
+            while (true) {
+                val meshManager = UpdaterForegroundService.activeMeshManager
+                if (meshManager != null) {
+                    meshManager.peersFlow.collect { peers ->
+                        renderMeshPeers(peers)
+                    }
+                }
+                delay(1000)
+            }
+        }
+    }
+
+    private fun renderMeshPeers(peers: List<PeerNode>) {
+        val onlineCount = peers.count { it.isOnline }
+        binding.tvMeshCount.text = "Active Nodes: ${peers.size} ($onlineCount online)"
+
+        binding.layoutMeshPeers.removeAllViews()
+
+        if (peers.isEmpty()) {
+            val emptyTv = android.widget.TextView(this).apply {
+                text = "Scanning for nearby Portals..."
+                setTextColor(Color.parseColor("#777777"))
+                textSize = 13f
+            }
+            binding.layoutMeshPeers.addView(emptyTv)
+            return
+        }
+
+        val inflater = layoutInflater
+        for (peer in peers) {
+            val itemBinding = ItemMeshPeerBinding.inflate(inflater, binding.layoutMeshPeers, false)
+
+            val titleSuffix = if (peer.isSelf) " [This Device]" else ""
+            itemBinding.tvPeerTitle.text = "${peer.deviceModel} (${peer.ip})$titleSuffix"
+
+            if (peer.targetInstalled && !peer.installedVersionName.isNullOrBlank()) {
+                itemBinding.tvPeerVersion.text = "Kiosk Satellite: v${peer.installedVersionName} (build ${peer.installedVersionCode ?: 0})"
+                itemBinding.tvPeerVersion.setTextColor(Color.parseColor("#DDDDDD"))
+            } else {
+                itemBinding.tvPeerVersion.text = "Kiosk Satellite: Not Installed"
+                itemBinding.tvPeerVersion.setTextColor(Color.parseColor("#FFC107"))
+            }
+
+            itemBinding.tvPeerMessage.text = peer.updaterMessage ?: "Status: ${peer.updaterState}"
+
+            if (peer.isSelf) {
+                itemBinding.tvPeerLastSeen.text = "Local"
+            } else {
+                val sec = peer.lastSeenSecondsAgo
+                itemBinding.tvPeerLastSeen.text = if (sec <= 5) "Just now" else "${sec}s ago"
+            }
+
+            val (badgeBg, badgeText) = when {
+                !peer.isOnline -> Pair("#424242", "OFFLINE")
+                peer.updaterState == "DOWNLOADING" -> Pair("#1565C0", "DOWNLOADING")
+                peer.updaterState == "INSTALLING" -> Pair("#E65100", "INSTALLING")
+                peer.updaterState == "CHECKING" -> Pair("#00838F", "CHECKING")
+                peer.updaterState == "ERROR" -> Pair("#C62828", "ERROR")
+                else -> Pair("#1B5E20", "IDLE")
+            }
+
+            itemBinding.tvPeerStateBadge.text = badgeText
+            itemBinding.tvPeerStateBadge.setBackgroundColor(Color.parseColor(badgeBg))
+
+            binding.layoutMeshPeers.addView(itemBinding.root)
         }
     }
 }

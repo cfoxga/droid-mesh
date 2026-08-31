@@ -87,15 +87,7 @@ class UpdaterForegroundService : Service() {
         activeMeshManager = mesh
         mesh.start()
 
-        httpServer = LocalHttpServer(applicationContext, coordinator, mesh, PORT)
-
-        try {
-            httpServer?.start(fi.iki.elonen.NanoHTTPD.SOCKET_READ_TIMEOUT, false)
-            Logger.i("Local HTTP server successfully started on port $PORT (non-daemon)")
-        } catch (e: Exception) {
-            Logger.e("Failed to bind LocalHttpServer to port $PORT", e)
-        }
-
+        manageHttpServer()
 
         // Collect coordinator status updates to update notification & wake lock
         serviceScope.launch {
@@ -106,17 +98,53 @@ class UpdaterForegroundService : Service() {
         }
     }
 
+    fun manageHttpServer() {
+        val enabled = SettingsStore.isWebServerEnabled(applicationContext)
+        val targetPort = SettingsStore.getWebServerPort(applicationContext)
+        val currentServer = httpServer
+
+        if (!enabled) {
+            if (currentServer != null) {
+                Logger.i("Stopping Local HTTP Server (disabled in settings)")
+                try { currentServer.stop() } catch (_: Exception) {}
+                httpServer = null
+            }
+            return
+        }
+
+        if (currentServer != null && currentServer.isAlive && currentServer.activePort == targetPort) {
+            return
+        }
+
+
+        if (currentServer != null) {
+            try { currentServer.stop() } catch (_: Exception) {}
+            httpServer = null
+        }
+
+        val coordinator = updateCoordinator ?: return
+        val mesh = meshDiscoveryManager ?: return
+        val server = LocalHttpServer(applicationContext, coordinator, mesh, targetPort)
+        httpServer = server
+        try {
+            server.start(fi.iki.elonen.NanoHTTPD.SOCKET_READ_TIMEOUT, false)
+            Logger.i("Local HTTP server successfully started on port $targetPort (non-daemon)")
+        } catch (e: Exception) {
+            Logger.e("Failed to bind LocalHttpServer to port $targetPort", e)
+        }
+    }
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val action = intent?.action ?: ACTION_START
         Logger.i("UpdaterForegroundService onStartCommand action=$action")
 
-        startForeground(NOTIFICATION_ID, buildNotification("Listening on port $PORT"))
+        val currentPort = SettingsStore.getWebServerPort(applicationContext)
+        startForeground(NOTIFICATION_ID, buildNotification("Listening on port $currentPort"))
         isRunning = true
 
-        // Re-evaluated on every start (boot, launch, or a settings change
-        // re-pinging the service) so toggling the setting takes effect
-        // without waiting for a restart.
+        manageHttpServer()
         manageAutoUpdateLoop()
+
 
         when (action) {
             ACTION_TRIGGER_UPDATE -> {

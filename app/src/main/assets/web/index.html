@@ -859,7 +859,16 @@ input:checked + .slider:before {
               <span class="slider"></span>
             </div>
           </label>
+          <div class="field-group" style="margin-top: 14px; border-top: 1px solid var(--border-subtle); padding-top: 12px;">
+            <label class="field-label" for="settingWebServerPort">HTTP Management Server Port</label>
+            <div style="display: flex; gap: 8px;">
+              <input id="settingWebServerPort" class="field" type="number" value="2325" min="1024" max="65535" style="width: 110px;">
+              <button type="button" class="btn btn-secondary btn-sm" onclick="saveWebServerPort()">Update Port</button>
+            </div>
+            <span style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">Default port is 2325.</span>
+          </div>
         </div>
+
 
         <!-- Web Admin Password -->
         <div class="card">
@@ -1488,8 +1497,30 @@ async function loadSettings() {
         seedsList.appendChild(row);
       });
     }
+    if (res.webServerPort) {
+      const portEl = document.getElementById('settingWebServerPort');
+      if (portEl) portEl.value = res.webServerPort;
+    }
   } catch (e) {
     console.warn('Failed to load settings:', e);
+  }
+}
+
+async function saveWebServerPort() {
+  const port = parseInt(document.getElementById('settingWebServerPort').value, 10);
+  if (!port || port < 1024 || port > 65535) {
+    alert('Please enter a valid port between 1024 and 65535');
+    return;
+  }
+  try {
+    await apiCall('/api/settings', {
+      method: 'POST',
+      body: JSON.stringify({ webServerPort: port })
+    });
+    alert('Web Server port updated to ' + port + '. If you changed the port, reconnect on the new port.');
+    refreshStatus(false);
+  } catch (e) {
+    alert('Failed to update web server port: ' + e.message);
   }
 }
 
@@ -1529,6 +1560,7 @@ async function saveAutoUpdateSetting() {
     alert('Failed to update auto-update preference: ' + e.message);
   }
 }
+
 
 async function handlePasswordChange(e) {
   e.preventDefault();

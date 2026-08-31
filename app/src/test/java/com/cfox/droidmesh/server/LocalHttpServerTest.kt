@@ -87,8 +87,9 @@ class LocalHttpServerTest {
             context = mockContext,
             coordinator = mockCoordinator,
             meshManager = null,
-            port = 2325
+            activePort = 2325
         )
+
     }
 
     private fun mockSession(

@@ -28,8 +28,9 @@ class LocalHttpServer(
     private val context: Context,
     private val coordinator: UpdateCoordinator,
     private val meshManager: MeshDiscoveryManager? = null,
-    port: Int = 2325
-) : NanoHTTPD("0.0.0.0", port) {
+    val activePort: Int = 2325
+) : NanoHTTPD("0.0.0.0", activePort) {
+
 
     init {
         val pool = java.util.concurrent.Executors.newCachedThreadPool { r ->
@@ -346,6 +347,8 @@ class LocalHttpServer(
             put("installedVersionCode", installed.versionCode ?: JSONObject.NULL)
             put("accessibilityServiceActive", AutoInstallService.isServiceRunning)
             put("autoUpdateEnabled", SettingsStore.isAutoUpdateEnabled(context))
+            put("webServerEnabled", SettingsStore.isWebServerEnabled(context))
+            put("webServerPort", SettingsStore.getWebServerPort(context))
             put("adbEnabled", AdbHelper.isAdbEnabled(context))
             put("updaterState", currentStatus.state)
             put("updaterMessage", currentStatus.message)
@@ -366,6 +369,8 @@ class LocalHttpServer(
         val json = JSONObject().apply {
             put("status", "ok")
             put("autoUpdateEnabled", SettingsStore.isAutoUpdateEnabled(context))
+            put("webServerEnabled", SettingsStore.isWebServerEnabled(context))
+            put("webServerPort", SettingsStore.getWebServerPort(context))
             put("hasPassword", SettingsStore.isPasswordSet(context))
             put("adbEnabled", AdbHelper.isAdbEnabled(context))
             put("localMeshId", SettingsStore.getLocalMeshId(context))
@@ -389,6 +394,16 @@ class LocalHttpServer(
             SettingsStore.setAutoUpdateEnabled(context, enabled)
             Logger.i("Auto-update toggled via HTTP API: $enabled")
         }
+        if (body.has("webServerEnabled")) {
+            val enabled = body.getBoolean("webServerEnabled")
+            SettingsStore.setWebServerEnabled(context, enabled)
+            Logger.i("Web server toggled via HTTP API: $enabled")
+        }
+        if (body.has("webServerPort")) {
+            val port = body.getInt("webServerPort")
+            SettingsStore.setWebServerPort(context, port)
+            Logger.i("Web server port updated via HTTP API: $port")
+        }
         if (body.has("localMeshId")) {
             val meshId = body.getString("localMeshId").trim()
             if (meshId.isNotBlank()) {
@@ -406,6 +421,7 @@ class LocalHttpServer(
 
         return handleGetSettings()
     }
+
 
     private fun handleCheck(session: IHTTPSession): Response {
         val force = session.parms["force"]?.toBoolean() ?: false

@@ -14,6 +14,8 @@ import javax.crypto.spec.SecretKeySpec
 object SettingsStore {
     private const val PREFS_NAME = "kiosk_satellite_updater_settings"
     private const val KEY_AUTO_UPDATE_ENABLED = "auto_update_enabled"
+    private const val KEY_WEB_SERVER_ENABLED = "web_server_enabled"
+    private const val KEY_WEB_SERVER_PORT = "web_server_port"
     private const val KEY_WEB_PASSWORD_HASH = "web_password_hash"
     private const val KEY_WEB_PASSWORD_SALT = "web_password_salt"
     private const val KEY_AUTH_SECRET = "auth_secret"
@@ -22,6 +24,24 @@ object SettingsStore {
     private const val KEY_CROSS_VLAN_SEEDS = "cross_vlan_seeds"
 
     private const val DEFAULT_AUTO_UPDATE_ENABLED = true
+    private const val DEFAULT_WEB_SERVER_ENABLED = true
+    private const val DEFAULT_WEB_SERVER_PORT = 2325
+
+    fun isWebServerEnabled(context: Context): Boolean =
+        prefs(context).getBoolean(KEY_WEB_SERVER_ENABLED, DEFAULT_WEB_SERVER_ENABLED)
+
+    fun setWebServerEnabled(context: Context, enabled: Boolean) {
+        prefs(context).edit().putBoolean(KEY_WEB_SERVER_ENABLED, enabled).apply()
+    }
+
+    fun getWebServerPort(context: Context): Int =
+        prefs(context).getInt(KEY_WEB_SERVER_PORT, DEFAULT_WEB_SERVER_PORT)
+
+    fun setWebServerPort(context: Context, port: Int) {
+        val validPort = if (port in 1024..65535) port else DEFAULT_WEB_SERVER_PORT
+        prefs(context).edit().putInt(KEY_WEB_SERVER_PORT, validPort).apply()
+    }
+
 
     fun getDefaultMeshId(context: Context): String {
         val model = (android.os.Build.MODEL ?: "").lowercase()

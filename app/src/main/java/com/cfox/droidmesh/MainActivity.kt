@@ -44,8 +44,9 @@ import java.util.concurrent.TimeUnit
 class MainActivity : AppCompatActivity() {
 
     enum class NavTab {
-        OVERVIEW, ABOUT, LOGS
+        OVERVIEW, REMOTE, ABOUT, LOGS
     }
+
 
     private lateinit var binding: ActivityMainBinding
     private var coordinator: UpdateCoordinator? = null
@@ -83,12 +84,14 @@ class MainActivity : AppCompatActivity() {
 
         setupNavigation()
         setupUI()
+        setupRemoteUI()
         setupLogActions()
         observeCoordinator()
         observeLogs()
         observeMeshPeers()
         startCpuTelemetryLoop()
         refreshStatus()
+        refreshRemoteUI()
         refreshAbout()
         loadAvailableReleases(forceRefresh = false)
     }
@@ -97,6 +100,7 @@ class MainActivity : AppCompatActivity() {
         super.onResume()
         applyImmersiveMode()
         refreshStatus()
+        refreshRemoteUI()
         refreshAbout()
         loadAvailableReleases(forceRefresh = false)
     }
@@ -139,6 +143,10 @@ class MainActivity : AppCompatActivity() {
             switchTab(NavTab.OVERVIEW)
         }
 
+        binding.btnNavRemote.setOnClickListener {
+            switchTab(NavTab.REMOTE)
+        }
+
         binding.btnNavAbout.setOnClickListener {
             switchTab(NavTab.ABOUT)
         }
@@ -155,7 +163,9 @@ class MainActivity : AppCompatActivity() {
         currentTab = tab
         updateNavSelectionUI()
 
-        if (tab == NavTab.ABOUT) {
+        if (tab == NavTab.REMOTE) {
+            refreshRemoteUI()
+        } else if (tab == NavTab.ABOUT) {
             refreshAbout()
         } else if (tab == NavTab.LOGS) {
             scrollLogsToBottom()
@@ -165,6 +175,7 @@ class MainActivity : AppCompatActivity() {
     private fun updateNavSelectionUI() {
         // Tab panes visibility
         binding.paneOverview.visibility = if (currentTab == NavTab.OVERVIEW) View.VISIBLE else View.GONE
+        binding.paneRemote.visibility = if (currentTab == NavTab.REMOTE) View.VISIBLE else View.GONE
         binding.paneAbout.visibility = if (currentTab == NavTab.ABOUT) View.VISIBLE else View.GONE
         binding.paneLogs.visibility = if (currentTab == NavTab.LOGS) View.VISIBLE else View.GONE
 
@@ -172,9 +183,102 @@ class MainActivity : AppCompatActivity() {
         val selectedBg = ContextCompat.getDrawable(this, R.drawable.bg_rail_item_selected)
 
         binding.btnNavOverview.background = if (currentTab == NavTab.OVERVIEW) selectedBg else null
+        binding.btnNavRemote.background = if (currentTab == NavTab.REMOTE) selectedBg else null
         binding.btnNavAbout.background = if (currentTab == NavTab.ABOUT) selectedBg else null
         binding.btnNavLogs.background = if (currentTab == NavTab.LOGS) selectedBg else null
     }
+
+    private fun setupRemoteUI() {
+        binding.switchWebServer.isChecked = SettingsStore.isWebServerEnabled(this)
+        binding.switchWebServer.setOnCheckedChangeListener { _, isChecked ->
+            SettingsStore.setWebServerEnabled(this, isChecked)
+            Logger.i("Web server ${if (isChecked) "enabled" else "disabled"} by user on device")
+            UpdaterForegroundService.startService(this)
+            refreshRemoteUI()
+        }
+
+        binding.etWebServerPort.setText(SettingsStore.getWebServerPort(this).toString())
+        binding.btnSaveWebServerPort.setOnClickListener {
+            val portText = binding.etWebServerPort.text?.toString()?.trim() ?: ""
+            val port = portText.toIntOrNull()
+            if (port != null && port in 1024..65535) {
+                SettingsStore.setWebServerPort(this, port)
+                Logger.i("Web server port set to $port by user on device")
+                UpdaterForegroundService.startService(this)
+                refreshRemoteUI()
+                Toast.makeText(this, "Port updated to $port", Toast.LENGTH_SHORT).show()
+            } else {
+                Toast.makeText(this, "Please enter a valid port (1024-65535)", Toast.LENGTH_SHORT).show()
+                binding.etWebServerPort.setText(SettingsStore.getWebServerPort(this).toString())
+            }
+        }
+
+        binding.btnSaveAdminPassword.setOnClickListener {
+            val newPass = binding.etAdminPassword.text?.toString() ?: ""
+            if (newPass.isBlank()) {
+                Toast.makeText(this, "Password cannot be empty", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            SettingsStore.setPassword(this, newPass)
+            binding.etAdminPassword.setText("")
+            Logger.i("Admin password configured on device")
+            refreshRemoteUI()
+            Toast.makeText(this, "Admin password saved", Toast.LENGTH_SHORT).show()
+        }
+
+        binding.btnClearAdminPassword.setOnClickListener {
+            SettingsStore.clearPassword(this)
+            binding.etAdminPassword.setText("")
+            Logger.i("Admin password removed on device")
+            refreshRemoteUI()
+            Toast.makeText(this, "Admin password removed", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun refreshRemoteUI() {
+        val isEnabled = SettingsStore.isWebServerEnabled(this)
+        val port = SettingsStore.getWebServerPort(this)
+        val hasPassword = SettingsStore.isPasswordSet(this)
+
+        binding.switchWebServer.isChecked = isEnabled
+        binding.etWebServerPort.setText(port.toString())
+
+        if (hasPassword) {
+            binding.tvPasswordStatusBadge.text = "Status: Password Configured (Protected)"
+            binding.tvPasswordStatusBadge.setTextColor(ContextCompat.getColor(this, R.color.ks_sage))
+        } else {
+            binding.tvPasswordStatusBadge.text = "Status: No password set (Open Access)"
+            binding.tvPasswordStatusBadge.setTextColor(ContextCompat.getColor(this, R.color.ks_ochre))
+        }
+
+        val ip = getLocalIpAddress() ?: "0.0.0.0"
+        if (isEnabled) {
+            binding.tvWebConsoleUrl.text = "Web URL: http://$ip:$port/"
+            binding.tvWebConsoleUrl.setTextColor(ContextCompat.getColor(this, R.color.ks_sage))
+        } else {
+            binding.tvWebConsoleUrl.text = "Web URL: Server Disabled"
+            binding.tvWebConsoleUrl.setTextColor(ContextCompat.getColor(this, R.color.ks_rust))
+        }
+    }
+
+    private fun getLocalIpAddress(): String? {
+        try {
+            val interfaces = java.net.NetworkInterface.getNetworkInterfaces()
+            while (interfaces.hasMoreElements()) {
+                val iface = interfaces.nextElement()
+                if (iface.isLoopback || !iface.isUp) continue
+                val addresses = iface.inetAddresses
+                while (addresses.hasMoreElements()) {
+                    val addr = addresses.nextElement()
+                    if (!addr.isLoopbackAddress && addr is java.net.Inet4Address) {
+                        return addr.hostAddress
+                    }
+                }
+            }
+        } catch (_: Exception) {}
+        return null
+    }
+
 
     private fun setupUI() {
         // Auto-update switch toggle

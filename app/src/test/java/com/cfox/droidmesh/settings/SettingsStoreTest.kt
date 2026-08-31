@@ -39,6 +39,12 @@ class SettingsStoreTest {
                 inMemoryPrefs[key] = value
                 editor
             }
+            org.mockito.kotlin.whenever(it.putInt(any(), any())).thenAnswer { invocation ->
+                val key = invocation.getArgument<String>(0)
+                val value = invocation.getArgument<Int>(1)
+                inMemoryPrefs[key] = value
+                editor
+            }
             org.mockito.kotlin.whenever(it.remove(any())).thenAnswer { invocation ->
                 val key = invocation.getArgument<String>(0)
                 inMemoryPrefs.remove(key)
@@ -54,11 +60,17 @@ class SettingsStoreTest {
                 val def = invocation.getArgument<Boolean>(1)
                 inMemoryPrefs[key] as? Boolean ?: def
             }
+            org.mockito.kotlin.whenever(it.getInt(any(), any())).thenAnswer { invocation ->
+                val key = invocation.getArgument<String>(0)
+                val def = invocation.getArgument<Int>(1)
+                inMemoryPrefs[key] as? Int ?: def
+            }
             org.mockito.kotlin.whenever(it.getString(any(), org.mockito.kotlin.anyOrNull())).thenAnswer { invocation ->
                 val key = invocation.getArgument<String>(0)
                 val def = invocation.getArgument<String?>(1)
                 inMemoryPrefs[key] as? String ?: def
             }
+
             org.mockito.kotlin.whenever(it.getStringSet(any(), org.mockito.kotlin.anyOrNull())).thenAnswer { invocation ->
                 @Suppress("UNCHECKED_CAST")
                 inMemoryPrefs[invocation.getArgument<String>(0)] as? Set<String> ?: invocation.getArgument<Set<String>?>(1) ?: emptySet<String>()
@@ -80,6 +92,20 @@ class SettingsStoreTest {
         SettingsStore.setAutoUpdateEnabled(mockContext, true)
         assertTrue(SettingsStore.isAutoUpdateEnabled(mockContext))
     }
+
+    @Test
+    fun testWebServerSettings() {
+        assertTrue(SettingsStore.isWebServerEnabled(mockContext))
+        SettingsStore.setWebServerEnabled(mockContext, false)
+        assertFalse(SettingsStore.isWebServerEnabled(mockContext))
+        SettingsStore.setWebServerEnabled(mockContext, true)
+        assertTrue(SettingsStore.isWebServerEnabled(mockContext))
+
+        assertEquals(2325, SettingsStore.getWebServerPort(mockContext))
+        SettingsStore.setWebServerPort(mockContext, 8080)
+        assertEquals(8080, SettingsStore.getWebServerPort(mockContext))
+    }
+
 
     @Test
     fun testPasswordLifecycleAndVerification() {

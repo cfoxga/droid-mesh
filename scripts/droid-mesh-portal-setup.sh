@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# One-shot bootstrap for a Meta Portal device: install Kiosk Satellite Updater,
+# One-shot bootstrap for a Meta Portal device: install DroidMesh,
 # grant the minimum ADB items it needs to run, and launch it. Portal only —
 # Echo Show LineageOS ports use Device Manager mode instead and never need
 # this app.
@@ -15,19 +15,19 @@
 # ADB isn't set up yet on a fresh Portal — that's the point of this script).
 #
 # Usage:
-#   bash scripts/kiosk-satellite-portal-setup.sh <serial> [apk-path]
+#   bash scripts/droid-mesh-portal-setup.sh <serial> [apk-path]
 #
 #   <serial>     ADB serial from `adb devices` (USB transport, not an IP).
 #   [apk-path]   Optional local APK to install instead of fetching the
-#                latest GitHub release for cfoxga/kiosk-satellite-updater.
+#                latest GitHub release for cfoxga/droid-mesh.
 set -euo pipefail
 
 PKG="com.cfox.droidmesh"
 REPO_OWNER="cfoxga"
-REPO_NAME="kiosk-satellite-updater"
+REPO_NAME="droid-mesh"
 
-log() { echo "[kiosk-satellite-portal-setup] $*" >&2; }
-die() { echo "[kiosk-satellite-portal-setup] ERROR: $*" >&2; exit 1; }
+log() { echo "[droid-mesh-portal-setup] $*" >&2; }
+die() { echo "[droid-mesh-portal-setup] ERROR: $*" >&2; exit 1; }
 
 SERIAL="${1:-}"
 APK_PATH="${2:-}"
@@ -57,7 +57,7 @@ resolve_apk() {
     2>/dev/null)" || die "no GitHub release found for $REPO_OWNER/$REPO_NAME — cut a release, or pass a local APK path as the 2nd argument"
   [[ -n "$url" ]] || die "latest release for $REPO_OWNER/$REPO_NAME has no .apk asset"
 
-  out="/tmp/kiosk-satellite-updater-latest.apk"
+  out="/tmp/droid-mesh-latest.apk"
   log "downloading latest release APK: $url"
   curl -sfL -o "$out" "$url" || die "APK download failed"
   [[ -s "$out" ]] || die "downloaded APK is empty: $out"
@@ -80,7 +80,7 @@ log "battery-optimization exemption (Doze whitelist) so the foreground service s
 "${ADB[@]}" shell dumpsys deviceidle whitelist "+$PKG" \
   || log "WARNING: deviceidle whitelist failed — check manually"
 
-log "launching Kiosk Satellite Updater (starts the foreground service + HTTP trigger on :2325)"
+log "launching DroidMesh (starts the foreground service + HTTP trigger on :2325)"
 "${ADB[@]}" shell am start -n "$PKG/.MainActivity" || die "am start failed"
 
 sleep 2

@@ -63,7 +63,7 @@ A lightweight, native Android P2P mesh network, headless package updater, and lo
 
 ## One-Time Device Provisioning via ADB
 
-`scripts/kiosk-satellite-portal-setup.sh <serial>` runs this whole sequence in one shot against a
+`scripts/droid-mesh-portal-setup.sh <serial>` runs this whole sequence in one shot against a
 USB-connected Portal device: installs the latest release APK, applies the four grants below, and
 launches the app. With auto-update on by default, that alone ends up with Kiosk Satellite itself
 installed within one check cycle — no manual `/update` call required. The manual steps, for

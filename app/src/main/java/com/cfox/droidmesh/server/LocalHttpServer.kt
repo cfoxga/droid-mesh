@@ -388,7 +388,7 @@ class LocalHttpServer(
 
     private fun handleGetSettings(): Response {
         val seedsJson = JSONArray()
-        SettingsStore.getCrossVlanSeeds(context).forEach { seedsJson.put(it) }
+        SettingsStore.getPersistentConnections(context).forEach { seedsJson.put(it) }
 
         val json = JSONObject().apply {
             put("status", "ok")
@@ -678,7 +678,7 @@ class LocalHttpServer(
             })
         }
 
-        val result = meshManager?.addCrossVlanSeed(ip, reciprocal = true)
+        val result = meshManager?.addPersistentConnection(ip, reciprocal = true)
         val normalized = result?.getOrNull() ?: ip
         meshManager?.syncConfigToMesh()
 
@@ -699,7 +699,7 @@ class LocalHttpServer(
             val remoteSenderIp = body.optString("sender_ip", senderIp)
             val remotePort = body.optInt("sender_port", 2325)
             val remoteSeed = "$remoteSenderIp:$remotePort"
-            SettingsStore.addCrossVlanSeed(context, remoteSeed)
+            SettingsStore.addPersistentConnection(context, remoteSeed)
             JSONObject()
         }
         responseJson.put("status", "ok")
@@ -738,7 +738,7 @@ class LocalHttpServer(
     }
 
     private fun handleMeshSeedsGet(): Response {
-        val seeds = SettingsStore.getCrossVlanSeeds(context)
+        val seeds = SettingsStore.getPersistentConnections(context)
         val arr = JSONArray()
         seeds.forEach { arr.put(it) }
         val json = JSONObject().apply {
@@ -765,7 +765,7 @@ class LocalHttpServer(
             })
         }
 
-        val removed = meshManager?.removeCrossVlanSeed(ip) ?: SettingsStore.removeCrossVlanSeed(context, ip)
+        val removed = meshManager?.removePersistentConnection(ip) ?: SettingsStore.removePersistentConnection(context, ip)
         val json = JSONObject().apply {
             put("status", "ok")
             put("removed", removed)

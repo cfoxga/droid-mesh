@@ -81,7 +81,7 @@ class SettingsStoreTest {
         }
     }
 
-    // [PROGRAMMATIC] SET-TEST-003: Config persistence & cross-VLAN seeds
+    // [PROGRAMMATIC] SET-TEST-003: Config persistence & persistent connections
     // [PROGRAMMATIC] MESH-TEST-004: Config sync across nodes with versioning
     @Test
     fun testExportAndImportConfig() {
@@ -90,7 +90,7 @@ class SettingsStoreTest {
         SettingsStore.setWebServerEnabled(mockContext, true)
         SettingsStore.setAutoUpdateEnabled(mockContext, false)
         SettingsStore.setPassword(mockContext, "fleetPassword123")
-        SettingsStore.addCrossVlanSeed(mockContext, "192.168.50.64:2329")
+        SettingsStore.addPersistentConnection(mockContext, "192.168.50.64:2329")
 
         val exported = SettingsStore.exportConfigJson(mockContext)
         val initialVersion = exported.getLong("config_version")
@@ -115,7 +115,7 @@ class SettingsStoreTest {
         assertEquals(2329, SettingsStore.getWebServerPort(mockContext))
         assertFalse(SettingsStore.isAutoUpdateEnabled(mockContext))
         assertTrue(SettingsStore.verifyPassword(mockContext, "fleetPassword123"))
-        assertTrue(SettingsStore.getCrossVlanSeeds(mockContext).contains("192.168.50.64:2329"))
+        assertTrue(SettingsStore.getPersistentConnections(mockContext).contains("192.168.50.64:2329"))
 
         // Re-importing older or equal version should be ignored
         val reimportResult = SettingsStore.importConfigJson(mockContext, exported)

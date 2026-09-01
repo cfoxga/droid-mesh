@@ -41,7 +41,9 @@ class MeshDiscoveryManager(
         const val MESH_PORT = 23250
         const val BEACON_INTERVAL_MS = 8000L
         const val PEER_EXPIRATION_MS = 30000L
-        const val CROSS_VLAN_SYNC_INTERVAL_MS = 12000L
+        const val PERSISTENT_CONNECTION_SYNC_INTERVAL_MS = 12000L
+        @Deprecated("Use PERSISTENT_CONNECTION_SYNC_INTERVAL_MS")
+        const val CROSS_VLAN_SYNC_INTERVAL_MS = PERSISTENT_CONNECTION_SYNC_INTERVAL_MS
         private const val TAG = "MeshDiscovery"
     }
 
@@ -94,7 +96,7 @@ class MeshDiscoveryManager(
         startReceiver()
         startTransmitter()
         startPruner()
-        startDiscoverySyncer()
+        startPersistentConnectionSyncer()
     }
 
     fun stop() {
@@ -342,24 +344,24 @@ class MeshDiscoveryManager(
         }
     }
 
-    private fun startDiscoverySyncer() {
+    private fun startPersistentConnectionSyncer() {
         discoveryJob = scope.launch(Dispatchers.IO) {
             while (isActive) {
                 val connections = SettingsStore.getPersistentConnections(context)
                 for (connection in connections) {
                     if (!isActive) break
                     try {
-                        syncWithConnection(connection)
+                        syncWithPersistentConnection(connection)
                     } catch (e: Exception) {
-                        Logger.w("Failed discovery sync with connection $connection: ${e.message}")
+                        Logger.w("Failed persistent connection sync with $connection: ${e.message}")
                     }
                 }
-                delay(CROSS_VLAN_SYNC_INTERVAL_MS)
+                delay(PERSISTENT_CONNECTION_SYNC_INTERVAL_MS)
             }
         }
     }
 
-    suspend fun syncWithConnection(connection: String) = withContext(Dispatchers.IO) {
+    suspend fun syncWithPersistentConnection(connection: String) = withContext(Dispatchers.IO) {
         val normalized = normalizeConnectionAddress(connection)
         val url = "http://$normalized/api/mesh"
         val request = Request.Builder()
@@ -393,28 +395,34 @@ class MeshDiscoveryManager(
     }
 
     // Backward compatibility: alias for renamed method
-    suspend fun syncWithSeed(seed: String) = syncWithConnection(seed)
+    suspend fun syncWithConnection(connection: String) = syncWithPersistentConnection(connection)
 
-    fun addDiscoveredDevice(rawIp: String, reciprocal: Boolean = true): Result<String> {
+    @Deprecated("Use syncWithPersistentConnection")
+    suspend fun syncWithSeed(seed: String) = syncWithPersistentConnection(seed)
+
+    fun addPersistentConnection(rawIp: String, reciprocal: Boolean = true): Result<String> {
         val normalized = normalizeConnectionAddress(rawIp)
         SettingsStore.addPersistentConnection(context, normalized)
 
         // Launch immediate handshake in background
         scope.launch(Dispatchers.IO) {
             try {
-                performHandshake(normalized, reciprocal)
+                performDiscoveryHandshake(normalized, reciprocal)
             } catch (e: Exception) {
-                Logger.e("Handshake failed with discovered device $normalized", e)
+                Logger.e("Handshake failed with persistent connection $normalized", e)
             }
         }
 
         return Result.success(normalized)
     }
 
-    // Backward compatibility: alias for renamed method
-    fun addCrossVlanSeed(rawIp: String, reciprocal: Boolean = true): Result<String> = addDiscoveredDevice(rawIp, reciprocal)
+    // Backward compatibility: aliases for renamed methods
+    fun addDiscoveredDevice(rawIp: String, reciprocal: Boolean = true): Result<String> = addPersistentConnection(rawIp, reciprocal)
 
-    private suspend fun performHandshake(connection: String, reciprocal: Boolean) = withContext(Dispatchers.IO) {
+    @Deprecated("Use addPersistentConnection")
+    fun addCrossVlanSeed(rawIp: String, reciprocal: Boolean = true): Result<String> = addPersistentConnection(rawIp, reciprocal)
+
+    private suspend fun performDiscoveryHandshake(connection: String, reciprocal: Boolean) = withContext(Dispatchers.IO) {
         val normalized = normalizeConnectionAddress(connection)
         val localIp = getLocalIpAddress() ?: "127.0.0.1"
         val handshakeUrl = "http://$normalized/api/mesh/handshake"
@@ -498,7 +506,7 @@ class MeshDiscoveryManager(
         return res
     }
 
-    fun removeDiscoveredDevice(rawIp: String): Boolean {
+    fun removePersistentConnection(rawIp: String): Boolean {
         val normalized = normalizeConnectionAddress(rawIp)
         val cleanHost = normalized.substringBefore(":")
         val removed = SettingsStore.removePersistentConnection(context, normalized) ||
@@ -521,8 +529,11 @@ class MeshDiscoveryManager(
         return removed
     }
 
-    // Backward compatibility alias
-    fun removeCrossVlanSeed(rawIp: String): Boolean = removeDiscoveredDevice(rawIp)
+    // Backward compatibility aliases
+    fun removeDiscoveredDevice(rawIp: String): Boolean = removePersistentConnection(rawIp)
+
+    @Deprecated("Use removePersistentConnection")
+    fun removeCrossVlanSeed(rawIp: String): Boolean = removePersistentConnection(rawIp)
 
     fun ingestRemotePeers(peersArray: JSONArray, seed: String) {
         var changed = false

@@ -245,9 +245,16 @@ object SettingsStore {
     }
 
     // Backward compatibility: map old cross_vlan_seeds to persistent_connections
+    @Deprecated("Use getPersistentConnections")
     fun getCrossVlanSeeds(context: Context): Set<String> = getPersistentConnections(context)
+
+    @Deprecated("Use setPersistentConnections")
     fun setCrossVlanSeeds(context: Context, seeds: Set<String>) = setPersistentConnections(context, seeds)
+
+    @Deprecated("Use addPersistentConnection")
     fun addCrossVlanSeed(context: Context, seed: String): Boolean = addPersistentConnection(context, seed)
+
+    @Deprecated("Use removePersistentConnection")
     fun removeCrossVlanSeed(context: Context, seed: String): Boolean = removePersistentConnection(context, seed)
 
     fun isAutoUpdateEnabled(context: Context): Boolean =

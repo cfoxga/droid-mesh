@@ -746,8 +746,8 @@ class MainActivity : AppCompatActivity() {
             if (ip.isNotBlank()) {
                 dialogBinding.btnSubmitConnect.isEnabled = false
                 val meshManager = UpdaterForegroundService.activeMeshManager
-                meshManager?.addCrossVlanSeed(ip, reciprocal = true)
-                Logger.i("Added cross-VLAN seed: $ip")
+                meshManager?.addPersistentConnection(ip, reciprocal = true)
+                Logger.i("Added persistent connection: $ip")
                 Toast.makeText(this, "Connecting to $ip...", Toast.LENGTH_SHORT).show()
                 dialog.dismiss()
                 refreshSettingsUI()
@@ -951,10 +951,10 @@ class MainActivity : AppCompatActivity() {
         }
 
         binding.layoutSeedList.removeAllViews()
-        val seeds = SettingsStore.getCrossVlanSeeds(this)
-        if (seeds.isEmpty()) {
+        val connections = SettingsStore.getPersistentConnections(this)
+        if (connections.isEmpty()) {
             val emptyTv = TextView(this).apply {
-                text = "No cross-VLAN seeds configured."
+                text = "No persistent connections configured."
                 setTextColor(getColor(R.color.ks_outline))
                 textSize = 13f
                 setPadding(0, 4, 0, 4)
@@ -962,15 +962,15 @@ class MainActivity : AppCompatActivity() {
             binding.layoutSeedList.addView(emptyTv)
         } else {
             val inflater = layoutInflater
-            for (seed in seeds) {
+            for (connection in connections) {
                 val seedBinding = ItemSeedRowBinding.inflate(inflater, binding.layoutSeedList, false)
-                seedBinding.tvSeedIp.text = seed
+                seedBinding.tvSeedIp.text = connection
                 seedBinding.btnRemoveSeed.setOnClickListener {
                     val meshManager = UpdaterForegroundService.activeMeshManager
-                    meshManager?.removeCrossVlanSeed(seed)
-                    SettingsStore.removeCrossVlanSeed(this, seed)
+                    meshManager?.removePersistentConnection(connection)
+                    SettingsStore.removePersistentConnection(this, connection)
                     refreshSettingsUI()
-                    Logger.i("Removed seed $seed")
+                    Logger.i("Removed persistent connection $connection")
                 }
                 binding.layoutSeedList.addView(seedBinding.root)
             }

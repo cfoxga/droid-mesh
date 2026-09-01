@@ -228,7 +228,7 @@ class LocalHttpServerTest {
         assertEquals(NanoHTTPD.Response.Status.OK, getRes.status)
 
         // Seed Removal (DELETE)
-        SettingsStore.addCrossVlanSeed(mockContext, "192.168.50.10:2325")
+        SettingsStore.addPersistentConnection(mockContext, "192.168.50.10:2325")
         val deleteSession = mockSession(
             uri = "/api/mesh/seeds",
             method = NanoHTTPD.Method.DELETE,
@@ -247,7 +247,7 @@ class LocalHttpServerTest {
         )
         val response = server.serve(handshakeSession)
         assertEquals(NanoHTTPD.Response.Status.OK, response.status)
-        assertTrue(SettingsStore.getCrossVlanSeeds(mockContext).contains("192.168.50.10:2325"))
+        assertTrue(SettingsStore.getPersistentConnections(mockContext).contains("192.168.50.10:2325"))
     }
 
     @Test
@@ -285,7 +285,7 @@ class LocalHttpServerTest {
         assertEquals(2326, SettingsStore.getWebServerPort(mockContext))
         assertFalse(SettingsStore.isAutoUpdateEnabled(mockContext))
         assertTrue(SettingsStore.isPasswordSet(mockContext))
-        assertTrue(SettingsStore.getCrossVlanSeeds(mockContext).contains("192.168.50.64:2326"))
+        assertTrue(SettingsStore.getPersistentConnections(mockContext).contains("192.168.50.64:2326"))
         assertEquals(2000000000000L, SettingsStore.getConfigVersion(mockContext))
     }
 

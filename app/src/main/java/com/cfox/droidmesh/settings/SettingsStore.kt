@@ -19,8 +19,6 @@ object SettingsStore {
     /** Public so other components (e.g. CpuStatsHelper) reference the same prefs file rather
      *  than duplicating the literal name. */
     const val PREFS_NAME = "droid_mesh_settings"
-    private const val LEGACY_PREFS_NAME = "kiosk_satellite_updater_settings"
-    private const val KEY_MIGRATED_FROM_LEGACY = "migrated_from_legacy_prefs"
     private const val KEY_CONFIG_VERSION = "config_version"
     private const val KEY_WEB_SERVER_ENABLED = "web_server_enabled"
     private const val KEY_WEB_SERVER_PORT = "web_server_port"
@@ -966,41 +964,7 @@ object SettingsStore {
         return result
     }
 
-    /**
-     * One-time migration off the legacy prefs file name. Gated on a boolean flag (read via
-     * getBoolean, which the test mock harness stubs) rather than inspecting .all on the
-     * "current" prefs object, so it behaves correctly against both real devices with existing
-     * legacy-named data and the unit test mock (which returns the same mock SharedPreferences
-     * regardless of the file name requested and doesn't stub .all).
-     */
-    private fun prefs(context: Context): SharedPreferences {
-        val current = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        if (!current.getBoolean(KEY_MIGRATED_FROM_LEGACY, false)) {
-            val legacy = context.getSharedPreferences(LEGACY_PREFS_NAME, Context.MODE_PRIVATE)
-            val legacyData: Map<String, *> = try {
-                legacy.all ?: emptyMap<String, Any?>()
-            } catch (_: Exception) {
-                emptyMap<String, Any?>()
-            }
-            val editor = current.edit()
-            for ((key, value) in legacyData) {
-                when (value) {
-                    is String -> editor.putString(key, value)
-                    is Boolean -> editor.putBoolean(key, value)
-                    is Int -> editor.putInt(key, value)
-                    is Long -> editor.putLong(key, value)
-                    is Float -> editor.putFloat(key, value)
-                    is Set<*> -> {
-                        @Suppress("UNCHECKED_CAST")
-                        editor.putStringSet(key, value as Set<String>)
-                    }
-                    else -> {}
-                }
-            }
-            editor.putBoolean(KEY_MIGRATED_FROM_LEGACY, true)
-            editor.apply()
-        }
-        return current
-    }
+    private fun prefs(context: Context): SharedPreferences =
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 }
 

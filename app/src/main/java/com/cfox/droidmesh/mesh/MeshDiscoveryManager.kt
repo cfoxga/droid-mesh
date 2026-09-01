@@ -690,13 +690,20 @@ class MeshDiscoveryManager(
         val byMesh = currentPeers.groupBy { it.meshId }
         val meshesArray = JSONArray()
 
+        // Get all known mesh templates from SettingsStore
+        val knownMeshes = SettingsStore.getKnownMeshes(context).associateBy { it.id }
+
         // Ensure local mesh is always present even if alone
         val meshIds = mutableSetOf(localMeshId)
-        meshIds.addAll(byMesh.keys)
+        meshIds.addAll(knownMeshes.keys)  // Include all known mesh templates
+        meshIds.addAll(byMesh.keys)  // Include meshes from discovered peers
 
         for (mId in meshIds.sorted()) {
             val peers = byMesh[mId] ?: emptyList()
-            val mName = peers.firstOrNull()?.meshName ?: if (mId == localMeshId) localMeshName else mId
+            // Use known mesh name from template, or peer's mesh name, or ID as fallback
+            val mName = knownMeshes[mId]?.name
+                ?: peers.firstOrNull()?.meshName
+                ?: if (mId == localMeshId) localMeshName else mId
             val isLocal = (mId == localMeshId)
 
             val mObj = JSONObject().apply {

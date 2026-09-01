@@ -951,7 +951,7 @@ input:checked + .slider:before {
             <div class="field-group">
               <label class="field-label" for="settingMeshSelect">Mesh Partition</label>
               <select id="settingMeshSelect" class="field" required onchange="updateMeshSelection()">
-                <option value="">-- Select a mesh --</option>
+                <option value="unmanaged">Unmanaged</option>
               </select>
               <span style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">Choose the mesh this device belongs to. Create new meshes with the "+ Mesh" button in the sidebar.</span>
             </div>
@@ -2033,21 +2033,33 @@ async function loadSettings() {
     deviceNameInput.value = data.customDeviceName || '';
     deviceNameInput.placeholder = data.effectiveDeviceName || 'e.g., Theater Portal, Living Room TV';
 
-    // Populate mesh dropdown
+    // Populate mesh dropdown from API mesh list
     const meshSelect = document.getElementById('settingMeshSelect');
-    const currentMeshId = data.localMeshId || state.localMeshId;
+    const currentMeshId = data.localMeshId || state.localMeshId || 'unmanaged';
     const currentMeshName = data.localMeshName || state.localMeshName;
 
-    meshSelect.innerHTML = '<option value="">-- Select a mesh --</option>';
+    // Clear existing options except the first one
+    meshSelect.innerHTML = '';
+
+    // Always include unmanaged first
+    const unmangedOpt = document.createElement('option');
+    unmangedOpt.value = 'unmanaged';
+    unmangedOpt.textContent = 'Unmanaged';
+    if (currentMeshId === 'unmanaged') unmangedOpt.selected = true;
+    meshSelect.appendChild(unmangedOpt);
+
+    // Add mesh options from state.meshes (which comes from getMeshesGrouped)
     const meshes = state.meshes || [];
     meshes.forEach(m => {
-      const option = document.createElement('option');
-      option.value = m.id;
-      option.textContent = `${m.name} (${m.id})`;
-      if (m.id === currentMeshId) {
-        option.selected = true;
+      if (m.id !== 'unmanaged') {  // Don't duplicate unmanaged
+        const option = document.createElement('option');
+        option.value = m.id;
+        option.textContent = `${m.name}`;
+        if (m.id === currentMeshId) {
+          option.selected = true;
+        }
+        meshSelect.appendChild(option);
       }
-      meshSelect.appendChild(option);
     });
 
     // Add change listener to update mesh selection when dropdown changes
@@ -2154,7 +2166,7 @@ function updateMeshSelection() {
 
 async function handleSaveMeshIdentity(e) {
   e.preventDefault();
-  const localMeshId = document.getElementById('settingMeshSelect').value.trim();
+  const localMeshId = document.getElementById('settingMeshSelect').value.trim() || 'unmanaged';
   const msgEl = document.getElementById('meshSettingsMsg');
 
   if (!localMeshId) {

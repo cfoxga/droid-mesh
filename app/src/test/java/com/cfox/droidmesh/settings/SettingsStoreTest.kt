@@ -2,6 +2,7 @@ package com.cfox.droidmesh.settings
 
 import android.content.Context
 import android.content.SharedPreferences
+import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.*
 import org.junit.Before
@@ -216,5 +217,88 @@ class SettingsStoreTest {
 
         assertEquals("Netflix", sorted[3].appName)
         assertFalse(sorted[3].isSideloaded)
+    }
+
+    // [PROGRAMMATIC] MESH-TEST-005: Backward-compat import of old cross_vlan_seeds key
+    @Test
+    fun testBackwardCompatImportOldCrossVlanSeeds() {
+        // Simulate old config format with "cross_vlan_seeds" key (old name)
+        val seedsArr = JSONArray()
+        seedsArr.put("192.168.50.64:2325")
+        seedsArr.put("192.168.40.250:2325")
+
+        val oldFormatConfig = JSONObject().apply {
+            put("config_version", 100L)
+            put("web_server_port", 2329)
+            put("cross_vlan_seeds", seedsArr)
+        }
+
+        val result = SettingsStore.importConfigJson(mockContext, oldFormatConfig)
+        assertTrue(result.applied)
+        assertTrue(result.seedsChanged)
+
+        // Verify old key was imported as new persistent_connections
+        val connections = SettingsStore.getPersistentConnections(mockContext)
+        assertEquals(2, connections.size)
+        assertTrue(connections.contains("192.168.50.64:2325"))
+        assertTrue(connections.contains("192.168.40.250:2325"))
+    }
+
+    // [PROGRAMMATIC] MESH-TEST-006: Dual-key export for backward compatibility
+    @Test
+    fun testDualKeyExportForBackwardCompat() {
+        SettingsStore.addPersistentConnection(mockContext, "192.168.50.64:2325")
+        SettingsStore.addPersistentConnection(mockContext, "192.168.40.250:2325")
+
+        val exported = SettingsStore.exportConfigJson(mockContext)
+
+        // Verify both old and new keys are present
+        assertTrue(exported.has("persistent_connections"))
+        assertTrue(exported.has("cross_vlan_seeds"))
+
+        // Verify both contain the same connections
+        val newKey = exported.optJSONArray("persistent_connections")
+        val oldKey = exported.optJSONArray("cross_vlan_seeds")
+        assertEquals(2, newKey?.length())
+        assertEquals(2, oldKey?.length())
+
+        // Both keys should have same contents
+        val newConns = mutableSetOf<String>()
+        val oldConns = mutableSetOf<String>()
+        for (i in 0 until (newKey?.length() ?: 0)) {
+            newConns.add(newKey!!.optString(i, ""))
+        }
+        for (i in 0 until (oldKey?.length() ?: 0)) {
+            oldConns.add(oldKey!!.optString(i, ""))
+        }
+        assertEquals(newConns, oldConns)
+    }
+
+    // [PROGRAMMATIC] DM-DATA-007: All-device power loss recovery scenario
+    @Test
+    fun testPowerLossRecoveryWithPersistentConnections() {
+        // Simulate Node A with persistent connections configured
+        SettingsStore.addPersistentConnection(mockContext, "192.168.50.64:2325")
+        SettingsStore.addPersistentConnection(mockContext, "192.168.40.250:2325")
+
+        // Export config (simulating power loss save)
+        val exported = SettingsStore.exportConfigJson(mockContext)
+
+        // Clear preferences (simulating power loss and restart)
+        inMemoryPrefs.clear()
+
+        // Verify persistent connections are gone before import
+        assertTrue(SettingsStore.getPersistentConnections(mockContext).isEmpty())
+
+        // Import saved config (simulating boot after power loss)
+        val result = SettingsStore.importConfigJson(mockContext, exported)
+        assertTrue(result.applied)
+        assertTrue(result.seedsChanged)
+
+        // Verify connections are restored
+        val restored = SettingsStore.getPersistentConnections(mockContext)
+        assertEquals(2, restored.size)
+        assertTrue(restored.contains("192.168.50.64:2325"))
+        assertTrue(restored.contains("192.168.40.250:2325"))
     }
 }

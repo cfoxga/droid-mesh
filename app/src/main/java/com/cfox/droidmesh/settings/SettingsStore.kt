@@ -28,6 +28,7 @@ object SettingsStore {
     private const val KEY_LOCAL_MESH_NAME = "local_mesh_name"
     private const val KEY_PERSISTENT_CONNECTIONS = "persistent_connections"
     private const val KEY_CUSTOM_DEVICE_NAME = "custom_device_name"
+    private const val KEY_KNOWN_MESHES = "known_meshes"
     private const val KEY_MESH_APP_LIBRARIES = "mesh_app_libraries"
 
     private const val DEFAULT_AUTO_UPDATE_ENABLED = true
@@ -198,6 +199,55 @@ object SettingsStore {
 
     fun setCustomDeviceName(context: Context, deviceName: String) {
         prefs(context).edit().putString(KEY_CUSTOM_DEVICE_NAME, deviceName.trim()).apply()
+    }
+
+    data class MeshTemplate(val id: String, val name: String)
+
+    fun getKnownMeshes(context: Context): List<MeshTemplate> {
+        val json = prefs(context).getString(KEY_KNOWN_MESHES, null) ?: return listOf(
+            MeshTemplate("unmanaged", "Unmanaged")
+        )
+        return try {
+            val arr = JSONArray(json)
+            (0 until arr.length()).mapNotNull { i ->
+                val obj = arr.optJSONObject(i)
+                if (obj != null) {
+                    val id = obj.optString("id")
+                    val name = obj.optString("name")
+                    if (id.isNotEmpty()) MeshTemplate(id, name) else null
+                }
+                else null
+            }
+        } catch (e: Exception) {
+            listOf(MeshTemplate("unmanaged", "Unmanaged"))
+        }
+    }
+
+    fun setKnownMeshes(context: Context, meshes: List<MeshTemplate>) {
+        val json = JSONArray().apply {
+            meshes.forEach { m ->
+                put(JSONObject().apply {
+                    put("id", m.id)
+                    put("name", m.name)
+                })
+            }
+        }
+        prefs(context).edit().putString(KEY_KNOWN_MESHES, json.toString()).apply()
+    }
+
+    fun addKnownMesh(context: Context, meshId: String, meshName: String): Boolean {
+        val cleanId = meshId.trim().lowercase()
+        val cleanName = meshName.trim()
+        if (cleanId.isBlank() || cleanName.isBlank()) return false
+
+        val current = getKnownMeshes(context).toMutableList()
+        // Check if already exists
+        if (current.any { it.id == cleanId }) return false
+
+        current.add(MeshTemplate(cleanId, cleanName))
+        setKnownMeshes(context, current)
+        updateConfigVersion(context)
+        return true
     }
 
     fun getPersistentConnections(context: Context): Set<String> {
@@ -473,6 +523,15 @@ object SettingsStore {
         // For backward compatibility, also include under old key
         put("cross_vlan_seeds", connectionsArr)
         put("mesh_app_libraries", getAllMeshAppLibraries(context))
+        // Include known mesh templates
+        val meshesArr = JSONArray()
+        getKnownMeshes(context).forEach { m ->
+            meshesArr.put(JSONObject().apply {
+                put("id", m.id)
+                put("name", m.name)
+            })
+        }
+        put("known_meshes", meshesArr)
         // Include known peers for recovery after power loss
         if (knownPeersJson != null) {
             put("known_peers", knownPeersJson)
@@ -583,6 +642,45 @@ object SettingsStore {
                 if (currentLibraries != incomingLibraries) {
                     editor.putString(KEY_MESH_APP_LIBRARIES, incomingLibraries)
                     libraryChanged = true
+                }
+            }
+        }
+
+        // Synchronize known mesh templates
+        if (json.has("known_meshes")) {
+            val meshesArr = json.optJSONArray("known_meshes")
+            if (meshesArr != null) {
+                val incomingMeshes = mutableListOf<MeshTemplate>()
+                for (i in 0 until meshesArr.length()) {
+                    val meshObj = meshesArr.optJSONObject(i)
+                    if (meshObj != null) {
+                        val id = meshObj.optString("id")
+                        val name = meshObj.optString("name")
+                        if (id.isNotEmpty()) {
+                            incomingMeshes.add(MeshTemplate(id, name))
+                        }
+                    }
+                }
+                // Merge incoming meshes with current meshes (prefer incoming for name updates)
+                val currentMeshes = getKnownMeshes(context).toMutableList()
+                val merged = mutableListOf<MeshTemplate>()
+                val addedIds = mutableSetOf<String>()
+
+                // Add/update from incoming
+                for (incomingMesh in incomingMeshes) {
+                    merged.add(incomingMesh)
+                    addedIds.add(incomingMesh.id)
+                }
+
+                // Add current meshes that weren't in incoming (preserve local additions)
+                for (currentMesh in currentMeshes) {
+                    if (!addedIds.contains(currentMesh.id)) {
+                        merged.add(currentMesh)
+                    }
+                }
+
+                if (merged != currentMeshes) {
+                    setKnownMeshes(context, merged)
                 }
             }
         }

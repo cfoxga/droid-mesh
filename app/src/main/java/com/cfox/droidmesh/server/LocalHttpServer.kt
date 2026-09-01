@@ -836,10 +836,18 @@ class LocalHttpServer(
             })
         }
 
-        // Create mesh in registry without auto-assigning device to it
-        // User must manually select from dropdown to join the mesh
-        Logger.i("Mesh created: $meshId ($meshName)")
-        // Mesh becomes available to all devices once at least one device joins it via settings
+        // Add mesh to known templates (doesn't assign device)
+        val added = SettingsStore.addKnownMesh(context, meshId, meshName)
+        if (!added) {
+            return jsonResponse(Response.Status.BAD_REQUEST, JSONObject().apply {
+                put("status", "error")
+                put("error", "Mesh $meshId already exists")
+            })
+        }
+
+        Logger.i("Mesh template created: $meshId ($meshName)")
+        // Sync mesh templates to all devices
+        meshManager?.syncConfigToMesh()
 
         val json = JSONObject().apply {
             put("status", "ok")

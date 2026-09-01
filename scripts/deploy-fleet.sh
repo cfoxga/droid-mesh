@@ -32,8 +32,8 @@ for target in $TARGETS; do
   adb connect "$target" || true
   echo "--> Installing APK on $target..."
   if adb -s "$target" install -r -d -g "$APK_PATH"; then
-    echo "--> Launching DroidMesh on $target..."
-    adb -s "$target" shell am start -n com.cfox.droidmesh/.MainActivity || true
+    echo "--> Starting DroidMesh service on $target (background, no UI)..."
+    adb -s "$target" shell am startservice -n com.cfox.droidmesh/.service.UpdaterForegroundService || true
     echo "--> OK: Deployed to $target"
   else
     echo "--> FAILED: Could not install on $target"

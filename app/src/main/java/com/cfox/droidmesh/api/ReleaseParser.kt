@@ -38,8 +38,8 @@ object ReleaseParser {
     /**
      * Extracts the owner and repository name from a GitHub API URL.
      *
-     * Example: "https://api.github.com/repos/jxlarrea/kiosk-satellite/releases"
-     * Returns: Pair("jxlarrea", "kiosk-satellite")
+     * Example: "https://api.github.com/repos/owner/repo/releases"
+     * Returns: Pair("owner", "repo")
      *
      * @param url the GitHub API URL
      * @return Pair of (owner, repo) name
@@ -90,7 +90,7 @@ object ReleaseParser {
      * Handles formats like:
      * - "app-1.2.3.apk" → "1.2.3"
      * - "v1.2.3.apk" → "1.2.3"
-     * - "kiosk-satellite-1.2.3.apk" → "1.2.3"
+     * - "some-app-1.2.3.apk" → "1.2.3"
      * - "app-1.2.3-beta.apk" → "1.2.3"
      * - "app-1.2.3+build.apk" → "1.2.3"
      *

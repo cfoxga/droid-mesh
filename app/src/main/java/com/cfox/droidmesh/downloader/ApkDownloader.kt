@@ -53,7 +53,7 @@ class ApkDownloader(
 
             val requestBuilder = Request.Builder()
                 .url(downloadUrl)
-                .header("User-Agent", "KioskSatelliteUpdater-Android")
+                .header("User-Agent", "DroidMesh-Android")
 
             if (existingLength > 0L) {
                 requestBuilder.header("Range", "bytes=$existingLength-")

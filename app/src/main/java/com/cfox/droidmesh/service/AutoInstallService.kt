@@ -7,7 +7,6 @@ import android.os.Handler
 import android.os.Looper
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
-import com.cfox.droidmesh.installer.AppVersionHelper
 import com.cfox.droidmesh.utils.Logger
 
 class AutoInstallService : AccessibilityService() {
@@ -16,6 +15,17 @@ class AutoInstallService : AccessibilityService() {
         @Volatile
         var isServiceRunning: Boolean = false
             private set
+
+        /**
+         * The package name of the app currently being installed/updated via
+         * PackageInstallerDispatcher.dispatchInstall(), set by the dispatching caller
+         * immediately before invoking it. The accessibility event stream only ever reports the
+         * installer UI's own package (e.g. com.android.packageinstaller), never the package
+         * actually being installed, so this is the only reliable source for "what to relaunch"
+         * once the completion screen is detected. Cleared after being consumed.
+         */
+        @Volatile
+        var pendingInstallPackage: String? = null
 
         private val INSTALLER_PACKAGES = setOf(
             "com.android.packageinstaller",
@@ -92,7 +102,7 @@ class AutoInstallService : AccessibilityService() {
 
         for (root in nodesToInspect) {
             try {
-                inspectAndProcessNodeTree(root, packageName)
+                inspectAndProcessNodeTree(root)
             } catch (e: Exception) {
                 Logger.e("Error inspecting node tree", e)
             }
@@ -105,7 +115,7 @@ class AutoInstallService : AccessibilityService() {
                 packageName.contains("permissioncontroller", ignoreCase = true)
     }
 
-    private fun inspectAndProcessNodeTree(root: AccessibilityNodeInfo, packageName: String) {
+    private fun inspectAndProcessNodeTree(root: AccessibilityNodeInfo) {
         val now = System.currentTimeMillis()
 
         // 1. Check for "App installed" completion indicator
@@ -117,9 +127,18 @@ class AutoInstallService : AccessibilityService() {
             // Look for "Done" or "Open" button
             val doneOrOpenClicked = findAndClickActionNode(root, listOf("done", "open"))
 
-            // Launch target kiosk app into foreground after a slight delay
+            // Launch the just-installed app into foreground after a slight delay. `packageName`
+            // here is the installer UI's own package (e.g. com.android.packageinstaller), never
+            // the app that was actually installed — use the package the dispatching caller
+            // recorded instead.
+            val installedPkg = pendingInstallPackage
+            pendingInstallPackage = null
             mainHandler.postDelayed({
-                launchTargetKioskApp()
+                if (installedPkg != null) {
+                    launchUpdatedApp(installedPkg)
+                } else {
+                    Logger.w("Install completion detected but no pendingInstallPackage was recorded — not relaunching")
+                }
                 completionHandled = false
             }, 1000)
             return
@@ -245,8 +264,7 @@ class AutoInstallService : AccessibilityService() {
         return false
     }
 
-    private fun launchTargetKioskApp() {
-        val targetPkg = AppVersionHelper.TARGET_PACKAGE
+    private fun launchUpdatedApp(targetPkg: String) {
         Logger.i("Bringing $targetPkg to foreground post-installation")
         val launchIntent = packageManager.getLaunchIntentForPackage(targetPkg)
         if (launchIntent != null) {

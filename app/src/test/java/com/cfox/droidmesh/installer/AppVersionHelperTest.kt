@@ -27,7 +27,7 @@ class AppVersionHelperTest {
         assertTrue(AppVersionHelper.isOemOrSystemPackage("org.codeaurora.bluetooth"))
 
         // User installed packages
-        assertFalse(AppVersionHelper.isOemOrSystemPackage("me.jxl.kiosk_satellite"))
+        assertFalse(AppVersionHelper.isOemOrSystemPackage("com.example.someapp"))
         assertFalse(AppVersionHelper.isOemOrSystemPackage("com.cfox.droidmesh"))
         assertFalse(AppVersionHelper.isOemOrSystemPackage("com.netflix.ninja"))
         assertFalse(AppVersionHelper.isOemOrSystemPackage("com.disney.disneyplus"))
@@ -41,14 +41,14 @@ class AppVersionHelperTest {
             whenever(it.packageManager).thenReturn(mockPm)
         }
 
-        // 1. Kiosk Satellite (User app)
+        // 1. Some sideloaded app (User app)
         val ksAppInfo = ApplicationInfo().apply { flags = 0 }
         val ksPkg = PackageInfo().apply {
-            packageName = "me.jxl.kiosk_satellite"
+            packageName = "com.example.someapp"
             versionName = "2026.8.107"
             applicationInfo = ksAppInfo
         }
-        whenever(mockPm.getApplicationLabel(ksAppInfo)).thenReturn("Kiosk Satellite")
+        whenever(mockPm.getApplicationLabel(ksAppInfo)).thenReturn("Some App")
 
         // 2. DroidMesh (User app)
         val dmAppInfo = ApplicationInfo().apply { flags = 0 }
@@ -88,12 +88,14 @@ class AppVersionHelperTest {
 
         val installedApps = AppVersionHelper.getUserInstalledApps(mockContext)
 
-        // DroidMesh must be excluded from user installed app list
+        // DroidMesh must be excluded from user installed app list.
+        // getUserInstalledApps() sorts results by appName (case-insensitive), not insertion
+        // order, so "Netflix" sorts before "Some App" alphabetically.
         assertEquals(2, installedApps.size)
-        assertEquals("me.jxl.kiosk_satellite", installedApps[0].packageName)
-        assertEquals("Kiosk Satellite", installedApps[0].appName)
-        assertEquals("com.netflix.ninja", installedApps[1].packageName)
-        assertEquals("Netflix", installedApps[1].appName)
+        assertEquals("com.netflix.ninja", installedApps[0].packageName)
+        assertEquals("Netflix", installedApps[0].appName)
+        assertEquals("com.example.someapp", installedApps[1].packageName)
+        assertEquals("Some App", installedApps[1].appName)
         assertFalse(installedApps.any { it.packageName == "com.cfox.droidmesh" })
     }
 
@@ -101,8 +103,7 @@ class AppVersionHelperTest {
     @Test
     fun testIsExcludedAppPackage() {
         assertTrue(AppVersionHelper.isExcludedAppPackage("com.cfox.droidmesh"))
-        assertTrue(AppVersionHelper.isExcludedAppPackage("com.cfox.kiosksatelliteupdater"))
-        assertFalse(AppVersionHelper.isExcludedAppPackage("me.jxl.kiosk_satellite"))
+        assertFalse(AppVersionHelper.isExcludedAppPackage("com.example.someapp"))
         assertFalse(AppVersionHelper.isExcludedAppPackage("com.netflix.ninja"))
     }
 
@@ -110,7 +111,7 @@ class AppVersionHelperTest {
     @Test
     fun testPeerNodeSerializationWithInstalledApps() {
         val apps = listOf(
-            AppVersionHelper.InstalledAppInfo("me.jxl.kiosk_satellite", "Kiosk Satellite", "2026.8.107", 198L),
+            AppVersionHelper.InstalledAppInfo("com.example.someapp", "Some App", "2026.8.107", 198L),
             AppVersionHelper.InstalledAppInfo("com.cfox.droidmesh", "DroidMesh", "1.0.0", 1L)
         )
 
@@ -125,13 +126,13 @@ class AppVersionHelperTest {
         val json = node.toJson()
         val appsJson = json.getJSONArray("installedApps")
         assertEquals(2, appsJson.length())
-        assertEquals("Kiosk Satellite", appsJson.getJSONObject(0).getString("appName"))
+        assertEquals("Some App", appsJson.getJSONObject(0).getString("appName"))
         assertEquals("DroidMesh", appsJson.getJSONObject(1).getString("appName"))
 
         val deserialized = PeerNode.fromBeaconJson(json, "192.168.40.250")
         assertNotNull(deserialized)
         assertEquals(2, deserialized!!.installedApps.size)
-        assertEquals("me.jxl.kiosk_satellite", deserialized.installedApps[0].packageName)
+        assertEquals("com.example.someapp", deserialized.installedApps[0].packageName)
         assertEquals("2026.8.107", deserialized.installedApps[0].versionName)
         assertEquals("com.cfox.droidmesh", deserialized.installedApps[1].packageName)
     }
@@ -139,7 +140,7 @@ class AppVersionHelperTest {
     // [PROGRAMMATIC] APP-TEST-004: Version mismatch and sideloaded app identification
     @Test
     fun testVersionMismatchAndSideloadedCheck() {
-        assertTrue(AppVersionHelper.isSideloadedApp("me.jxl.kiosk_satellite"))
+        assertTrue(AppVersionHelper.isSideloadedApp("me.jxl.someotherapp"))
         assertTrue(AppVersionHelper.isSideloadedApp("com.cfox.droidmesh"))
         assertFalse(AppVersionHelper.isSideloadedApp("com.disney.disneyplus"))
 

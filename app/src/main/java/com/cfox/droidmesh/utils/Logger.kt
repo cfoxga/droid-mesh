@@ -10,7 +10,7 @@ import java.util.Locale
 import java.util.concurrent.ConcurrentLinkedQueue
 
 object Logger {
-    private const val TAG = "KioskSatelliteUpdater"
+    private const val TAG = "DroidMesh"
     private val timeFormat = SimpleDateFormat("HH:mm:ss.SSS", Locale.US)
     private val logHistory = ConcurrentLinkedQueue<String>()
     private const val MAX_HISTORY = 100

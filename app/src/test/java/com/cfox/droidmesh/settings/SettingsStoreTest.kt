@@ -147,7 +147,8 @@ class SettingsStoreTest {
             autoInstall = true,
             targetVersion = "latest",
             autoUpdate = false,
-            isSideloaded = false
+            isSideloaded = false,
+            downloadUrl = "https://example.com/releases/disneyplus.apk"
         )
         SettingsStore.setMeshAppConfig(mockContext, "googletv", appConfig)
 
@@ -171,19 +172,73 @@ class SettingsStoreTest {
         assertEquals(true, importedLibrary["com.disney.disneyplus"]?.managed)
     }
 
-    // [PROGRAMMATIC] APP-TEST-006: Partition-specific app library defaults and DroidMesh exclusion
+    // [PROGRAMMATIC] APP-TEST-006: No hardcoded default seed on any mesh partition, and DroidMesh
+    // is never included. User-created meshes start empty; entries only exist once a peer reports
+    // them or a user adds one — there is no app-specific bootstrapping of any kind.
     @Test
     fun testMeshAppLibraryDefaultsByMeshPartition() {
-        // Google TV mesh should NOT default Kiosk Satellite and should NEVER include DroidMesh
         val gtvLibrary = SettingsStore.getMeshAppLibrary(mockContext, "googletv")
-        assertFalse(gtvLibrary.containsKey("me.jxl.kiosk_satellite"))
+        assertTrue("googletv partition should start with no seeded entries", gtvLibrary.isEmpty())
         assertFalse(gtvLibrary.containsKey("com.cfox.droidmesh"))
 
-        // Meta Portals mesh SHOULD default Kiosk Satellite, but NEVER include DroidMesh
         val portalsLibrary = SettingsStore.getMeshAppLibrary(mockContext, "meta-portals")
-        assertTrue(portalsLibrary.containsKey("me.jxl.kiosk_satellite"))
-        assertEquals("Kiosk Satellite", portalsLibrary["me.jxl.kiosk_satellite"]?.appName)
+        assertTrue("meta-portals partition should start with no seeded entries", portalsLibrary.isEmpty())
         assertFalse(portalsLibrary.containsKey("com.cfox.droidmesh"))
+    }
+
+    // [PROGRAMMATIC] SET-TEST-004: setMeshAppConfig coerces managed=false when downloadUrl is
+    // blank, rather than throwing or persisting an unusable managed=true entry.
+    @Test
+    fun testSetMeshAppConfigCoercesManagedFalseWhenDownloadUrlBlank() {
+        val appConfig = SettingsStore.MeshAppConfig(
+            packageName = "com.example.someapp",
+            appName = "Some App",
+            managed = true,
+            autoInstall = false,
+            targetVersion = "latest",
+            autoUpdate = false,
+            isSideloaded = true,
+            downloadUrl = ""
+        )
+        SettingsStore.setMeshAppConfig(mockContext, "googletv", appConfig)
+
+        val stored = SettingsStore.getMeshAppLibrary(mockContext, "googletv")["com.example.someapp"]
+        assertNotNull(stored)
+        assertFalse("managed must coerce to false with no downloadUrl", stored!!.managed)
+    }
+
+    // [PROGRAMMATIC] SET-TEST-005: setMeshAppConfig allows managed=true when downloadUrl is set.
+    @Test
+    fun testSetMeshAppConfigAllowsManagedTrueWhenDownloadUrlPresent() {
+        val appConfig = SettingsStore.MeshAppConfig(
+            packageName = "com.example.someapp",
+            appName = "Some App",
+            managed = true,
+            autoInstall = false,
+            targetVersion = "latest",
+            autoUpdate = false,
+            isSideloaded = true,
+            downloadUrl = "https://example.com/releases/someapp.apk"
+        )
+        SettingsStore.setMeshAppConfig(mockContext, "googletv", appConfig)
+
+        val stored = SettingsStore.getMeshAppLibrary(mockContext, "googletv")["com.example.someapp"]
+        assertNotNull(stored)
+        assertTrue(stored!!.managed)
+    }
+
+    // [PROGRAMMATIC] SET-TEST-006: MeshAppConfig.fromJson self-heals managed=true with a blank
+    // downloadUrl (legacy/synced data) to managed=false on read, mirroring the write-path coercion.
+    @Test
+    fun testMeshAppConfigFromJsonCoercesManagedFalseWhenDownloadUrlBlank() {
+        val json = JSONObject().apply {
+            put("packageName", "com.example.legacyapp")
+            put("appName", "Legacy App")
+            put("managed", true)
+            put("downloadUrl", "")
+        }
+        val decoded = SettingsStore.MeshAppConfig.fromJson(json)
+        assertFalse("fromJson must coerce managed=false with no downloadUrl", decoded.managed)
     }
 
     // [PROGRAMMATIC] APP-TEST-007: App library sorting by type (sideloaded first), then alphabetically

@@ -64,7 +64,7 @@ object PackageInstallerDispatcher {
     /**
      * Dispatches an uninstallation request for the target package using system PackageInstaller.
      */
-    fun dispatchUninstall(context: Context, packageName: String = AppVersionHelper.TARGET_PACKAGE): Result<Boolean> {
+    fun dispatchUninstall(context: Context, packageName: String): Result<Boolean> {
         return try {
             Logger.i("Dispatching uninstallation for $packageName")
             val pendingIntent = PendingIntent.getBroadcast(

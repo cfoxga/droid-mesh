@@ -30,7 +30,7 @@ import kotlinx.coroutines.launch
 class UpdaterForegroundService : Service() {
 
     companion object {
-        const val CHANNEL_ID = "kiosk_updater_service_channel"
+        const val CHANNEL_ID = "droid_mesh_updater_service_channel"
         const val NOTIFICATION_ID = 1001
         const val PORT = 2325
 
@@ -159,7 +159,17 @@ class UpdaterForegroundService : Service() {
         when (action) {
             ACTION_TRIGGER_UPDATE -> {
                 val force = intent?.getBooleanExtra("force", false) ?: false
-                updateCoordinator?.startUpdateAsync(force = force)
+                // No explicit package on this intent — resolve the single Managed
+                // (downloadUrl-configured) App Library entry for the local mesh, same as the
+                // HTTP /update endpoint does when ?package= is omitted.
+                val localMeshId = SettingsStore.getLocalMeshId(applicationContext)
+                val library = SettingsStore.getMeshAppLibrary(applicationContext, localMeshId)
+                val target = library.values.filter { it.managed && it.downloadUrl.isNotBlank() }.singleOrNull()
+                if (target != null) {
+                    updateCoordinator?.startUpdateAsync(target.packageName, target.downloadUrl, force = force)
+                } else {
+                    Logger.w("ACTION_TRIGGER_UPDATE: no single Managed app configured — ignoring")
+                }
             }
             ACTION_STOP -> {
                 stopSelf()
@@ -207,6 +217,7 @@ class UpdaterForegroundService : Service() {
                             val apkResult = downloader.downloadApk(downloadUrl, fileName)
                             if (apkResult.isSuccess) {
                                 val apkFile = apkResult.getOrThrow()
+                                com.cfox.droidmesh.service.AutoInstallService.pendingInstallPackage = pkg
                                 com.cfox.droidmesh.installer.PackageInstallerDispatcher
                                     .dispatchInstall(applicationContext, apkFile)
                                 Logger.i("Mesh auto-install: dispatched installer for ${cfg.appName}")
@@ -236,7 +247,7 @@ class UpdaterForegroundService : Service() {
     private fun acquireWakeLock() {
         if (wakeLock == null) {
             val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
-            wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "KioskSatelliteUpdater::UpdateWakeLock")
+            wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "DroidMesh::UpdateWakeLock")
         }
         if (wakeLock?.isHeld == false) {
             wakeLock?.acquire(10 * 60 * 1000L) // 10 minute timeout
@@ -275,7 +286,7 @@ class UpdaterForegroundService : Service() {
         )
 
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("Kiosk Satellite Updater (:2325)")
+            .setContentTitle("DroidMesh Updater (:2325)")
             .setContentText(statusText)
             .setSmallIcon(R.drawable.ic_notification)
             .setContentIntent(pendingIntent)

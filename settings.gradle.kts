@@ -13,5 +13,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "kiosk-satellite-updater"
+rootProject.name = "droid-mesh"
 include(":app")

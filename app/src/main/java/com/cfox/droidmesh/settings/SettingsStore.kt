@@ -16,7 +16,11 @@ import javax.crypto.spec.SecretKeySpec
  * mesh parameters, and mesh-wide configuration synchronization.
  */
 object SettingsStore {
-    private const val PREFS_NAME = "kiosk_satellite_updater_settings"
+    /** Public so other components (e.g. CpuStatsHelper) reference the same prefs file rather
+     *  than duplicating the literal name. */
+    const val PREFS_NAME = "droid_mesh_settings"
+    private const val LEGACY_PREFS_NAME = "kiosk_satellite_updater_settings"
+    private const val KEY_MIGRATED_FROM_LEGACY = "migrated_from_legacy_prefs"
     private const val KEY_CONFIG_VERSION = "config_version"
     private const val KEY_WEB_SERVER_ENABLED = "web_server_enabled"
     private const val KEY_WEB_SERVER_PORT = "web_server_port"
@@ -62,15 +66,20 @@ object SettingsStore {
                 val pkg = json.optString("packageName", json.optString("package", ""))
                 val name = json.optString("appName", json.optString("name", pkg))
                 val isSideload = if (json.has("isSideloaded")) json.optBoolean("isSideloaded") else com.cfox.droidmesh.installer.AppVersionHelper.isSideloadedApp(pkg)
+                val downloadUrl = json.optString("downloadUrl", "")
+                // SET-BEHAVE-005: an entry can never be Managed without a downloadUrl. Legacy/synced
+                // data carrying managed=true with a blank downloadUrl self-heals to managed=false here
+                // rather than surfacing as managed-but-unusable.
+                val managed = json.optBoolean("managed", false) && downloadUrl.isNotBlank()
                 return MeshAppConfig(
                     packageName = pkg,
                     appName = if (name.isNotBlank()) name else pkg,
-                    managed = json.optBoolean("managed", false),
+                    managed = managed,
                     autoInstall = json.optBoolean("autoInstall", false),
                     targetVersion = json.optString("targetVersion", "latest"),
                     autoUpdate = json.optBoolean("autoUpdate", false),
                     isSideloaded = isSideload,
-                    downloadUrl = json.optString("downloadUrl", "")
+                    downloadUrl = downloadUrl
                 )
             }
         }
@@ -523,20 +532,9 @@ object SettingsStore {
         val meshObj = root.optJSONObject(meshId)
         val result = mutableMapOf<String, MeshAppConfig>()
 
-        // Default base managed apps if not explicitly configured (only for Meta Portals mesh partition)
-        if (meshId == "meta-portals" || meshId == "default") {
-            val defaultSatellite = MeshAppConfig(
-                packageName = com.cfox.droidmesh.installer.AppVersionHelper.TARGET_PACKAGE,
-                appName = "Kiosk Satellite",
-                managed = true,
-                autoInstall = true,
-                targetVersion = "latest",
-                autoUpdate = true,
-                isSideloaded = true
-            )
-            result[defaultSatellite.packageName] = defaultSatellite
-        }
-
+        // No app is ever hardcoded into the App Library's defaults for any mesh partition
+        // (SET-BEHAVE-005) — every entry is either discovered from actual installed-app
+        // inventory or added explicitly by the admin.
         if (meshObj != null) {
             val keys = meshObj.keys()
             while (keys.hasNext()) {
@@ -554,15 +552,21 @@ object SettingsStore {
 
         // Always ensure DroidMesh companion is excluded from the library
         result.remove("com.cfox.droidmesh")
-        result.remove("com.cfox.kiosksatelliteupdater")
         result.remove(context.packageName)
         return result
     }
 
     fun setMeshAppConfig(context: Context, meshId: String, appConfig: MeshAppConfig): Long {
+        // SET-BEHAVE-005: an entry can never be persisted as Managed without a downloadUrl.
+        // Coerce (never throw) rather than reject the write outright.
+        val safeConfig = if (appConfig.managed && appConfig.downloadUrl.trim().isBlank()) {
+            appConfig.copy(managed = false)
+        } else {
+            appConfig
+        }
         val root = getAllMeshAppLibraries(context)
         val meshObj = root.optJSONObject(meshId) ?: JSONObject()
-        meshObj.put(appConfig.packageName, appConfig.toJson())
+        meshObj.put(safeConfig.packageName, safeConfig.toJson())
         root.put(meshId, meshObj)
 
         val ver = maxOf(System.currentTimeMillis(), getConfigVersion(context) + 1L)
@@ -783,12 +787,31 @@ object SettingsStore {
             }
         }
 
-        // Synchronize mesh app libraries
+        // Synchronize mesh app libraries. Re-serialized through MeshAppConfig.fromJson/toJson
+        // per entry rather than stored as raw incoming JSON, so SET-BEHAVE-005 (an entry can
+        // never be Managed without a downloadUrl) holds at the persistence layer itself — not
+        // only by coincidence of every current reader re-applying the same coercion. A peer
+        // that sends managed:true with a blank downloadUrl can no longer durably persist or
+        // re-propagate that invalid combination through sync.
         if (json.has("mesh_app_libraries")) {
             val librariesObj = json.optJSONObject("mesh_app_libraries")
             if (librariesObj != null) {
+                val sanitizedLibraries = JSONObject()
+                val meshIds = librariesObj.keys()
+                while (meshIds.hasNext()) {
+                    val meshKey = meshIds.next()
+                    val meshEntries = librariesObj.optJSONObject(meshKey) ?: continue
+                    val sanitizedMesh = JSONObject()
+                    val pkgKeys = meshEntries.keys()
+                    while (pkgKeys.hasNext()) {
+                        val pkgKey = pkgKeys.next()
+                        val entryObj = meshEntries.optJSONObject(pkgKey) ?: continue
+                        sanitizedMesh.put(pkgKey, MeshAppConfig.fromJson(entryObj).toJson())
+                    }
+                    sanitizedLibraries.put(meshKey, sanitizedMesh)
+                }
                 val currentLibraries = getAllMeshAppLibraries(context).toString()
-                val incomingLibraries = librariesObj.toString()
+                val incomingLibraries = sanitizedLibraries.toString()
                 if (currentLibraries != incomingLibraries) {
                     editor.putString(KEY_MESH_APP_LIBRARIES, incomingLibraries)
                     libraryChanged = true
@@ -943,7 +966,41 @@ object SettingsStore {
         return result
     }
 
-    private fun prefs(context: Context): SharedPreferences =
-        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    /**
+     * One-time migration off the legacy prefs file name. Gated on a boolean flag (read via
+     * getBoolean, which the test mock harness stubs) rather than inspecting .all on the
+     * "current" prefs object, so it behaves correctly against both real devices with existing
+     * legacy-named data and the unit test mock (which returns the same mock SharedPreferences
+     * regardless of the file name requested and doesn't stub .all).
+     */
+    private fun prefs(context: Context): SharedPreferences {
+        val current = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        if (!current.getBoolean(KEY_MIGRATED_FROM_LEGACY, false)) {
+            val legacy = context.getSharedPreferences(LEGACY_PREFS_NAME, Context.MODE_PRIVATE)
+            val legacyData: Map<String, *> = try {
+                legacy.all ?: emptyMap<String, Any?>()
+            } catch (_: Exception) {
+                emptyMap<String, Any?>()
+            }
+            val editor = current.edit()
+            for ((key, value) in legacyData) {
+                when (value) {
+                    is String -> editor.putString(key, value)
+                    is Boolean -> editor.putBoolean(key, value)
+                    is Int -> editor.putInt(key, value)
+                    is Long -> editor.putLong(key, value)
+                    is Float -> editor.putFloat(key, value)
+                    is Set<*> -> {
+                        @Suppress("UNCHECKED_CAST")
+                        editor.putStringSet(key, value as Set<String>)
+                    }
+                    else -> {}
+                }
+            }
+            editor.putBoolean(KEY_MIGRATED_FROM_LEGACY, true)
+            editor.apply()
+        }
+        return current
+    }
 }
 

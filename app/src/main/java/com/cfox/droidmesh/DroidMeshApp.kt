@@ -9,7 +9,7 @@ class DroidMeshApp : Application() {
         super.onCreate()
         System.setProperty("java.net.preferIPv4Stack", "true")
         System.setProperty("java.net.preferIPv6Addresses", "false")
-        Logger.i("Kiosk Satellite Updater Application onCreate")
+        Logger.i("DroidMesh Application onCreate")
         UpdaterForegroundService.startService(this)
     }
 }

@@ -5,11 +5,10 @@
 # this app.
 #
 # This script provisions ONLY the updater (com.cfox.droidmesh).
-# It does not install or grant permissions for Kiosk Satellite itself
-# (me.jxl.kiosk_satellite) — once the updater is running, trigger its own
-# install/update via the HTTP API documented in README.md, or use
-# ~/projects/homelab/scripts/kiosk-provision.sh for Kiosk Satellite's own
-# ADB grants.
+# It does not install or grant permissions for any managed app itself —
+# once the updater is running, trigger its own install/update via the HTTP
+# API documented in README.md, or grant that app's own ADB permissions
+# separately.
 #
 # Requires a USB-tethered device already visible in `adb devices` (network
 # ADB isn't set up yet on a fresh Portal — that's the point of this script).
@@ -68,7 +67,7 @@ APK="$(resolve_apk)"
 log "installing $APK on $SERIAL"
 "${ADB[@]}" install -r "$APK" || die "adb install failed"
 
-log "granting REQUEST_INSTALL_PACKAGES (lets the updater install Kiosk Satellite APKs without a prompt)"
+log "granting REQUEST_INSTALL_PACKAGES (lets the updater install managed-app APKs without a prompt)"
 "${ADB[@]}" shell appops set "$PKG" REQUEST_INSTALL_PACKAGES allow \
   || log "WARNING: appops grant failed — check manually"
 
@@ -91,7 +90,7 @@ else
 fi
 
 log "setup complete."
-log "Auto-update is on by default, so Kiosk Satellite itself should install on its own within"
-log "one check cycle. To force it immediately instead: find the device's IP (Settings > About,"
-log "or 'adb -s $SERIAL shell ip addr') and curl -X POST http://<portal-ip>:2325/update"
-log "Kiosk Satellite's own ADB permission grants are a separate step, not covered by this script."
+log "Auto-update is on by default, so a Managed app with a downloadUrl configured should install"
+log "on its own within one check cycle. To force it immediately instead: find the device's IP"
+log "(Settings > About, or 'adb -s $SERIAL shell ip addr') and curl -X POST http://<portal-ip>:2325/update"
+log "Managed apps' own ADB permission grants are a separate step, not covered by this script."

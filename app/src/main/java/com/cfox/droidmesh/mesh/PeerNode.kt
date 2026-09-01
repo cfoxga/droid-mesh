@@ -102,16 +102,8 @@ data class PeerNode(
                         }
                     }
                 }
-                if (appsList.isEmpty() && targetInstalled) {
-                    appsList.add(
-                        AppVersionHelper.InstalledAppInfo(
-                            packageName = AppVersionHelper.TARGET_PACKAGE,
-                            appName = "Kiosk Satellite",
-                            versionName = installedVersionName,
-                            versionCode = installedVersionCode
-                        )
-                    )
-                }
+                // No single hardcoded "target" package exists to synthesize a fallback entry for;
+                // appsList honestly stays empty if the beacon carried no installedApps array.
 
                 val updaterState = json.optString("updaterState", "IDLE")
                 val updaterMessage = if (json.isNull("updaterMessage")) null else json.optString("updaterMessage")

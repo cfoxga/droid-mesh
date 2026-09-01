@@ -360,11 +360,6 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        // If non-portal mesh (e.g. googletv) has Kiosk Satellite from an old sync without any node having it installed, prune it
-        if (meshId != "meta-portals" && !meshPeers.any { p -> p.installedApps.any { it.packageName == AppVersionHelper.TARGET_PACKAGE } }) {
-            storedLibrary.remove(AppVersionHelper.TARGET_PACKAGE)
-        }
-
         val libraryList = storedLibrary.values
             .filter { !AppVersionHelper.isExcludedAppPackage(it.packageName, this) }
             .sortedWith(
@@ -435,22 +430,62 @@ class MainActivity : AppCompatActivity() {
                 textSize = 10f
             }
             infoLayout.addView(pkgTv)
+
+            // Release download URL — the ONLY source releases can be obtained from. An entry
+            // cannot be Managed while this is blank (SET-BEHAVE-005), enforced both here and by
+            // SettingsStore.setMeshAppConfig itself.
+            val urlEt = android.widget.EditText(this).apply {
+                setText(app.downloadUrl)
+                hint = "Release download URL (required for Managed)"
+                setTextColor(getColor(R.color.ks_on_surface))
+                setHintTextColor(getColor(R.color.ks_outline))
+                textSize = 10f
+                setPadding(0, 4, 0, 4)
+                inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_URI
+                setSingleLine(true)
+            }
+            infoLayout.addView(urlEt)
             row.addView(infoLayout)
 
-            // Managed Checkbox
+            // Managed Checkbox — disabled while downloadUrl is blank so the UI never implies a
+            // Managed entry with no download source can exist.
             val chkManaged = android.widget.CheckBox(this).apply {
                 text = "Managed"
                 isChecked = app.managed
+                isEnabled = app.downloadUrl.isNotBlank()
                 setTextColor(getColor(R.color.ks_on_surface_variant))
                 textSize = 11f
                 setOnCheckedChangeListener { _, isChecked ->
-                    val updated = app.copy(managed = isChecked)
+                    if (isChecked && urlEt.text.toString().trim().isBlank()) {
+                        Toast.makeText(this@MainActivity, "Set a download URL before enabling Managed", Toast.LENGTH_SHORT).show()
+                        this.isChecked = false
+                        return@setOnCheckedChangeListener
+                    }
+                    val updated = app.copy(managed = isChecked, downloadUrl = urlEt.text.toString().trim())
                     SettingsStore.setMeshAppConfig(this@MainActivity, meshId, updated)
                     UpdaterForegroundService.activeMeshManager?.syncConfigToMesh()
                     renderCurrentMeshView()
                 }
             }
             row.addView(chkManaged)
+
+            urlEt.setOnFocusChangeListener { _, hasFocus ->
+                if (hasFocus) return@setOnFocusChangeListener
+                val newUrl = urlEt.text.toString().trim()
+                if (newUrl == app.downloadUrl) return@setOnFocusChangeListener
+                chkManaged.isEnabled = newUrl.isNotBlank()
+                val updated = app.copy(
+                    downloadUrl = newUrl,
+                    managed = app.managed && newUrl.isNotBlank()
+                )
+                SettingsStore.setMeshAppConfig(this@MainActivity, meshId, updated)
+                UpdaterForegroundService.activeMeshManager?.syncConfigToMesh()
+                if (updated.managed != app.managed) {
+                    renderCurrentMeshView()
+                } else {
+                    chkManaged.isChecked = updated.managed
+                }
+            }
 
             binding.layoutMeshAppLibrary.addView(row)
         }
@@ -747,11 +782,14 @@ class MainActivity : AppCompatActivity() {
 
         binding.btnTriggerUpdate.setOnClickListener {
             val release = getSelectedRelease()
-            if (release != null) {
+            val target = resolveLocalManagedApp()
+            if (release != null && target != null) {
                 val activeCoordinator = coordinator ?: UpdateCoordinator(this)
                 val force = binding.chkForceUpdate.isChecked
-                activeCoordinator.startUpdateForRelease(release, force = force)
-                Logger.i("Triggered local install for ${release.tagName} (force=$force)")
+                activeCoordinator.startUpdateForRelease(target.packageName, release, force = force)
+                Logger.i("Triggered local install of ${target.packageName} for ${release.tagName} (force=$force)")
+            } else if (target == null) {
+                Toast.makeText(this, "No single Managed app configured for this device", Toast.LENGTH_SHORT).show()
             }
         }
 
@@ -787,7 +825,12 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun refreshStatus() {
-        val installed = AppVersionHelper.getInstalledVersion(this)
+        val target = resolveLocalManagedApp()
+        val installed = if (target != null) {
+            AppVersionHelper.getInstalledVersion(this, target.packageName)
+        } else {
+            AppVersionHelper.InstalledInfo(isInstalled = false, versionName = null, versionCode = null)
+        }
         if (installed.isInstalled) {
             binding.tvOverviewTargetBadge.text = "Installed"
             binding.tvOverviewTargetBadge.setTextColor(getColor(R.color.ks_sage))
@@ -821,9 +864,15 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun loadAvailableReleases(forceRefresh: Boolean = false) {
+        val target = resolveLocalManagedApp() ?: run {
+            availableReleases = emptyList()
+            populateVersionSpinner()
+            binding.tvOverviewLatestVer.text = "Latest: None"
+            return
+        }
         lifecycleScope.launch {
             val activeCoordinator = coordinator ?: UpdateCoordinator(this@MainActivity)
-            val result = activeCoordinator.fetchAvailableReleases(forceRefresh = forceRefresh)
+            val result = activeCoordinator.fetchAvailableReleases(target.downloadUrl, forceRefresh = forceRefresh)
             if (result.isSuccess) {
                 availableReleases = result.getOrThrow()
                 populateVersionSpinner()
@@ -860,6 +909,7 @@ class MainActivity : AppCompatActivity() {
                 Logger.i("Self-update: downloaded ${release.tagName}, dispatching install")
                 val adbResult = AdbLoopbackInstaller.installWithAdbLoopback(apkFile)
                 if (adbResult.isFailure) {
+                    com.cfox.droidmesh.service.AutoInstallService.pendingInstallPackage = packageName
                     PackageInstallerDispatcher.dispatchInstall(this@MainActivity, apkFile)
                 }
                 // Leave the button disabled/"Updating…" through the install handoff; the app
@@ -886,6 +936,18 @@ class MainActivity : AppCompatActivity() {
         val adapter = ArrayAdapter(this, R.layout.item_version_dropdown, options)
         adapter.setDropDownViewResource(R.layout.item_version_dropdown)
         binding.spnVersionToInstall.adapter = adapter
+    }
+
+    /**
+     * Mirrors LocalHttpServer's resolveTargetApp for the Overview tab's manual single-app
+     * controls: an explicit package isn't available here, so this resolves to the one Managed
+     * (downloadUrl-configured) entry in the local mesh's App Library, or null if there is none
+     * or more than one — the Overview tab has no picker for an ambiguous case.
+     */
+    private fun resolveLocalManagedApp(): SettingsStore.MeshAppConfig? {
+        val library = SettingsStore.getMeshAppLibrary(this, SettingsStore.getLocalMeshId(this))
+        val managed = library.values.filter { it.managed && it.downloadUrl.isNotBlank() }
+        return managed.singleOrNull()
     }
 
     private fun getSelectedRelease(): ReleaseInfo? {

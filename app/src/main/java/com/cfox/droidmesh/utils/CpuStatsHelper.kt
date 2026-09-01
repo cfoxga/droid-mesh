@@ -34,10 +34,11 @@ object CpuStatsHelper {
     private var cachedTelemetry = CpuTelemetry(null, null)
 
     fun getDeviceName(context: Context): String {
-        // Check custom device name first (user override)
+        // Check custom device name first (user override). Routed through SettingsStore rather
+        // than a duplicate raw SharedPreferences lookup so this always reads the migrated,
+        // current-named prefs file.
         val customName = try {
-            val settings = context.getSharedPreferences("kiosk_satellite_updater_settings", 0)
-            settings.getString("custom_device_name", null)
+            com.cfox.droidmesh.settings.SettingsStore.getCustomDeviceName(context)
         } catch (e: Exception) { null }
         if (!customName.isNullOrBlank()) return customName
 

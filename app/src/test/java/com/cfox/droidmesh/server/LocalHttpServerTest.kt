@@ -12,6 +12,7 @@ import org.junit.Before
 import org.junit.Test
 import org.mockito.kotlin.any
 import org.mockito.kotlin.anyOrNull
+import org.mockito.kotlin.doReturn
 import org.mockito.kotlin.mock
 import org.mockito.kotlin.whenever
 import java.io.ByteArrayInputStream
@@ -93,6 +94,13 @@ class LocalHttpServerTest {
                     com.cfox.droidmesh.api.UpdateStatus(state = "IDLE", message = "Ready")
                 )
             )
+            // Resolution-layer tests only care whether handleCheck/handleUpdate reach the
+            // coordinator at all (i.e. resolution succeeded) — not coordinator business logic —
+            // so stub deterministic failures rather than leaving these suspend calls unstubbed.
+            onBlocking { it.fetchAvailableReleases(any(), any()) } doReturn
+                Result.failure(IllegalStateException("stubbed: no network in test"))
+            onBlocking { it.checkVersion(any(), any()) } doReturn
+                Result.failure(IllegalStateException("stubbed: no network in test"))
         }
 
 
@@ -295,7 +303,7 @@ class LocalHttpServerTest {
         val getRes = server.serve(getSession)
         assertEquals(NanoHTTPD.Response.Status.OK, getRes.status)
 
-        // 2. POST update app config
+        // 2. POST update app config, including the required downloadUrl
         val postPayload = JSONObject().apply {
             put("meshId", "meta-portals")
             put("packageName", "com.cfoxga.mpttv")
@@ -305,6 +313,7 @@ class LocalHttpServerTest {
             put("targetVersion", "latest")
             put("autoUpdate", true)
             put("isSideloaded", true)
+            put("downloadUrl", "https://example.com/releases/mpttv.apk")
         }
         val postSession = mockSession(
             uri = "/api/mesh/library",
@@ -316,6 +325,88 @@ class LocalHttpServerTest {
 
         val lib = SettingsStore.getMeshAppLibrary(mockContext, "meta-portals")
         assertTrue(lib["com.cfoxga.mpttv"]?.autoInstall == true)
+        assertTrue("managed should persist when downloadUrl is present", lib["com.cfoxga.mpttv"]?.managed == true)
+    }
+
+    // [PROGRAMMATIC] API-TEST-006 (SET-BEHAVE-005 regression via HTTP): POSTing managed=true with
+    // no downloadUrl must coerce to managed=false rather than persisting an unusable entry.
+    @Test
+    fun testMeshLibraryPostCoercesManagedFalseWithoutDownloadUrl() {
+        val postPayload = JSONObject().apply {
+            put("meshId", "meta-portals")
+            put("packageName", "com.cfoxga.nodownloadurl")
+            put("appName", "No URL App")
+            put("managed", true)
+            put("isSideloaded", true)
+        }
+        val postSession = mockSession(
+            uri = "/api/mesh/library",
+            method = NanoHTTPD.Method.POST,
+            postBody = postPayload.toString()
+        )
+        val postRes = server.serve(postSession)
+        assertEquals(NanoHTTPD.Response.Status.OK, postRes.status)
+
+        val lib = SettingsStore.getMeshAppLibrary(mockContext, "meta-portals")
+        assertFalse("managed must coerce to false with no downloadUrl", lib["com.cfoxga.nodownloadurl"]?.managed == true)
+    }
+
+    // [PROGRAMMATIC] API-TEST-007 (API-BEHAVE-014/015): /status fails open with targetPackage=null
+    // and an empty managedCandidates array when nothing is Managed.
+    @Test
+    fun testStatusFailsOpenWithNoManagedApp() {
+        val session = mockSession("/api/status")
+        val response = server.serve(session)
+        assertEquals(NanoHTTPD.Response.Status.OK, response.status)
+        val json = JSONObject(response.data?.readBytes()?.toString(Charsets.UTF_8) ?: "")
+        assertTrue(json.isNull("targetPackage"))
+        assertEquals(0, json.getJSONArray("managedCandidates").length())
+    }
+
+    // [PROGRAMMATIC] API-TEST-008: /check fails closed (400) with no managed app configured.
+    @Test
+    fun testCheckFailsClosedWithNoManagedApp() {
+        val session = mockSession("/api/check")
+        val response = server.serve(session)
+        assertEquals(NanoHTTPD.Response.Status.BAD_REQUEST, response.status)
+    }
+
+    // [PROGRAMMATIC] API-TEST-009: /check auto-resolves the single managed app, then fails
+    // closed (400) once a second managed app makes resolution ambiguous.
+    @Test
+    fun testCheckResolvesSingleManagedThenAmbiguous() {
+        SettingsStore.setMeshAppConfig(
+            mockContext, "unmanaged",
+            SettingsStore.MeshAppConfig(
+                packageName = "com.example.appone",
+                appName = "App One",
+                managed = true,
+                downloadUrl = "https://example.com/appone.apk"
+            )
+        )
+        val soloSession = mockSession("/api/check")
+        val soloResponse = server.serve(soloSession)
+        assertNotEquals(NanoHTTPD.Response.Status.BAD_REQUEST, soloResponse.status)
+
+        SettingsStore.setMeshAppConfig(
+            mockContext, "unmanaged",
+            SettingsStore.MeshAppConfig(
+                packageName = "com.example.apptwo",
+                appName = "App Two",
+                managed = true,
+                downloadUrl = "https://example.com/apptwo.apk"
+            )
+        )
+        val ambiguousSession = mockSession("/api/check")
+        val ambiguousResponse = server.serve(ambiguousSession)
+        assertEquals(NanoHTTPD.Response.Status.BAD_REQUEST, ambiguousResponse.status)
+        val json = JSONObject(ambiguousResponse.data?.readBytes()?.toString(Charsets.UTF_8) ?: "")
+        assertEquals(2, json.getJSONArray("managedCandidates").length())
+
+        // Explicit ?package= still resolves unambiguously.
+        val explicitSession = mockSession("/api/check?package=com.example.appone")
+        val explicitResponse = server.serve(explicitSession)
+        assertNotEquals(NanoHTTPD.Response.Status.BAD_REQUEST, explicitResponse.status)
     }
 
     // [PROGRAMMATIC] MESH-TEST-008: Deleting "unmanaged" is rejected (negative case for MESH-BEHAVE-009)

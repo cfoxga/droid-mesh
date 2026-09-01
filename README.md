@@ -20,7 +20,7 @@ A lightweight, native Android P2P mesh network, headless package updater, and lo
 ```
                         ┌──────────────────────────────────────────────┐
                         │              GitHub Releases API             │
-                        │    (jxlarrea/kiosk-satellite/releases/latest)│
+                        │      (owner/repo/releases/latest, per app)   │
                         └──────────────────────┬───────────────────────┘
                                                │ (OkHttp / JSON)
                                                ▼
@@ -55,7 +55,7 @@ A lightweight, native Android P2P mesh network, headless package updater, and lo
 │  • Detects Installer window                                  │
 │  • Clicks "Install" / "Update"                               │
 │  • Clicks "Done" / "Open" on finish                          │
-│  • Relaunches me.jxl.kiosk_satellite to foreground           │
+│  • Relaunches the managed app to foreground                  │
 └──────────────────────────────────────────────────────────────┘
 ```
 
@@ -65,9 +65,9 @@ A lightweight, native Android P2P mesh network, headless package updater, and lo
 
 `scripts/droid-mesh-portal-setup.sh <serial>` runs this whole sequence in one shot against a
 USB-connected Portal device: installs the latest release APK, applies the four grants below, and
-launches the app. With auto-update on by default, that alone ends up with Kiosk Satellite itself
-installed within one check cycle — no manual `/update` call required. The manual steps, for
-reference or a non-standard install:
+launches the app. With auto-update on by default, that alone ends up with any Managed app (one
+with a `downloadUrl` configured) installed within one check cycle — no manual `/update` call
+required. The manual steps, for reference or a non-standard install:
 
 ```bash
 # 1. Install DroidMesh APK
@@ -99,7 +99,7 @@ curl -X GET http://<portal-ip>:2325/check
 ```json
 {
   "status": "ok",
-  "targetPackage": "me.jxl.kiosk_satellite",
+  "targetPackage": "com.example.someapp",
   "installedVersionName": "0.14.0",
   "installedVersionCode": 140,
   "latestVersionTag": "v0.15.2",
@@ -108,7 +108,7 @@ curl -X GET http://<portal-ip>:2325/check
     "name": "v0.15.2",
     "tagName": "v0.15.2",
     "publishedAt": "2026-08-28T14:20:10Z",
-    "apkAssetUrl": "https://github.com/jxlarrea/kiosk-satellite/releases/download/v0.15.2/app-release.apk",
+    "apkAssetUrl": "https://github.com/example/someapp/releases/download/v0.15.2/app-release.apk",
     "apkFileName": "app-release.apk",
     "apkSize": 34819200
   }

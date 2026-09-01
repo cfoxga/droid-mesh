@@ -17,7 +17,7 @@ class ReleaseParserTest {
      */
     @Test
     fun testDetectGitHubReleaseUrl() {
-        val githubUrl = "https://api.github.com/repos/jxlarrea/kiosk-satellite/releases"
+        val githubUrl = "https://api.github.com/repos/owner/somerepo/releases"
         assertTrue("Should detect GitHub API URL", ReleaseParser.isGitHubReleaseUrl(githubUrl))
 
         val directUrl = "https://releases.example.com/app-1.2.3.apk"
@@ -30,10 +30,10 @@ class ReleaseParserTest {
      */
     @Test
     fun testExtractGitHubRepoPath() {
-        val url = "https://api.github.com/repos/jxlarrea/kiosk-satellite/releases"
+        val url = "https://api.github.com/repos/owner/somerepo/releases"
         val (owner, repo) = ReleaseParser.extractGitHubRepoPath(url)
-        assertEquals(owner, "jxlarrea")
-        assertEquals(repo, "kiosk-satellite")
+        assertEquals(owner, "owner")
+        assertEquals(repo, "somerepo")
     }
 
     /**
@@ -103,8 +103,8 @@ class ReleaseParserTest {
         val tests = mapOf(
             "app-1.2.3.apk" to "1.2.3",
             "v1.2.3.apk" to "1.2.3",
-            "kiosk-satellite-1.2.3.apk" to "1.2.3",
-            "kiosk-satellite-v1.2.3.apk" to "1.2.3",
+            "some-app-1.2.3.apk" to "1.2.3",
+            "some-app-v1.2.3.apk" to "1.2.3",
             "app-1.2.3-beta.apk" to "1.2.3",
             "app-1.2.3+build.apk" to "1.2.3"
         )

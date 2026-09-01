@@ -283,9 +283,21 @@ class MeshDiscoveryManager(
         }
     }
 
+    /**
+     * Legacy single-target beacon/peer fields (targetInstalled, installedVersionName/Code) have
+     * no single hardcoded package to report on anymore — they now reflect the local mesh's one
+     * Managed (downloadUrl-configured) App Library entry, if exactly one exists.
+     */
+    private fun resolveLocalManagedInstalledInfo(): AppVersionHelper.InstalledInfo {
+        val library = SettingsStore.getMeshAppLibrary(context, localMeshId)
+        val target = library.values.filter { it.managed && it.downloadUrl.isNotBlank() }.singleOrNull()
+            ?: return AppVersionHelper.InstalledInfo(isInstalled = false, versionName = null, versionCode = null)
+        return AppVersionHelper.getInstalledVersion(context, target.packageName)
+    }
+
     private fun sendBeacon() {
         try {
-            val installed = AppVersionHelper.getInstalledVersion(context)
+            val installed = resolveLocalManagedInstalledInfo()
             val installedApps = AppVersionHelper.getUserInstalledApps(context)
             val currentStatus = coordinator.statusFlow.value
             val localIp = getLocalIpAddress() ?: "127.0.0.1"
@@ -571,16 +583,8 @@ class MeshDiscoveryManager(
                     }
                 }
             }
-            if (appsList.isEmpty() && targetInstalled) {
-                appsList.add(
-                    AppVersionHelper.InstalledAppInfo(
-                        packageName = AppVersionHelper.TARGET_PACKAGE,
-                        appName = "Kiosk Satellite",
-                        versionName = installedVersionName,
-                        versionCode = installedVersionCode
-                    )
-                )
-            }
+            // No single hardcoded "target" package exists to synthesize a fallback entry for;
+            // appsList honestly stays empty if the beacon carried no installedApps array.
 
             val updaterState = peerJson.optString("updaterState", "IDLE")
             val updaterMessage = if (peerJson.isNull("updaterMessage")) null else peerJson.optString("updaterMessage")
@@ -649,7 +653,7 @@ class MeshDiscoveryManager(
     }
 
     private fun updatePeersList() {
-        val installed = AppVersionHelper.getInstalledVersion(context)
+        val installed = resolveLocalManagedInstalledInfo()
         val installedApps = AppVersionHelper.getUserInstalledApps(context)
         val currentStatus = coordinator.statusFlow.value
         val localIp = getLocalIpAddress() ?: "127.0.0.1"
@@ -734,11 +738,6 @@ class MeshDiscoveryManager(
                             )
                         }
                     }
-                }
-
-                // If non-portal mesh (e.g. googletv) has Kiosk Satellite from an old sync without any node having it installed, prune it
-                if (mId != "meta-portals" && !peers.any { p -> p.installedApps.any { it.packageName == com.cfox.droidmesh.installer.AppVersionHelper.TARGET_PACKAGE } }) {
-                    storedLibrary.remove(com.cfox.droidmesh.installer.AppVersionHelper.TARGET_PACKAGE)
                 }
 
                 // Sort library: sideloaded apps first, then app store apps, then alphabetically by app name

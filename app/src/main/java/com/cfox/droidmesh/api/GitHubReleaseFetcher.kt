@@ -14,7 +14,7 @@ import java.util.concurrent.TimeUnit
  * Generic GitHub releases fetcher.
  *
  * Given a GitHub releases API URL like:
- * "https://api.github.com/repos/jxlarrea/kiosk-satellite/releases"
+ * "https://api.github.com/repos/owner/repo/releases"
  *
  * Fetches and parses releases without any app-specific hardcoding.
  */

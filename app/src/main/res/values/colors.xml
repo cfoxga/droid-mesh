@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Kiosk Satellite Visual Identity Palette -->
+    <!-- DroidMesh Visual Identity Palette -->
     <!-- Base Backgrounds -->
     <color name="ks_dark_bg">#202124</color>
     <color name="ks_surface_lowest">#1A1B1E</color>

@@ -97,9 +97,9 @@ class MeshNodeNamingTest {
                 autoUpdate = false,
                 isSideloaded = false
             ),
-            "me.jxl.kiosk_satellite" to SettingsStore.MeshAppConfig(
-                packageName = "me.jxl.kiosk_satellite",
-                appName = "Kiosk Satellite",
+            "org.example.sideloadapp" to SettingsStore.MeshAppConfig(
+                packageName = "org.example.sideloadapp",
+                appName = "Sideload App",
                 managed = true,
                 autoInstall = true,
                 targetVersion = "latest",
@@ -107,7 +107,7 @@ class MeshNodeNamingTest {
                 isSideloaded = true
             )
         )
-        val installedPkgs = setOf("me.jxl.kiosk_satellite", "com.netflix.ninja")
+        val installedPkgs = setOf("org.example.sideloadapp", "com.netflix.ninja")
 
         val missing = library.values.filter { cfg ->
             cfg.managed && cfg.autoInstall && !installedPkgs.contains(cfg.packageName)
@@ -123,7 +123,7 @@ class MeshNodeNamingTest {
         val apps = listOf(
             AppVersionHelper.InstalledAppInfo("com.netflix.ninja", "Netflix", "8.0.0", 100L),
             AppVersionHelper.InstalledAppInfo("gallery.immich.app", "Immich", "1.0.0", 50L),
-            AppVersionHelper.InstalledAppInfo("me.jxl.kiosk_satellite", "Kiosk Satellite", "2026.8.107", 198L),
+            AppVersionHelper.InstalledAppInfo("org.example.sideloadapp", "Sideload App", "2026.8.107", 198L),
             AppVersionHelper.InstalledAppInfo("com.amazon.fire.tv", "Amazon Prime", "1.0", 30L)
         )
 
@@ -133,8 +133,8 @@ class MeshNodeNamingTest {
                 managed = true, autoInstall = true, targetVersion = "latest",
                 autoUpdate = false, isSideloaded = true
             ),
-            "me.jxl.kiosk_satellite" to SettingsStore.MeshAppConfig(
-                packageName = "me.jxl.kiosk_satellite", appName = "Kiosk Satellite",
+            "org.example.sideloadapp" to SettingsStore.MeshAppConfig(
+                packageName = "org.example.sideloadapp", appName = "Sideload App",
                 managed = true, autoInstall = true, targetVersion = "latest",
                 autoUpdate = true, isSideloaded = true
             ),
@@ -155,9 +155,9 @@ class MeshNodeNamingTest {
                 .thenBy { it.appName.lowercase() }
         )
 
-        // Sideloaded first: Immich, Kiosk Satellite (alpha within sideloaded)
+        // Sideloaded first: Immich, Sideload App (alpha within sideloaded)
         assertEquals("gallery.immich.app", sorted[0].packageName)
-        assertEquals("me.jxl.kiosk_satellite", sorted[1].packageName)
+        assertEquals("org.example.sideloadapp", sorted[1].packageName)
         // Store apps: Amazon Prime, Netflix (alpha within store)
         assertEquals("com.amazon.fire.tv", sorted[2].packageName)
         assertEquals("com.netflix.ninja", sorted[3].packageName)

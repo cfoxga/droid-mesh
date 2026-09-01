@@ -111,7 +111,7 @@ class LocalHttpServer(
                 (uri == "/" || uri == "/index.html" || uri == "/overview" || uri == "/settings" || uri == "/mesh" || uri == "/logs") && method == Method.GET -> {
                     val accept = session.headers["accept"] ?: ""
                     if (accept.contains("application/json") && uri == "/") {
-                        handleStatus()
+                        handleStatus(session)
                     } else {
                         handleServeWeb()
                     }
@@ -124,7 +124,7 @@ class LocalHttpServer(
                 uri == "/api/password" && method == Method.POST -> handlePassword(session)
 
                 // Status & Health
-                (uri == "/status" || uri == "/api/status" || uri == "/api/health") && method == Method.GET -> handleStatus()
+                (uri == "/status" || uri == "/api/status" || uri == "/api/health") && method == Method.GET -> handleStatus(session)
 
                 // Settings
                 uri == "/api/settings" && method == Method.GET -> handleGetSettings()
@@ -341,8 +341,40 @@ class LocalHttpServer(
         return jsonResponse(Response.Status.OK, json, cookies = cookies)
     }
 
-    private fun handleStatus(): Response {
-        val installed = AppVersionHelper.getInstalledVersion(context)
+    // TargetResolution / resolveTargetApp: resolves which App Library entry /status, /check,
+    // and /update operate on ("the target app"). There is no hardcoded default target app or
+    // release URL anywhere in this class — downloadUrl on the resolved entry is the only source
+    // of release information. See API-BEHAVE-014/015.
+    private sealed class TargetResolution {
+        data class Resolved(val packageName: String, val config: SettingsStore.MeshAppConfig) : TargetResolution()
+        object None : TargetResolution()
+        data class Ambiguous(val candidates: List<String>) : TargetResolution()
+    }
+
+    private fun resolveTargetApp(explicitPackage: String?): TargetResolution {
+        val meshId = SettingsStore.getLocalMeshId(context)
+        val library = SettingsStore.getMeshAppLibrary(context, meshId)
+
+        if (explicitPackage != null) {
+            val cfg = library[explicitPackage] ?: return TargetResolution.None
+            return TargetResolution.Resolved(explicitPackage, cfg)
+        }
+
+        val managed = library.values.filter { it.managed }
+        return when {
+            managed.isEmpty() -> TargetResolution.None
+            managed.size == 1 -> TargetResolution.Resolved(managed.first().packageName, managed.first())
+            else -> TargetResolution.Ambiguous(managed.map { it.packageName })
+        }
+    }
+
+    private fun handleStatus(session: IHTTPSession): Response {
+        val explicitPackage = session.parms["package"]?.trim()?.ifBlank { null }
+        val resolution = resolveTargetApp(explicitPackage)
+        val installed = when (resolution) {
+            is TargetResolution.Resolved -> AppVersionHelper.getInstalledVersion(context, resolution.packageName)
+            else -> AppVersionHelper.InstalledInfo(isInstalled = false, versionName = null, versionCode = null)
+        }
         val installedApps = AppVersionHelper.getUserInstalledApps(context)
         val currentStatus = coordinator.statusFlow.value
         val telemetry = CpuStatsHelper.readTelemetry()
@@ -352,7 +384,12 @@ class LocalHttpServer(
             put("app", "DroidMesh")
             put("version", BuildConfig.VERSION_NAME)
             put("versionCode", BuildConfig.VERSION_CODE)
-            put("targetPackage", AppVersionHelper.TARGET_PACKAGE)
+            put("targetPackage", if (resolution is TargetResolution.Resolved) resolution.packageName else JSONObject.NULL)
+            if (resolution is TargetResolution.Ambiguous) {
+                put("managedCandidates", JSONArray(resolution.candidates))
+            } else {
+                put("managedCandidates", JSONArray())
+            }
             put("targetInstalled", installed.isInstalled)
             put("installedVersionName", installed.versionName ?: JSONObject.NULL)
             put("installedVersionCode", installed.versionCode ?: JSONObject.NULL)
@@ -463,14 +500,38 @@ class LocalHttpServer(
 
     private fun handleCheck(session: IHTTPSession): Response {
         val force = session.parms["force"]?.toBoolean() ?: false
-        val releasesResult = runBlocking { coordinator.fetchAvailableReleases(forceRefresh = force) }
-        val checkResult = runBlocking { coordinator.checkVersion() }
+        val explicitPackage = session.parms["package"]?.trim()?.ifBlank { null }
+
+        val resolution = resolveTargetApp(explicitPackage)
+        when (resolution) {
+            is TargetResolution.None -> return jsonResponse(Response.Status.BAD_REQUEST, JSONObject().apply {
+                put("status", "error")
+                put("message", "No managed app configured. Set a downloadUrl and mark an App Library entry as Managed.")
+            })
+            is TargetResolution.Ambiguous -> return jsonResponse(Response.Status.BAD_REQUEST, JSONObject().apply {
+                put("status", "error")
+                put("message", "Multiple managed apps configured; specify ?package=")
+                put("managedCandidates", JSONArray(resolution.candidates))
+            })
+            is TargetResolution.Resolved -> {}
+        }
+        val resolved = resolution as TargetResolution.Resolved
+        val downloadUrl = resolved.config.downloadUrl.trim()
+        if (downloadUrl.isBlank()) {
+            return jsonResponse(Response.Status.BAD_REQUEST, JSONObject().apply {
+                put("status", "error")
+                put("message", "No downloadUrl configured for ${resolved.packageName}")
+            })
+        }
+
+        val releasesResult = runBlocking { coordinator.fetchAvailableReleases(downloadUrl, forceRefresh = force) }
+        val checkResult = runBlocking { coordinator.checkVersion(resolved.packageName, downloadUrl) }
 
         if (checkResult.isSuccess) {
             val comp = checkResult.getOrThrow()
             val json = JSONObject().apply {
                 put("status", "ok")
-                put("targetPackage", AppVersionHelper.TARGET_PACKAGE)
+                put("targetPackage", resolved.packageName)
                 put("installedVersionName", comp.installedVersionName ?: JSONObject.NULL)
                 put("installedVersionCode", comp.installedVersionCode ?: JSONObject.NULL)
                 put("latestVersionTag", comp.latestVersionTag)
@@ -522,7 +583,24 @@ class LocalHttpServer(
         val force = body.optBoolean("force", session.parms["force"]?.toBoolean() ?: false)
         val tag = body.optString("tag", session.parms["tag"] ?: session.parms["version"] ?: "")
         val url = body.optString("url", session.parms["url"] ?: session.parms["download_url"] ?: "")
-        val filename = body.optString("filename", session.parms["filename"] ?: if (tag.isNotBlank()) "kiosk-satellite-$tag.apk" else "")
+        val filenameOverride = body.optString("filename", session.parms["filename"] ?: "")
+        val explicitPackage = body.optString("package", session.parms["package"] ?: "").trim().ifBlank { null }
+
+        val resolution = resolveTargetApp(explicitPackage)
+        when (resolution) {
+            is TargetResolution.None -> return jsonResponse(Response.Status.BAD_REQUEST, JSONObject().apply {
+                put("status", "error")
+                put("message", "No managed app configured. Set a downloadUrl and mark an App Library entry as Managed.")
+            })
+            is TargetResolution.Ambiguous -> return jsonResponse(Response.Status.BAD_REQUEST, JSONObject().apply {
+                put("status", "error")
+                put("message", "Multiple managed apps configured; specify ?package=")
+                put("managedCandidates", JSONArray(resolution.candidates))
+            })
+            is TargetResolution.Resolved -> {}
+        }
+        val resolved = resolution as TargetResolution.Resolved
+        val packageName = resolved.packageName
 
         if (url.isNotBlank() && tag.isNotBlank()) {
             val specificRelease = ReleaseInfo(
@@ -530,17 +608,25 @@ class LocalHttpServer(
                 name = tag,
                 publishedAt = "",
                 apkAssetUrl = url,
-                apkFileName = filename.ifBlank { "kiosk-satellite-$tag.apk" },
+                apkFileName = filenameOverride.ifBlank { "$packageName-$tag.apk" },
                 apkSize = 0L
             )
-            coordinator.startUpdateForRelease(specificRelease, force = force)
+            coordinator.startUpdateForRelease(packageName, specificRelease, force = force)
         } else {
-            coordinator.startUpdateAsync(force = force)
+            val downloadUrl = resolved.config.downloadUrl.trim()
+            if (downloadUrl.isBlank()) {
+                return jsonResponse(Response.Status.BAD_REQUEST, JSONObject().apply {
+                    put("status", "error")
+                    put("message", "No downloadUrl configured for $packageName")
+                })
+            }
+            coordinator.startUpdateAsync(packageName, downloadUrl, force = force)
         }
 
         val json = JSONObject().apply {
             put("status", "accepted")
             put("message", "Update sequence initiated (force=$force, target=${tag.ifBlank { "latest" }})")
+            put("targetPackage", packageName)
             put("accessibilityServiceActive", AutoInstallService.isServiceRunning)
         }
 

@@ -644,7 +644,7 @@
                                     android:layout_height="wrap_content"
                                     android:layout_weight="1"
                                     android:fontFamily="@font/rubik"
-                                    android:text="Kiosk Satellite"
+                                    android:text="Target App"
                                     android:textColor="@color/ks_on_surface"
                                     android:textSize="14sp"
                                     android:textStyle="bold" />

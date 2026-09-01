@@ -7,7 +7,6 @@ import android.os.Build
 import com.cfox.droidmesh.utils.Logger
 
 object AppVersionHelper {
-    const val TARGET_PACKAGE = "me.jxl.kiosk_satellite"
 
     data class InstalledInfo(
         val isInstalled: Boolean,
@@ -24,13 +23,11 @@ object AppVersionHelper {
 
     fun isExcludedAppPackage(packageName: String, context: Context? = null): Boolean {
         return packageName == "com.cfox.droidmesh" ||
-               packageName == "com.cfox.kiosksatelliteupdater" ||
                (context != null && packageName == context.packageName)
     }
 
     fun isSideloadedApp(packageName: String): Boolean {
-        return packageName == TARGET_PACKAGE ||
-               packageName == "com.cfox.droidmesh" ||
+        return packageName == "com.cfox.droidmesh" ||
                packageName == "com.cfoxga.foxtvagent" ||
                packageName == "com.cfoxga.hamgoogletv" ||
                packageName == "com.cfoxga.mpttv" ||
@@ -121,7 +118,7 @@ object AppVersionHelper {
         return false
     }
 
-    fun getInstalledVersion(context: Context, packageName: String = TARGET_PACKAGE): InstalledInfo {
+    fun getInstalledVersion(context: Context, packageName: String): InstalledInfo {
         return try {
             val pm = context.packageManager
             val packageInfo: PackageInfo = pm.getPackageInfo(packageName, 0)

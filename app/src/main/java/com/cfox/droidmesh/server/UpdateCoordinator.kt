@@ -27,17 +27,15 @@ import kotlinx.coroutines.sync.Mutex
  * - GitHub releases API endpoints: https://api.github.com/repos/owner/repo/releases
  * - Direct APK download URLs: https://example.com/app-1.2.3.apk
  *
- * No app-specific hardcoding; passes downloadUrl as a parameter.
+ * No app-specific hardcoding: every method requires an explicit packageName and downloadUrl,
+ * both sourced from the caller's resolved App Library entry — there is no default target app
+ * or default release URL anywhere in this class.
  */
 class UpdateCoordinator(
     private val context: Context,
     private val githubFetcher: GitHubReleaseFetcher = GitHubReleaseFetcher(),
     private val downloader: ApkDownloader = ApkDownloader(context)
 ) {
-    companion object {
-        // Default GitHub releases endpoint for Kiosk Satellite
-        const val DEFAULT_KIOSK_SATELLITE_RELEASES_URL = "https://api.github.com/repos/jxlarrea/kiosk-satellite/releases"
-    }
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val updateMutex = Mutex()
 
@@ -50,7 +48,7 @@ class UpdateCoordinator(
     private var cachedDownloadUrl: String = ""
 
     suspend fun fetchAvailableReleases(
-        downloadUrl: String = DEFAULT_KIOSK_SATELLITE_RELEASES_URL,
+        downloadUrl: String,
         forceRefresh: Boolean = false
     ): Result<List<ReleaseInfo>> {
         if (!forceRefresh && cachedReleases.isNotEmpty() && cachedDownloadUrl == downloadUrl) {
@@ -78,8 +76,8 @@ class UpdateCoordinator(
 
     fun getCachedReleases(): List<ReleaseInfo> = cachedReleases
 
-    suspend fun checkVersion(downloadUrl: String = DEFAULT_KIOSK_SATELLITE_RELEASES_URL): Result<VersionComparison> {
-        val installed = AppVersionHelper.getInstalledVersion(context)
+    suspend fun checkVersion(packageName: String, downloadUrl: String): Result<VersionComparison> {
+        val installed = AppVersionHelper.getInstalledVersion(context, packageName)
         val releaseResult = fetchAvailableReleases(downloadUrl, forceRefresh = true)
 
         return releaseResult.map { releases ->
@@ -99,31 +97,38 @@ class UpdateCoordinator(
     }
 
     fun startUpdateAsync(
-        downloadUrl: String = DEFAULT_KIOSK_SATELLITE_RELEASES_URL,
+        packageName: String,
+        downloadUrl: String,
         force: Boolean = false,
         onComplete: (Result<ReleaseInfo>) -> Unit = {}
     ) {
         scope.launch {
-            val result = executeUpdateSequence(downloadUrl, force)
+            val result = executeUpdateSequence(packageName, downloadUrl, force)
             onComplete(result)
         }
     }
 
-    fun startUpdateForRelease(release: ReleaseInfo, force: Boolean = true, onComplete: (Result<ReleaseInfo>) -> Unit = {}) {
+    fun startUpdateForRelease(
+        packageName: String,
+        release: ReleaseInfo,
+        force: Boolean = true,
+        onComplete: (Result<ReleaseInfo>) -> Unit = {}
+    ) {
         scope.launch {
-            val result = executeUpdateForSpecificRelease(release, force)
+            val result = executeUpdateForSpecificRelease(packageName, release, force)
             onComplete(result)
         }
     }
 
     suspend fun executeUpdateSequence(
-        downloadUrl: String = DEFAULT_KIOSK_SATELLITE_RELEASES_URL,
+        packageName: String,
+        downloadUrl: String,
         force: Boolean = false
     ): Result<ReleaseInfo> {
         _statusFlow.value = UpdateStatus(state = "CHECKING", message = "Checking for updates...")
-        Logger.i("Starting update sequence for $downloadUrl (force=$force)")
+        Logger.i("Starting update sequence for $packageName from $downloadUrl (force=$force)")
 
-        val versionCheck = checkVersion(downloadUrl)
+        val versionCheck = checkVersion(packageName, downloadUrl)
         if (versionCheck.isFailure) {
             val err = versionCheck.exceptionOrNull()?.message ?: "Failed to check version"
             _statusFlow.value = UpdateStatus(state = "ERROR", message = err, error = err)
@@ -133,10 +138,10 @@ class UpdateCoordinator(
         val comparison = versionCheck.getOrThrow()
         val release = comparison.releaseInfo
 
-        return executeUpdateForSpecificRelease(release, force = force)
+        return executeUpdateForSpecificRelease(packageName, release, force = force)
     }
 
-    suspend fun executeUpdateForSpecificRelease(release: ReleaseInfo, force: Boolean = true): Result<ReleaseInfo> {
+    suspend fun executeUpdateForSpecificRelease(packageName: String, release: ReleaseInfo, force: Boolean = true): Result<ReleaseInfo> {
         if (!updateMutex.tryLock()) {
             val busyMsg = "Update is already in progress"
             Logger.w(busyMsg)
@@ -144,7 +149,7 @@ class UpdateCoordinator(
         }
 
         try {
-            val installed = AppVersionHelper.getInstalledVersion(context)
+            val installed = AppVersionHelper.getInstalledVersion(context, packageName)
             val updateAvailable = AppVersionHelper.isUpdateAvailable(
                 installed.versionName,
                 release.tagName
@@ -203,7 +208,7 @@ class UpdateCoordinator(
                 )
                 // Relaunch app
                 try {
-                    val launchIntent = context.packageManager.getLaunchIntentForPackage(AppVersionHelper.TARGET_PACKAGE)
+                    val launchIntent = context.packageManager.getLaunchIntentForPackage(packageName)
                     launchIntent?.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
                     if (launchIntent != null) context.startActivity(launchIntent)
                 } catch (ignored: Exception) {}
@@ -225,13 +230,13 @@ class UpdateCoordinator(
                     progressPercent = 100
                 )
 
-                PackageInstallerDispatcher.dispatchUninstall(context)
+                PackageInstallerDispatcher.dispatchUninstall(context, packageName)
 
                 // Wait for uninstallation to complete (up to 25 seconds)
                 var uninstalled = false
                 for (i in 0 until 50) {
                     kotlinx.coroutines.delay(500)
-                    if (!AppVersionHelper.getInstalledVersion(context).isInstalled) {
+                    if (!AppVersionHelper.getInstalledVersion(context, packageName).isInstalled) {
                         uninstalled = true
                         break
                     }
@@ -255,6 +260,7 @@ class UpdateCoordinator(
                 progressPercent = 100
             )
 
+            com.cfox.droidmesh.service.AutoInstallService.pendingInstallPackage = packageName
             val installResult = PackageInstallerDispatcher.dispatchInstall(context, apkFile)
             if (installResult.isFailure) {
                 val err = installResult.exceptionOrNull()?.message ?: "Failed to launch installer"

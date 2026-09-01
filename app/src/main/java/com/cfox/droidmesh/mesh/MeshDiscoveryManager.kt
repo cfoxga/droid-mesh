@@ -773,6 +773,9 @@ class MeshDiscoveryManager(
             // Backward compatibility: also include under old key
             put("seeds", connectionsJson)
             put("peers", allPeersJson)
+            // MESH-BEHAVE-008: expose config_version so cross-VLAN persistent-connection syncers
+            // (which poll this exact endpoint) can compare versions instead of always seeing 0.
+            put("config_version", SettingsStore.getConfigVersion(context))
         }
     }
 

@@ -872,9 +872,9 @@ input:checked + .slider:before {
           </p>
         </div>
         <div class="header-actions">
-          <button class="btn btn-secondary btn-sm" onclick="triggerBeacon()">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M2 12h20"/></svg>
-            Beacon
+          <button id="btnDeleteMesh" class="btn btn-secondary btn-sm" onclick="handleDeleteMesh()" style="display: none;">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6h14z"/></svg>
+            Delete Mesh
           </button>
           <button id="btnUpdateMeshAll" class="btn btn-primary btn-sm" onclick="triggerUpdateAll()">
             Update All in Mesh
@@ -1678,12 +1678,21 @@ function renderCurrentMeshView() {
   const subEl = document.getElementById('meshViewSubtitle');
   const updateAllBtn = document.getElementById('btnUpdateMeshAll');
   const meshEditBtn = document.getElementById('meshEditBtn');
+  const deleteMeshBtn = document.getElementById('btnDeleteMesh');
 
   if (titleEl) titleEl.textContent = `${currentMesh.name} Mesh`;
 
   // Show edit button only for local mesh
   if (meshEditBtn) {
     meshEditBtn.style.display = currentMesh.is_local ? 'block' : 'none';
+  }
+
+  // Show delete button only for empty, non-"unmanaged" meshes
+  if (deleteMeshBtn) {
+    const peerCount = currentMesh.peer_count !== undefined
+      ? currentMesh.peer_count
+      : (currentMesh.peers ? currentMesh.peers.length : 0);
+    deleteMeshBtn.style.display = (currentMesh.id !== 'unmanaged' && peerCount === 0) ? 'inline-flex' : 'none';
   }
 
   if (badgeEl) {
@@ -1977,12 +1986,22 @@ async function triggerAppUpdate(ip, port, packageName, targetVersion) {
   }
 }
 
-async function triggerBeacon() {
+async function handleDeleteMesh() {
+  const meshId = state.selectedMeshId;
+  const meshName = state.selectedMeshName || meshId;
+  if (!meshId || meshId === 'unmanaged') return;
+
+  if (!confirm(`Delete the "${meshName}" mesh? This cannot be undone and syncs to all devices.`)) return;
+
   try {
-    await apiCall('/api/mesh/beacon', { method: 'POST' });
-    setTimeout(fetchMeshInfo, 1000);
+    await apiCall('/api/mesh/delete', {
+      method: 'POST',
+      body: JSON.stringify({ meshId })
+    });
+    state.selectedMeshId = state.localMeshId;
+    fetchMeshInfo();
   } catch (e) {
-    alert('Beacon broadcast failed: ' + e.message);
+    alert(`Failed to delete mesh: ` + e.message);
   }
 }
 

@@ -29,6 +29,7 @@ object SettingsStore {
     private const val KEY_PERSISTENT_CONNECTIONS = "persistent_connections"
     private const val KEY_CUSTOM_DEVICE_NAME = "custom_device_name"
     private const val KEY_KNOWN_MESHES = "known_meshes"
+    private const val KEY_DELETED_MESHES = "deleted_meshes"
     private const val KEY_MESH_APP_LIBRARIES = "mesh_app_libraries"
 
     private const val DEFAULT_AUTO_UPDATE_ENABLED = true
@@ -85,7 +86,8 @@ object SettingsStore {
         val autoUpdateToggled: Boolean = false,
         val passwordChanged: Boolean = false,
         val seedsChanged: Boolean = false,
-        val libraryChanged: Boolean = false
+        val libraryChanged: Boolean = false,
+        val meshesChanged: Boolean = false
     )
 
     fun interface OnConfigChangeListener {
@@ -203,6 +205,35 @@ object SettingsStore {
 
     data class MeshTemplate(val id: String, val name: String)
 
+    /** [MESH-BEHAVE-009/010] A record that mesh [id] was deleted at [deletedAt] (epoch ms). */
+    data class MeshTombstone(val id: String, val deletedAt: Long)
+
+    fun getDeletedMeshes(context: Context): List<MeshTombstone> {
+        val json = prefs(context).getString(KEY_DELETED_MESHES, null) ?: return emptyList()
+        return try {
+            val arr = JSONArray(json)
+            (0 until arr.length()).mapNotNull { i ->
+                val obj = arr.optJSONObject(i)
+                val id = obj?.optString("id") ?: ""
+                if (id.isNotEmpty()) MeshTombstone(id, obj.optLong("deletedAt", 0L)) else null
+            }
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
+    fun setDeletedMeshes(context: Context, tombstones: List<MeshTombstone>) {
+        val json = JSONArray().apply {
+            tombstones.forEach { t ->
+                put(JSONObject().apply {
+                    put("id", t.id)
+                    put("deletedAt", t.deletedAt)
+                })
+            }
+        }
+        prefs(context).edit().putString(KEY_DELETED_MESHES, json.toString()).apply()
+    }
+
     fun getKnownMeshes(context: Context): List<MeshTemplate> {
         val json = prefs(context).getString(KEY_KNOWN_MESHES, null) ?: return listOf(
             MeshTemplate("unmanaged", "Unmanaged")
@@ -246,7 +277,46 @@ object SettingsStore {
 
         current.add(MeshTemplate(cleanId, cleanName))
         setKnownMeshes(context, current)
+
+        // [MESH-BEHAVE-010] Explicit recreation wins over a stale tombstone: clear it locally so
+        // this addition isn't immediately re-deleted by the tombstone filter on the next merge.
+        val tombstones = getDeletedMeshes(context)
+        if (tombstones.any { it.id == cleanId }) {
+            setDeletedMeshes(context, tombstones.filterNot { it.id == cleanId })
+        }
+
         updateConfigVersion(context)
+        return true
+    }
+
+    /**
+     * [MESH-BEHAVE-009] Removes a mesh template, recording a tombstone so the deletion propagates
+     * across the fleet instead of being silently resurrected by the known_meshes union merge.
+     * Rejects "unmanaged" (permanently protected) and unknown ids. Caller (REST layer) is
+     * responsible for the peer_count > 0 check, since live peer assignment isn't known here.
+     */
+    fun removeKnownMesh(context: Context, meshId: String): Boolean {
+        val cleanId = meshId.trim().lowercase()
+        if (cleanId.isBlank() || cleanId == "unmanaged") return false
+
+        val current = getKnownMeshes(context)
+        if (current.none { it.id == cleanId }) return false
+
+        val oldVer = getConfigVersion(context)
+        setKnownMeshes(context, current.filterNot { it.id == cleanId })
+
+        val ver = updateConfigVersion(context)
+        val tombstones = getDeletedMeshes(context).filterNot { it.id == cleanId }
+        setDeletedMeshes(context, tombstones + MeshTombstone(cleanId, ver))
+
+        notifyListeners(
+            ConfigImportResult(
+                applied = true,
+                oldVersion = oldVer,
+                newVersion = ver,
+                meshesChanged = true
+            )
+        )
         return true
     }
 
@@ -532,6 +602,15 @@ object SettingsStore {
             })
         }
         put("known_meshes", meshesArr)
+        // [MESH-BEHAVE-010] Tombstones so mesh deletion propagates instead of resurrecting.
+        val deletedArr = JSONArray()
+        getDeletedMeshes(context).forEach { t ->
+            deletedArr.put(JSONObject().apply {
+                put("id", t.id)
+                put("deletedAt", t.deletedAt)
+            })
+        }
+        put("deleted_meshes", deletedArr)
         // Include known peers for recovery after power loss
         if (knownPeersJson != null) {
             put("known_peers", knownPeersJson)
@@ -557,6 +636,7 @@ object SettingsStore {
         var passwordChanged = false
         var seedsChanged = false
         var libraryChanged = false
+        var meshesChanged = false
 
         if (json.has("web_server_enabled")) {
             val enabled = json.getBoolean("web_server_enabled")
@@ -646,42 +726,72 @@ object SettingsStore {
             }
         }
 
-        // Synchronize known mesh templates
-        if (json.has("known_meshes")) {
-            val meshesArr = json.optJSONArray("known_meshes")
-            if (meshesArr != null) {
-                val incomingMeshes = mutableListOf<MeshTemplate>()
-                for (i in 0 until meshesArr.length()) {
-                    val meshObj = meshesArr.optJSONObject(i)
-                    if (meshObj != null) {
-                        val id = meshObj.optString("id")
-                        val name = meshObj.optString("name")
-                        if (id.isNotEmpty()) {
-                            incomingMeshes.add(MeshTemplate(id, name))
-                        }
+        // [MESH-BEHAVE-010] Synchronize mesh deletion tombstones first: union of local + incoming,
+        // keeping the max deletedAt per id. This is what makes deletion durable across the union
+        // merge below instead of looking identical to "peer hasn't heard about this mesh yet".
+        val incomingTombstones = mutableListOf<MeshTombstone>()
+        val tombstonesArr = json.optJSONArray("deleted_meshes")
+        if (tombstonesArr != null) {
+            for (i in 0 until tombstonesArr.length()) {
+                val obj = tombstonesArr.optJSONObject(i) ?: continue
+                val id = obj.optString("id")
+                if (id.isNotEmpty()) incomingTombstones.add(MeshTombstone(id, obj.optLong("deletedAt", 0L)))
+            }
+        }
+        val currentTombstones = getDeletedMeshes(context)
+        val mergedTombstones = (currentTombstones + incomingTombstones)
+            .groupBy { it.id }
+            .map { (id, versions) -> MeshTombstone(id, versions.maxOf { it.deletedAt }) }
+        val tombstonedIds = mergedTombstones.map { it.id }.toSet()
+        if (mergedTombstones.toSet() != currentTombstones.toSet()) {
+            setDeletedMeshes(context, mergedTombstones)
+            meshesChanged = true
+        }
+
+        // Synchronize known mesh templates (union-preserve merge), then filter out anything
+        // present in the merged tombstone set above so a deletion actually sticks.
+        val currentMeshes = getKnownMeshes(context)
+        val meshesArr = json.optJSONArray("known_meshes")
+        if (meshesArr != null) {
+            val incomingMeshes = mutableListOf<MeshTemplate>()
+            for (i in 0 until meshesArr.length()) {
+                val meshObj = meshesArr.optJSONObject(i)
+                if (meshObj != null) {
+                    val id = meshObj.optString("id")
+                    val name = meshObj.optString("name")
+                    if (id.isNotEmpty()) {
+                        incomingMeshes.add(MeshTemplate(id, name))
                     }
                 }
-                // Merge incoming meshes with current meshes (prefer incoming for name updates)
-                val currentMeshes = getKnownMeshes(context).toMutableList()
-                val merged = mutableListOf<MeshTemplate>()
-                val addedIds = mutableSetOf<String>()
+            }
+            val merged = mutableListOf<MeshTemplate>()
+            val addedIds = mutableSetOf<String>()
 
-                // Add/update from incoming
-                for (incomingMesh in incomingMeshes) {
-                    merged.add(incomingMesh)
-                    addedIds.add(incomingMesh.id)
-                }
+            // Add/update from incoming
+            for (incomingMesh in incomingMeshes) {
+                merged.add(incomingMesh)
+                addedIds.add(incomingMesh.id)
+            }
 
-                // Add current meshes that weren't in incoming (preserve local additions)
-                for (currentMesh in currentMeshes) {
-                    if (!addedIds.contains(currentMesh.id)) {
-                        merged.add(currentMesh)
-                    }
+            // Add current meshes that weren't in incoming (preserve local additions)
+            for (currentMesh in currentMeshes) {
+                if (!addedIds.contains(currentMesh.id)) {
+                    merged.add(currentMesh)
                 }
+            }
 
-                if (merged != currentMeshes) {
-                    setKnownMeshes(context, merged)
-                }
+            val filtered = merged.filterNot { it.id in tombstonedIds }
+            if (filtered != currentMeshes) {
+                setKnownMeshes(context, filtered)
+                meshesChanged = true
+            }
+        } else if (tombstonedIds.isNotEmpty()) {
+            // No incoming known_meshes this round, but a newly-merged tombstone may still apply
+            // to what's stored locally (e.g. a delete-only sync payload).
+            val filtered = currentMeshes.filterNot { it.id in tombstonedIds }
+            if (filtered != currentMeshes) {
+                setKnownMeshes(context, filtered)
+                meshesChanged = true
             }
         }
 
@@ -697,7 +807,8 @@ object SettingsStore {
             autoUpdateToggled = autoUpdateToggled,
             passwordChanged = passwordChanged,
             seedsChanged = seedsChanged,
-            libraryChanged = libraryChanged
+            libraryChanged = libraryChanged,
+            meshesChanged = meshesChanged
         )
 
         notifyListeners(result)

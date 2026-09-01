@@ -150,6 +150,7 @@ class LocalHttpServer(
                 (uri == "/api/mesh/seeds" || uri == "/api/mesh/seeds/remove" || uri == "/api/mesh/persistent-connections" || uri == "/api/mesh/persistent-connections/remove") && (method == Method.DELETE || method == Method.POST) -> handleMeshPersistentConnectionsModify(session)
                 uri == "/api/mesh/create" && method == Method.POST -> handleMeshCreate(session)
                 uri == "/api/mesh/update" && method == Method.POST -> handleMeshUpdate(session)
+                uri == "/api/mesh/delete" && method == Method.POST -> handleMeshDelete(session)
                 uri == "/api/peers/update" && method == Method.POST -> handlePeerUpdate(session)
                 uri == "/api/peers/update-all" && method == Method.POST -> handlePeerUpdateAll(session)
                 uri == "/api/peers/adb/toggle" && method == Method.POST -> handlePeerAdbToggle(session)
@@ -854,6 +855,59 @@ class LocalHttpServer(
             put("message", "Mesh created: $meshId")
             put("meshId", meshId)
             put("meshName", meshName)
+        }
+        return jsonResponse(Response.Status.OK, json)
+    }
+
+    private fun handleMeshDelete(session: IHTTPSession): Response {
+        if (!isAuthorized(session)) {
+            return jsonResponse(Response.Status.UNAUTHORIZED, JSONObject().apply {
+                put("status", "error")
+                put("error", "Unauthorized")
+            })
+        }
+
+        val body = parseJsonBody(session)
+        val meshId = body.optString("meshId", "").trim().lowercase()
+
+        if (meshId.isBlank()) {
+            return jsonResponse(Response.Status.BAD_REQUEST, JSONObject().apply {
+                put("status", "error")
+                put("error", "meshId is required")
+            })
+        }
+
+        if (meshId == "unmanaged") {
+            return jsonResponse(Response.Status.BAD_REQUEST, JSONObject().apply {
+                put("status", "error")
+                put("error", "Cannot delete the Unmanaged mesh")
+            })
+        }
+
+        val peerCount = meshManager?.peersFlow?.value?.count { it.meshId == meshId } ?: 0
+        if (peerCount > 0) {
+            return jsonResponse(Response.Status.BAD_REQUEST, JSONObject().apply {
+                put("status", "error")
+                put("error", "Cannot delete a mesh with $peerCount assigned device(s)")
+            })
+        }
+
+        val removed = SettingsStore.removeKnownMesh(context, meshId)
+        if (!removed) {
+            return jsonResponse(Response.Status.BAD_REQUEST, JSONObject().apply {
+                put("status", "error")
+                put("error", "Mesh $meshId does not exist")
+            })
+        }
+
+        Logger.i("Mesh template deleted: $meshId")
+        // Sync deletion (tombstone) to all devices
+        meshManager?.syncConfigToMesh()
+
+        val json = JSONObject().apply {
+            put("status", "ok")
+            put("message", "Mesh deleted: $meshId")
+            put("meshId", meshId)
         }
         return jsonResponse(Response.Status.OK, json)
     }

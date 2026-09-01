@@ -301,4 +301,90 @@ class SettingsStoreTest {
         assertTrue(restored.contains("192.168.50.64:2325"))
         assertTrue(restored.contains("192.168.40.250:2325"))
     }
+
+    // [PROGRAMMATIC] MESH-TEST-008: Deleting "unmanaged" is rejected (negative case)
+    @Test
+    fun testRemoveKnownMeshRejectsUnmanaged() {
+        val removed = SettingsStore.removeKnownMesh(mockContext, "unmanaged")
+        assertFalse(removed)
+        assertTrue(SettingsStore.getKnownMeshes(mockContext).any { it.id == "unmanaged" })
+        assertTrue(SettingsStore.getDeletedMeshes(mockContext).isEmpty())
+    }
+
+    // [PROGRAMMATIC] Negative case: deleting an id that doesn't exist is rejected, no tombstone created
+    @Test
+    fun testRemoveKnownMeshRejectsUnknownId() {
+        val removed = SettingsStore.removeKnownMesh(mockContext, "does-not-exist")
+        assertFalse(removed)
+        assertTrue(SettingsStore.getDeletedMeshes(mockContext).isEmpty())
+    }
+
+    // [PROGRAMMATIC] MESH-TEST-010: Deleting an empty, non-unmanaged mesh removes it, records a
+    // tombstone, and bumps config_version.
+    @Test
+    fun testRemoveKnownMeshDeletesAndTombstones() {
+        SettingsStore.addKnownMesh(mockContext, "googletv", "Google TV")
+        val versionBefore = SettingsStore.getConfigVersion(mockContext)
+
+        val removed = SettingsStore.removeKnownMesh(mockContext, "googletv")
+
+        assertTrue(removed)
+        assertFalse(SettingsStore.getKnownMeshes(mockContext).any { it.id == "googletv" })
+        val tombstones = SettingsStore.getDeletedMeshes(mockContext)
+        assertTrue(tombstones.any { it.id == "googletv" })
+        assertTrue(SettingsStore.getConfigVersion(mockContext) > versionBefore)
+    }
+
+    // [PROGRAMMATIC] MESH-TEST-011: A mesh deletion propagates via sync -- a peer that already
+    // knows about a mesh removes it locally once it imports a config carrying that tombstone,
+    // instead of the union-preserve merge resurrecting it. Payload is hand-built (like
+    // testBackwardCompatImportOldCrossVlanSeeds above) so config_version ordering is deterministic
+    // instead of racing the real wall clock across two simulated devices sharing one JVM.
+    @Test
+    fun testImportConfigPropagatesMeshDeletion() {
+        // This node already knows about "googletv" from an earlier, pre-deletion sync.
+        SettingsStore.addKnownMesh(mockContext, "googletv", "Google TV")
+        val localVersion = SettingsStore.getConfigVersion(mockContext)
+        assertTrue(SettingsStore.getKnownMeshes(mockContext).any { it.id == "googletv" })
+
+        // Remote peer deleted "googletv" at a strictly later version and is syncing that in.
+        val remoteVersion = localVersion + 1000
+        val remoteConfig = JSONObject().apply {
+            put("config_version", remoteVersion)
+            put("known_meshes", JSONArray().apply {
+                put(JSONObject().apply { put("id", "unmanaged"); put("name", "Unmanaged") })
+            })
+            put("deleted_meshes", JSONArray().apply {
+                put(JSONObject().apply { put("id", "googletv"); put("deletedAt", remoteVersion) })
+            })
+        }
+
+        val result = SettingsStore.importConfigJson(mockContext, remoteConfig)
+
+        assertTrue(result.applied)
+        assertTrue(result.meshesChanged)
+        assertFalse(
+            "deletion must propagate, not be resurrected by the union-preserve merge",
+            SettingsStore.getKnownMeshes(mockContext).any { it.id == "googletv" }
+        )
+        assertTrue(SettingsStore.getDeletedMeshes(mockContext).any { it.id == "googletv" })
+    }
+
+    // [PROGRAMMATIC] MESH-TEST-012: Recreating a mesh whose id has a local tombstone clears that
+    // tombstone -- explicit resurrection wins over a stale delete record.
+    @Test
+    fun testRecreatingMeshClearsLocalTombstone() {
+        SettingsStore.addKnownMesh(mockContext, "googletv", "Google TV")
+        SettingsStore.removeKnownMesh(mockContext, "googletv")
+        assertTrue(SettingsStore.getDeletedMeshes(mockContext).any { it.id == "googletv" })
+
+        val recreated = SettingsStore.addKnownMesh(mockContext, "googletv", "Google TV")
+
+        assertTrue(recreated)
+        assertTrue(SettingsStore.getKnownMeshes(mockContext).any { it.id == "googletv" })
+        assertFalse(
+            "recreating a mesh must clear its stale tombstone",
+            SettingsStore.getDeletedMeshes(mockContext).any { it.id == "googletv" }
+        )
+    }
 }

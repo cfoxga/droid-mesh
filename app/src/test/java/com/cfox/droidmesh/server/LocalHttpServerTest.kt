@@ -319,4 +319,67 @@ class LocalHttpServerTest {
         val lib = SettingsStore.getMeshAppLibrary(mockContext, "meta-portals")
         assertTrue(lib["com.cfoxga.mpttv"]?.autoInstall == true)
     }
+
+    // [PROGRAMMATIC] MESH-TEST-008: Deleting "unmanaged" is rejected (negative case for MESH-BEHAVE-009)
+    @Test
+    fun testMeshDeleteRejectsUnmanaged() {
+        val session = mockSession(
+            uri = "/api/mesh/delete",
+            method = NanoHTTPD.Method.POST,
+            postBody = """{"meshId": "unmanaged"}"""
+        )
+        val response = server.serve(session)
+        assertEquals(NanoHTTPD.Response.Status.BAD_REQUEST, response.status)
+        assertTrue(SettingsStore.getKnownMeshes(mockContext).any { it.id == "unmanaged" })
+    }
+
+    // [PROGRAMMATIC] MESH-TEST-009: Deleting a mesh with peer_count > 0 is rejected with 400
+    @Test
+    fun testMeshDeleteRejectsWhenPeersAssigned() {
+        SettingsStore.addKnownMesh(mockContext, "googletv", "Google TV")
+
+        val peer = com.cfox.droidmesh.mesh.PeerNode(
+            id = "device-1",
+            ip = "192.168.50.64",
+            meshId = "googletv",
+            meshName = "Google TV"
+        )
+        val mockMeshManager: com.cfox.droidmesh.mesh.MeshDiscoveryManager = mock {
+            whenever(it.peersFlow).thenReturn(
+                kotlinx.coroutines.flow.MutableStateFlow(listOf(peer))
+            )
+        }
+        val serverWithPeers = LocalHttpServer(
+            context = mockContext,
+            coordinator = mockCoordinator,
+            meshManager = mockMeshManager,
+            activePort = 2325
+        )
+
+        val session = mockSession(
+            uri = "/api/mesh/delete",
+            method = NanoHTTPD.Method.POST,
+            postBody = """{"meshId": "googletv"}"""
+        )
+        val response = serverWithPeers.serve(session)
+        assertEquals(NanoHTTPD.Response.Status.BAD_REQUEST, response.status)
+        assertTrue(SettingsStore.getKnownMeshes(mockContext).any { it.id == "googletv" })
+    }
+
+    // [PROGRAMMATIC] MESH-TEST-010: Deleting an empty, non-unmanaged mesh removes it and bumps config_version
+    @Test
+    fun testMeshDeleteRemovesEmptyMesh() {
+        SettingsStore.addKnownMesh(mockContext, "googletv", "Google TV")
+        val versionBefore = SettingsStore.getConfigVersion(mockContext)
+
+        val session = mockSession(
+            uri = "/api/mesh/delete",
+            method = NanoHTTPD.Method.POST,
+            postBody = """{"meshId": "googletv"}"""
+        )
+        val response = server.serve(session)
+        assertEquals(NanoHTTPD.Response.Status.OK, response.status)
+        assertFalse(SettingsStore.getKnownMeshes(mockContext).any { it.id == "googletv" })
+        assertTrue(SettingsStore.getConfigVersion(mockContext) > versionBefore)
+    }
 }

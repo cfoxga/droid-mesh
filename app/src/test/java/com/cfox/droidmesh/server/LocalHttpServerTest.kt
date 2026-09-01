@@ -701,4 +701,34 @@ class LocalHttpServerTest {
         assertTrue(json.has("canRequestPackageInstalls"))
         assertFalse(json.isNull("canRequestPackageInstalls"))
     }
+
+    // [PROGRAMMATIC] UI-TEST-005: index.html has single nav-item-device-settings and tab-device-settings
+    @Test
+    fun testDeviceSettingsAssetStructure() {
+        val assetFile = java.io.File("src/main/assets/web/index.html")
+        assertTrue("index.html asset must exist", assetFile.exists())
+        val html = assetFile.readText()
+        assertTrue(html.contains("id=\"nav-item-device-settings\""))
+        assertTrue(html.contains("id=\"tab-device-settings\""))
+        assertTrue(html.contains("id=\"settingWebServerPort\""))
+        assertFalse(html.contains("id=\"nav-item-overview\""))
+        assertFalse(html.contains("id=\"nav-item-settings\""))
+        assertFalse(html.contains("id=\"tab-overview\""))
+    }
+
+    // [PROGRAMMATIC] UI-TEST-006: index.html has nav-item-global-settings and tab-global-settings
+    // with fleet security, mesh partitions, persistent seeds, companion update, and config version
+    @Test
+    fun testGlobalSettingsAssetStructure() {
+        val assetFile = java.io.File("src/main/assets/web/index.html")
+        assertTrue("index.html asset must exist", assetFile.exists())
+        val html = assetFile.readText()
+        assertTrue("Must have nav-item-global-settings", html.contains("id=\"nav-item-global-settings\""))
+        assertTrue("Must have tab-global-settings", html.contains("id=\"tab-global-settings\""))
+        assertTrue("Must have globalPasswordStatusText", html.contains("id=\"globalPasswordStatusText\""))
+        assertTrue("Must have globalMeshList", html.contains("id=\"globalMeshList\""))
+        assertTrue("Must have globalCrossVlanSeedList", html.contains("id=\"globalCrossVlanSeedList\""))
+        assertTrue("Must have globalDmVersion", html.contains("id=\"globalDmVersion\""))
+        assertTrue("Must have globalConfigVersion", html.contains("id=\"globalConfigVersion\""))
+    }
 }

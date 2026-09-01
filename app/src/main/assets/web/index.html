@@ -746,6 +746,10 @@ input:checked + .slider:before {
       </button>
 
       <nav class="nav-list">
+        <button id="nav-item-global-settings" class="nav-item" onclick="switchTab('global-settings')">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+          Global Settings
+        </button>
         <button id="nav-item-device-settings" class="nav-item" onclick="switchTab('device-settings')">
           <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
           Device Settings
@@ -772,8 +776,135 @@ input:checked + .slider:before {
       <div>
         <strong>Security Warning:</strong> No admin password configured. Port 2325 is currently accessible to all LAN clients.
       </div>
-      <button class="btn btn-primary btn-sm" onclick="switchTab('device-settings')">Set Password</button>
+      <button class="btn btn-primary btn-sm" onclick="switchTab('global-settings')">Set Password</button>
     </div>
+
+    <!-- TAB: GLOBAL SETTINGS (UI-BEHAVE-008) — mesh-synced & fleet-wide configuration -->
+    <section id="tab-global-settings" class="tab-pane">
+      <div class="header-bar">
+        <div>
+          <h1>Global Settings</h1>
+          <p style="color: var(--text-secondary); font-size: 13px; margin-top: 2px;">
+            Fleet-wide policies, mesh partitions, persistent seeds, and shared security.
+          </p>
+        </div>
+        <div class="header-actions">
+          <button class="btn btn-secondary btn-sm" onclick="loadGlobalSettings()">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+            Refresh
+          </button>
+        </div>
+      </div>
+
+      <!-- Fleet Security & Access Control -->
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+            Fleet Security
+          </div>
+        </div>
+        <div class="settings-row">
+          <div class="settings-row-info">
+            <span class="settings-row-label">Fleet Admin Password</span>
+            <span class="settings-row-help">Protects management UI and REST API on all mesh nodes. Synchronized via mesh gossip.</span>
+          </div>
+          <div class="settings-row-value">
+            <span id="globalPasswordStatusText">Not set</span>
+            <button type="button" class="btn btn-secondary btn-sm" onclick="showPasswordChangeModal()">Change Password</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Mesh Partitions Manager -->
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/></svg>
+            Mesh Partitions
+          </div>
+          <button type="button" class="btn btn-secondary btn-sm" onclick="showCreateMeshModal()">
+            + Create Mesh
+          </button>
+        </div>
+        <p style="color: var(--text-secondary); font-size: 13px; margin-bottom: 12px;">
+          Partition templates across the fleet. Nodes discover and sync partition definitions automatically.
+        </p>
+        <div id="globalMeshList" style="display: flex; flex-direction: column; gap: 8px;">
+          <span style="color: var(--text-muted); font-size: 13px;">Loading mesh partitions...</span>
+        </div>
+      </div>
+
+      <!-- Persistent Discovered Devices (Cross-VLAN Seeds) -->
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+            Persistent Discovered Devices
+          </div>
+          <button type="button" class="btn btn-secondary btn-sm" onclick="showConnectModal(true)">
+            + Add Device IP
+          </button>
+        </div>
+        <p style="color: var(--text-secondary); font-size: 13px; margin-bottom: 12px;">
+          Devices discovered on other subnets. Gossip-synced across the fleet with tombstones so all nodes maintain cross-subnet connections.
+        </p>
+        <div id="globalCrossVlanSeedList" style="display: flex; flex-direction: column; gap: 8px;">
+          <span style="color: var(--text-muted); font-size: 13px;">No discovered devices configured.</span>
+        </div>
+      </div>
+
+      <!-- DroidMesh Companion Updates -->
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            DroidMesh Companion Updates
+          </div>
+        </div>
+        <div class="settings-row">
+          <div class="settings-row-info">
+            <span class="settings-row-label">Installed Companion Version</span>
+            <span class="settings-row-help">Currently running DroidMesh APK on this device.</span>
+          </div>
+          <div class="settings-row-value" id="globalDmVersion">--</div>
+        </div>
+        <div class="settings-row">
+          <div class="settings-row-info">
+            <span class="settings-row-label">Latest Upstream Release</span>
+            <span class="settings-row-help">Checked against official GitHub repository releases.</span>
+          </div>
+          <div class="settings-row-value">
+            <span id="globalDmLatestVersion">Checking...</span>
+            <button id="btnGlobalSelfUpdate" type="button" class="btn btn-secondary btn-sm" onclick="triggerSelfUpdate()">Check for Updates</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Mesh Configuration & Sync -->
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            Mesh Sync & Configuration
+          </div>
+        </div>
+        <div class="settings-row">
+          <div class="settings-row-info">
+            <span class="settings-row-label">Config Version Epoch</span>
+            <span class="settings-row-help">Timestamp epoch of the latest synchronized configuration across the mesh.</span>
+          </div>
+          <div class="settings-row-value" id="globalConfigVersion">--</div>
+        </div>
+        <div class="settings-row">
+          <div class="settings-row-info">
+            <span class="settings-row-label">Configuration Snapshot</span>
+            <span class="settings-row-help">Export the entire fleet mesh configuration as a JSON document.</span>
+          </div>
+          <button type="button" class="btn btn-secondary btn-sm" onclick="exportConfigJson()">Export Config JSON</button>
+        </div>
+      </div>
+    </section>
 
     <!-- TAB: DEVICE SETTINGS (UI-BEHAVE-007) — device-owned config, not mesh-synced -->
     <section id="tab-device-settings" class="tab-pane">
@@ -818,7 +949,7 @@ input:checked + .slider:before {
         <form class="settings-row" onsubmit="handleSaveMeshIdentity(event)">
           <div class="settings-row-info">
             <span class="settings-row-label">Mesh Partition</span>
-            <span class="settings-row-help">Create new meshes with the "Add Mesh" button in the sidebar.</span>
+            <span class="settings-row-help">Create new meshes with the "Add Mesh" button in the sidebar or in Global Settings.</span>
           </div>
           <div class="settings-row-value">
             <select id="settingMeshSelect" class="field" style="width: 160px;" required onchange="updateMeshSelection()">
@@ -874,17 +1005,6 @@ input:checked + .slider:before {
           </div>
           <div id="remoteManagementMsg" class="banner hidden settings-row-msg"></div>
         </div>
-
-        <div class="settings-row">
-          <div class="settings-row-info">
-            <span class="settings-row-label">Admin Password</span>
-            <span class="settings-row-help">Protects this management UI and REST API on the local network.</span>
-          </div>
-          <div class="settings-row-value">
-            <span id="passwordStatusText">Not set</span>
-            <button type="button" class="btn btn-secondary btn-sm" onclick="showPasswordChangeModal()">Change</button>
-          </div>
-        </div>
       </div>
 
       <!-- Other -->
@@ -917,25 +1037,6 @@ input:checked + .slider:before {
           </div>
           <div class="settings-row-value" id="valCpuTemp">--</div>
         </div>
-      </div>
-
-      <!-- Persistent Discovered Devices -->
-      <div class="card">
-        <div class="card-header">
-          <div class="card-title">
-            <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
-            Persistent Discovered Devices
-          </div>
-        </div>
-        <p style="color: var(--text-secondary); font-size: 13px;">
-          Devices discovered on other subnets. DroidMesh automatically reconnects to these devices after power cycles.
-        </p>
-        <div id="crossVlanSeedList" style="display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px;">
-          <span style="color: var(--text-muted); font-size: 13px;">No discovered devices configured.</span>
-        </div>
-        <button type="button" class="btn btn-secondary btn-sm" onclick="showConnectModal(true)" style="align-self: flex-start;">
-          + Add Device IP
-        </button>
       </div>
     </section>
 
@@ -1132,7 +1233,9 @@ function switchTab(tabId) {
   const navBtn = document.getElementById(`nav-item-${tabId}`);
   if (navBtn) navBtn.classList.add('active');
 
-  if (tabId === 'device-settings') {
+  if (tabId === 'global-settings') {
+    loadGlobalSettings();
+  } else if (tabId === 'device-settings') {
     loadSettings();
     refreshStatus();
   } else if (tabId === 'mesh') {
@@ -1227,9 +1330,12 @@ async function handleCreateMesh(e) {
     msgEl.className = 'banner banner-sage';
     msgEl.textContent = 'Mesh created!';
     msgEl.classList.remove('hidden');
-    setTimeout(() => {
+    setTimeout(async () => {
       closeModal('createMeshModal');
-      fetchMeshInfo();
+      await fetchMeshInfo();
+      if (state.currentTab === 'global-settings') {
+        loadGlobalSettings();
+      }
     }, 500);
   } catch (err) {
     msgEl.className = 'banner banner-rust';
@@ -1238,13 +1344,14 @@ async function handleCreateMesh(e) {
   }
 }
 
-function showEditMeshModal() {
+function showEditMeshModal(targetId) {
   const modal = document.getElementById('editMeshModal');
   const msgEl = document.getElementById('editMeshMsg');
   if (msgEl) msgEl.classList.add('hidden');
 
-  const meshId = state.selectedMeshId || state.localMeshId;
-  const meshName = state.selectedMeshName || state.localMeshName;
+  const meshId = targetId || state.selectedMeshId || state.localMeshId;
+  const meshObj = (state.meshes || []).find(m => m.id === meshId);
+  const meshName = meshObj ? meshObj.name : (state.selectedMeshName || state.localMeshName);
 
   document.getElementById('editMeshName').value = meshName;
   document.getElementById('editMeshIdDisplay').textContent = meshId;
@@ -1255,7 +1362,7 @@ function showEditMeshModal() {
 
 async function handleEditMesh(e) {
   e.preventDefault();
-  const meshId = state.selectedMeshId || state.localMeshId;
+  const meshId = document.getElementById('editMeshIdDisplay').textContent.trim() || state.selectedMeshId || state.localMeshId;
   const meshName = document.getElementById('editMeshName').value.trim();
   const msgEl = document.getElementById('editMeshMsg');
 
@@ -1274,9 +1381,12 @@ async function handleEditMesh(e) {
     msgEl.className = 'banner banner-sage';
     msgEl.textContent = 'Mesh updated!';
     msgEl.classList.remove('hidden');
-    setTimeout(() => {
+    setTimeout(async () => {
       closeModal('editMeshModal');
-      fetchMeshInfo();
+      await fetchMeshInfo();
+      if (state.currentTab === 'global-settings') {
+        loadGlobalSettings();
+      }
     }, 500);
   } catch (err) {
     msgEl.className = 'banner banner-rust';
@@ -1310,7 +1420,11 @@ async function handleConnectMesh(e) {
     setTimeout(async () => {
       showConnectModal(false);
       await fetchMeshInfo();
-      loadSettings();
+      if (state.currentTab === 'global-settings') {
+        loadGlobalSettings();
+      } else {
+        loadSettings();
+      }
     }, 1200);
   } catch (err) {
     msgEl.className = 'banner banner-rust';
@@ -1328,7 +1442,11 @@ async function removeSeed(seed) {
       body: JSON.stringify({ ip: seed })
     });
     await fetchMeshInfo();
-    loadSettings();
+    if (state.currentTab === 'global-settings') {
+      loadGlobalSettings();
+    } else {
+      loadSettings();
+    }
   } catch (err) {
     alert(`Failed to remove seed: ${err.message}`);
   }
@@ -1344,11 +1462,19 @@ async function checkAuthStatus() {
     const pwdBadge = document.getElementById('passwordStatusBadge');
     const groupCurrent = document.getElementById('groupCurrentPassword');
     const authBtn = document.getElementById('authBtn');
+    const globalPwdText = document.getElementById('globalPasswordStatusText');
+
+    if (globalPwdText) {
+      globalPwdText.textContent = auth.passwordSet ? 'Password is set (Active)' : 'Not set (Insecure)';
+      globalPwdText.style.color = auth.passwordSet ? 'var(--sage)' : 'var(--ochre)';
+    }
 
     if (auth.passwordSet) {
       noPwdBanner.classList.add('hidden');
-      pwdBadge.className = 'badge badge-sage';
-      pwdBadge.textContent = 'Active & Protected';
+      if (pwdBadge) {
+        pwdBadge.className = 'badge badge-sage';
+        pwdBadge.textContent = 'Active & Protected';
+      }
       if (groupCurrent) groupCurrent.style.display = 'flex';
       authBtn.style.display = 'block';
 
@@ -1359,8 +1485,10 @@ async function checkAuthStatus() {
       }
     } else {
       noPwdBanner.classList.remove('hidden');
-      pwdBadge.className = 'badge badge-ochre';
-      pwdBadge.textContent = 'Not Configured';
+      if (pwdBadge) {
+        pwdBadge.className = 'badge badge-ochre';
+        pwdBadge.textContent = 'Not Configured';
+      }
       if (groupCurrent) groupCurrent.style.display = 'none';
       authBtn.style.display = 'none';
       showLoginModal(false);
@@ -1943,9 +2071,10 @@ async function triggerAppUpdate(ip, port, packageName, targetVersion) {
   }
 }
 
-async function handleDeleteMesh() {
-  const meshId = state.selectedMeshId;
-  const meshName = state.selectedMeshName || meshId;
+async function handleDeleteMesh(targetId) {
+  const meshId = targetId || state.selectedMeshId;
+  const meshObj = (state.meshes || []).find(m => m.id === meshId);
+  const meshName = meshObj ? meshObj.name : (state.selectedMeshName || meshId);
   if (!meshId || meshId === 'unmanaged') return;
 
   if (!confirm(`Delete the "${meshName}" mesh? This cannot be undone and syncs to all devices.`)) return;
@@ -1955,8 +2084,13 @@ async function handleDeleteMesh() {
       method: 'POST',
       body: JSON.stringify({ meshId })
     });
-    state.selectedMeshId = state.localMeshId;
-    fetchMeshInfo();
+    if (state.selectedMeshId === meshId) {
+      state.selectedMeshId = state.localMeshId;
+    }
+    await fetchMeshInfo();
+    if (state.currentTab === 'global-settings') {
+      loadGlobalSettings();
+    }
   } catch (e) {
     alert(`Failed to delete mesh: ` + e.message);
   }
@@ -1986,53 +2120,78 @@ async function togglePeerAdb(ip, port) {
   }
 }
 
-// Settings
-async function loadSettings() {
+// Global Settings (UI-BEHAVE-008)
+async function loadGlobalSettings() {
   try {
-    const data = await apiCall('/api/settings');
-    // Set device name field - show custom name if set, otherwise placeholder with effective name
-    const deviceNameInput = document.getElementById('settingDeviceName');
-    deviceNameInput.value = data.customDeviceName || '';
-    deviceNameInput.placeholder = data.effectiveDeviceName || 'e.g., Theater Portal, Living Room TV';
+    const [settingsData, meshData, selfUpdateData, meshConfigData] = await Promise.all([
+      apiCall('/api/settings').catch(() => ({})),
+      apiCall('/api/mesh').catch(() => ({})),
+      apiCall('/api/self-update/status').catch(() => ({})),
+      apiCall('/api/mesh/config').catch(() => ({}))
+    ]);
 
-    // Populate mesh dropdown from API mesh list
-    const meshSelect = document.getElementById('settingMeshSelect');
-    const currentMeshId = data.localMeshId || state.localMeshId || 'unmanaged';
-    const currentMeshName = data.localMeshName || state.localMeshName;
+    state.meshes = meshData.meshes || state.meshes || [];
+    state.seeds = meshData.seeds || settingsData.persistentConnections || settingsData.crossVlanSeeds || state.seeds || [];
 
-    // Clear existing options except the first one
-    meshSelect.innerHTML = '';
+    renderGlobalSettings(settingsData, meshData, selfUpdateData, meshConfigData);
+  } catch (e) {
+    console.warn('Failed to load global settings:', e);
+  }
+}
 
-    // Always include unmanaged first
-    const unmangedOpt = document.createElement('option');
-    unmangedOpt.value = 'unmanaged';
-    unmangedOpt.textContent = 'Unmanaged';
-    if (currentMeshId === 'unmanaged') unmangedOpt.selected = true;
-    meshSelect.appendChild(unmangedOpt);
+function renderGlobalSettings(settingsData = {}, meshData = {}, selfUpdateData = {}, meshConfigData = {}) {
+  // 1. Password Status
+  const pwdStatusEl = document.getElementById('globalPasswordStatusText');
+  if (pwdStatusEl) {
+    const hasPwd = settingsData.hasPassword !== undefined ? settingsData.hasPassword : state.authRequired;
+    pwdStatusEl.textContent = hasPwd ? 'Password is set (Active)' : 'Not set (Insecure)';
+    pwdStatusEl.style.color = hasPwd ? 'var(--sage)' : 'var(--ochre)';
+  }
 
-    // Add mesh options from state.meshes (which comes from getMeshesGrouped)
+  // 2. Mesh Partitions List
+  const meshListEl = document.getElementById('globalMeshList');
+  if (meshListEl) {
+    meshListEl.innerHTML = '';
     const meshes = state.meshes || [];
-    meshes.forEach(m => {
-      if (m.id !== 'unmanaged') {  // Don't duplicate unmanaged
-        const option = document.createElement('option');
-        option.value = m.id;
-        option.textContent = `${m.name}`;
-        if (m.id === currentMeshId) {
-          option.selected = true;
-        }
-        meshSelect.appendChild(option);
-      }
-    });
+    if (meshes.length === 0) {
+      meshListEl.innerHTML = '<span style="color: var(--text-muted); font-size: 13px;">No mesh partitions found.</span>';
+    } else {
+      meshes.forEach(m => {
+        const row = document.createElement('div');
+        row.style.display = 'flex';
+        row.style.alignItems = 'center';
+        row.style.justifyContent = 'space-between';
+        row.style.padding = '10px 14px';
+        row.style.backgroundColor = 'var(--bg-input)';
+        row.style.borderRadius = 'var(--radius-sm)';
+        row.style.border = '1px solid var(--border-subtle)';
 
-    // Add change listener to update mesh selection when dropdown changes
-    meshSelect.addEventListener('change', updateMeshSelection);
+        const isUnmanaged = (m.id === 'unmanaged');
+        const peerCount = m.peer_count !== undefined ? m.peer_count : (m.peers ? m.peers.length : 0);
 
-    // Render discovered devices list
-    const seedsList = document.getElementById('crossVlanSeedList');
+        row.innerHTML = `
+          <div style="display: flex; align-items: center; gap: 10px;">
+            <strong style="font-size: 14px;">${escapeHtml(m.name)}</strong>
+            <span style="font-family: monospace; font-size: 12px; color: var(--text-muted);">${escapeHtml(m.id)}</span>
+            <span class="badge ${peerCount > 0 ? 'badge-sage' : 'badge-gray'}" style="font-size: 11px;">${peerCount} node${peerCount === 1 ? '' : 's'}</span>
+          </div>
+          <div style="display: flex; gap: 8px;">
+            <button class="btn btn-secondary btn-sm" onclick="showEditMeshModal('${escapeHtml(m.id)}')">Rename</button>
+            ${!isUnmanaged && peerCount === 0 ? `<button class="btn btn-danger btn-sm" onclick="handleDeleteMesh('${escapeHtml(m.id)}')">Delete</button>` : ''}
+          </div>
+        `;
+        meshListEl.appendChild(row);
+      });
+    }
+  }
+
+  // 3. Persistent Discovered Devices (Cross-VLAN Seeds)
+  const seedsList = document.getElementById('globalCrossVlanSeedList');
+  if (seedsList) {
     seedsList.innerHTML = '';
-    const seeds = data.persistentConnections || data.crossVlanSeeds || state.seeds || [];
+    const seeds = state.seeds || [];
     if (seeds.length === 0) {
-      seedsList.innerHTML = '<span style="color: var(--text-muted); font-size: 13px;">No discovered devices configured.</span>';
+      seedsList.innerHTML = '<span style="color: var(--text-muted); font-size: 13px;">No persistent discovered devices configured.</span>';
     } else {
       seeds.forEach(seed => {
         const row = document.createElement('div');
@@ -2045,22 +2204,120 @@ async function loadSettings() {
         row.style.border = '1px solid var(--border-subtle)';
 
         row.innerHTML = `
-          <span style="font-family: monospace; font-size: 13px;">${seed}</span>
-          <button class="btn btn-danger btn-sm" onclick="removeSeed('${seed}')">Remove</button>
+          <span style="font-family: monospace; font-size: 13px;">${escapeHtml(seed)}</span>
+          <button class="btn btn-danger btn-sm" onclick="removeSeed('${escapeHtml(seed)}')">Remove</button>
         `;
         seedsList.appendChild(row);
       });
     }
+  }
+
+  // 4. DroidMesh Companion Updates
+  const currentVerEl = document.getElementById('globalDmVersion');
+  const latestVerEl = document.getElementById('globalDmLatestVersion');
+  const btnSelfUpdate = document.getElementById('btnGlobalSelfUpdate');
+
+  if (currentVerEl && state.status) {
+    currentVerEl.textContent = state.status.version ? (state.status.version.startsWith('v') ? state.status.version : `v${state.status.version}`) : '--';
+  }
+  if (selfUpdateData) {
+    if (latestVerEl) {
+      if (selfUpdateData.latestVersionTag) {
+        latestVerEl.textContent = selfUpdateData.latestVersionTag + (selfUpdateData.updateAvailable ? ' (Update Available)' : ' (Up to date)');
+        latestVerEl.style.color = selfUpdateData.updateAvailable ? 'var(--ochre)' : 'var(--sage)';
+      } else if (selfUpdateData.checkError) {
+        latestVerEl.textContent = 'Check error: ' + selfUpdateData.checkError;
+        latestVerEl.style.color = 'var(--rust)';
+      }
+    }
+    if (btnSelfUpdate) {
+      if (selfUpdateData.updaterState && selfUpdateData.updaterState !== 'IDLE') {
+        btnSelfUpdate.disabled = true;
+        btnSelfUpdate.textContent = selfUpdateData.updaterMessage || selfUpdateData.updaterState;
+      } else if (selfUpdateData.updateAvailable) {
+        btnSelfUpdate.disabled = false;
+        btnSelfUpdate.textContent = `Update to ${selfUpdateData.latestVersionTag}`;
+      } else {
+        btnSelfUpdate.disabled = false;
+        btnSelfUpdate.textContent = 'Check for Updates';
+      }
+    }
+  }
+
+  // 5. Mesh Configuration State
+  const configVerEl = document.getElementById('globalConfigVersion');
+  if (configVerEl) {
+    const ver = meshConfigData.config_version || settingsData.configVersion;
+    if (ver && ver > 0) {
+      configVerEl.textContent = `${ver} (${new Date(Number(ver)).toLocaleString()})`;
+    } else {
+      configVerEl.textContent = '--';
+    }
+  }
+}
+
+async function exportConfigJson() {
+  try {
+    const data = await apiCall('/api/mesh/config');
+    const jsonStr = JSON.stringify(data, null, 2);
+    const blob = new Blob([jsonStr], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `droidmesh-config-${Date.now()}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  } catch (err) {
+    alert('Failed to export config: ' + err.message);
+  }
+}
+
+// Device Settings (UI-BEHAVE-007)
+async function loadSettings() {
+  try {
+    const data = await apiCall('/api/settings');
+    // Set device name field - show custom name if set, otherwise placeholder with effective name
+    const deviceNameInput = document.getElementById('settingDeviceName');
+    if (deviceNameInput) {
+      deviceNameInput.value = data.customDeviceName || '';
+      deviceNameInput.placeholder = data.effectiveDeviceName || 'e.g., Theater Portal, Living Room TV';
+    }
+
+    // Populate mesh dropdown from API mesh list
+    const meshSelect = document.getElementById('settingMeshSelect');
+    if (meshSelect) {
+      const currentMeshId = data.localMeshId || state.localMeshId || 'unmanaged';
+
+      meshSelect.innerHTML = '';
+
+      // Always include unmanaged first
+      const unmangedOpt = document.createElement('option');
+      unmangedOpt.value = 'unmanaged';
+      unmangedOpt.textContent = 'Unmanaged';
+      if (currentMeshId === 'unmanaged') unmangedOpt.selected = true;
+      meshSelect.appendChild(unmangedOpt);
+
+      // Add mesh options from state.meshes
+      const meshes = state.meshes || [];
+      meshes.forEach(m => {
+        if (m.id !== 'unmanaged') {
+          const option = document.createElement('option');
+          option.value = m.id;
+          option.textContent = `${m.name}`;
+          if (m.id === currentMeshId) {
+            option.selected = true;
+          }
+          meshSelect.appendChild(option);
+        }
+      });
+    }
+
     // Load HTTP server port (single consolidated field — UI-BEHAVE-007)
     if (data.webServerPort) {
       const portEl = document.getElementById('settingWebServerPort');
       if (portEl) portEl.value = data.webServerPort;
-    }
-    // Update password status badge
-    const passwordStatusText = document.getElementById('passwordStatusText');
-    if (passwordStatusText) {
-      passwordStatusText.textContent = data.hasPassword ? 'Password is set' : 'Not set';
-      passwordStatusText.style.color = data.hasPassword ? 'var(--sage)' : 'var(--text-muted)';
     }
   } catch (e) {
     console.warn('Failed to load settings:', e);
@@ -2116,7 +2373,6 @@ async function handleSaveDeviceName(e) {
 
 function updateMeshSelection() {
   // Placeholder for any future selection-change logic
-  // Currently just syncs the dropdown to internal state on loadSettings
 }
 
 async function handleSaveMeshIdentity(e) {
@@ -2152,7 +2408,6 @@ async function handleSaveMeshIdentity(e) {
     msgEl.classList.remove('hidden');
   }
 }
-
 
 async function handlePasswordChange(e) {
   e.preventDefault();
@@ -2190,6 +2445,9 @@ async function handlePasswordChange(e) {
     document.getElementById('pwdNew').value = '';
     document.getElementById('pwdConfirm').value = '';
     checkAuthStatus();
+    if (state.currentTab === 'global-settings') {
+      loadGlobalSettings();
+    }
     closeModal('passwordChangeModal');
   } catch (err) {
     msgEl.className = 'banner banner-rust';
@@ -2262,6 +2520,8 @@ window.addEventListener('DOMContentLoaded', () => {
       if (!document.getElementById('logsModal').classList.contains('hidden')) {
         fetchLogs();
       }
+    } else if (state.currentTab === 'global-settings') {
+      loadGlobalSettings();
     } else if (state.currentTab === 'mesh') {
       fetchMeshInfo();
     }

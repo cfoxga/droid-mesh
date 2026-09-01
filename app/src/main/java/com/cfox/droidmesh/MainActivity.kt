@@ -469,7 +469,6 @@ class MainActivity : AppCompatActivity() {
                 || peer.deviceModel.contains("tv", ignoreCase = true) || peer.deviceModel.contains("onn", ignoreCase = true)
             itemBinding.ivPeerDeviceIcon.setImageResource(if (isTv) R.drawable.ic_device_tv else R.drawable.ic_device_tablet)
 
-            itemBinding.tvPeerSelfBadge.visibility = if (peer.isSelf) View.VISIBLE else View.GONE
             itemBinding.tvPeerVlanBadge.visibility = if (peer.isDiscoveredPeer) View.VISIBLE else View.GONE
 
             val isOnline = peer.isOnline

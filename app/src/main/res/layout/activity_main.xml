@@ -532,15 +532,6 @@
                             android:orientation="vertical"
                             android:visibility="gone">
 
-                            <TextView
-                                android:layout_width="match_parent"
-                                android:layout_height="wrap_content"
-                                android:layout_marginTop="8dp"
-                                android:fontFamily="@font/rubik"
-                                android:text="Superset of apps in this mesh partition. Configure managed apps, auto-install, and target versions."
-                                android:textColor="@color/ks_on_surface_variant"
-                                android:textSize="12sp" />
-
                             <LinearLayout
                                 android:id="@+id/layoutMeshAppLibrary"
                                 android:layout_width="match_parent"

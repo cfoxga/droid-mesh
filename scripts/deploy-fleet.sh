@@ -12,7 +12,7 @@ if [[ -f .env.local ]]; then
   set +a
 fi
 
-TARGETS="${DROID_MESH_DEPLOY_TARGETS:-192.168.40.250:5555 192.168.40.59:5555 192.168.50.64:5555 192.168.50.156:5555}"
+TARGETS="${DROID_MESH_DEPLOY_TARGETS:-192.168.40.250:5555 192.168.40.59:5555 192.168.50.64:5555 192.168.50.124:5555 192.168.50.156:5555}"
 APK_PATH="$ROOT_DIR/app/build/outputs/apk/release/app-release.apk"
 
 export JAVA_HOME="${JAVA_HOME:-/home/cfoxga/android-tools/jdk-17.0.2}"

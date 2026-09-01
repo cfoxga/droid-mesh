@@ -686,7 +686,7 @@ class LocalHttpServer(
 
         val json = JSONObject().apply {
             put("status", "ok")
-            put("message", "Connecting to cross-VLAN mesh seed $normalized")
+            put("message", "Connecting to persistent connection $normalized")
             put("seed", normalized)
         }
         return jsonResponse(Response.Status.OK, json)

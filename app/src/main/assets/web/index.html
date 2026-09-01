@@ -2050,11 +2050,7 @@ async function loadSettings() {
       meshSelect.appendChild(option);
     });
 
-    // Set the read-only mesh ID display
-    document.getElementById('settingMeshIdDisplay').textContent = currentMeshId;
-    updateMeshSelection();
-
-    // Add change listener to update mesh ID display when dropdown changes
+    // Add change listener to update mesh selection when dropdown changes
     meshSelect.addEventListener('change', updateMeshSelection);
 
     // Render discovered devices list
@@ -2081,9 +2077,30 @@ async function loadSettings() {
         seedsList.appendChild(row);
       });
     }
+    // Load remote management settings
     if (data.webServerPort) {
-      const portEl = document.getElementById('settingWebServerPort');
-      if (portEl) portEl.value = data.webServerPort;
+      const remotePortEl = document.getElementById('settingRemotePort');
+      if (remotePortEl) remotePortEl.value = data.webServerPort;
+    }
+    const remoteEnabledEl = document.getElementById('settingRemoteEnabled');
+    if (remoteEnabledEl) {
+      remoteEnabledEl.checked = data.webServerEnabled !== false;
+    }
+    // Update password status badge
+    const passwordStatusText = document.getElementById('passwordStatusText');
+    if (passwordStatusText) {
+      passwordStatusText.textContent = data.hasPassword ? 'Password is set' : 'Not set';
+      passwordStatusText.style.color = data.hasPassword ? 'var(--sage)' : 'var(--text-muted)';
+    }
+    const passwordStatusBadge = document.getElementById('remoteManagementStatusBadge');
+    if (passwordStatusBadge) {
+      if (data.webServerEnabled) {
+        passwordStatusBadge.className = 'badge badge-sage';
+        passwordStatusBadge.textContent = 'Enabled';
+      } else {
+        passwordStatusBadge.className = 'badge badge-ochre';
+        passwordStatusBadge.textContent = 'Disabled';
+      }
     }
   } catch (e) {
     console.warn('Failed to load settings:', e);
@@ -2219,10 +2236,50 @@ async function handlePasswordChange(e) {
     document.getElementById('pwdNew').value = '';
     document.getElementById('pwdConfirm').value = '';
     checkAuthStatus();
+    closeModal('passwordChangeModal');
   } catch (err) {
     msgEl.className = 'banner banner-rust';
     msgEl.textContent = err.message || 'Failed to update password.';
     msgEl.classList.remove('hidden');
+  }
+}
+
+function showPasswordChangeModal() {
+  document.getElementById('passwordChangeModal').classList.remove('hidden');
+  document.getElementById('pwdCurrent').focus();
+  document.getElementById('pwdMsg').classList.add('hidden');
+}
+
+async function updateRemoteManagementStatus() {
+  const enabled = document.getElementById('settingRemoteEnabled').checked;
+  try {
+    await apiCall('/api/settings', {
+      method: 'POST',
+      body: JSON.stringify({ webServerEnabled: enabled })
+    });
+  } catch (e) {
+    document.getElementById('settingRemoteEnabled').checked = !enabled;
+    alert('Failed to update remote management: ' + e.message);
+  }
+}
+
+async function saveRemoteManagementPort() {
+  const port = parseInt(document.getElementById('settingRemotePort').value, 10);
+  if (!port || port < 1024 || port > 65535) {
+    alert('Please enter a valid port between 1024 and 65535');
+    return;
+  }
+  try {
+    await apiCall('/api/settings', {
+      method: 'POST',
+      body: JSON.stringify({ webServerPort: port })
+    });
+    const msgEl = document.getElementById('remoteManagementMsg');
+    msgEl.className = 'banner banner-sage';
+    msgEl.textContent = `Port updated to ${port}. If you changed it, reconnect on the new port.`;
+    msgEl.classList.remove('hidden');
+  } catch (e) {
+    alert('Failed to update port: ' + e.message);
   }
 }
 

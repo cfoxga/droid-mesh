@@ -118,8 +118,13 @@ class LocalHttpServer(
 
         return try {
             when {
-                // Static Web Administration Interface
-                (uri == "/" || uri == "/index.html" || uri == "/overview" || uri == "/settings" || uri == "/mesh" || uri == "/logs") && method == Method.GET -> {
+                // Static Web Administration Interface — only "/" and "/index.html" serve the
+                // SPA shell. "/overview"/"/settings" no longer exist as tabs (UI-BEHAVE-007
+                // consolidated them into Device Settings); "/mesh" and "/logs" are real JSON
+                // API paths below and must not be shadowed by this branch (a bare `when` takes
+                // the first match, so listing them here permanently hid handleMesh()/handleLogs()
+                // from ever running for the bare path — found via live-fleet /logs verification).
+                (uri == "/" || uri == "/index.html") && method == Method.GET -> {
                     val accept = session.headers["accept"] ?: ""
                     if (accept.contains("application/json") && uri == "/") {
                         handleStatus(session)

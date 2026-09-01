@@ -292,6 +292,29 @@ class LocalHttpServerTest {
         assertEquals("application/json; charset=utf-8", response.mimeType)
     }
 
+    // [PROGRAMMATIC] API-TEST-027: bare /mesh must reach the JSON handler, not the SPA shell —
+    // it was permanently shadowed by the earlier "/" || "/index.html" || ... "/mesh" || "/logs"
+    // static-web-shell branch, which always wins in a Kotlin `when` (first match, no fallthrough).
+    @Test
+    fun testBareMeshEndpointReturnsJsonNotWebShell() {
+        val session = mockSession("/mesh")
+        val response = server.serve(session)
+        assertEquals(NanoHTTPD.Response.Status.OK, response.status)
+        assertEquals("application/json; charset=utf-8", response.mimeType)
+    }
+
+    // [PROGRAMMATIC] API-TEST-028: bare /logs must reach the JSON handler, not the SPA shell —
+    // same shadowing bug as testBareMeshEndpointReturnsJsonNotWebShell, for the /logs alias.
+    @Test
+    fun testBareLogsEndpointReturnsJsonNotWebShell() {
+        val session = mockSession("/logs")
+        val response = server.serve(session)
+        assertEquals(NanoHTTPD.Response.Status.OK, response.status)
+        assertEquals("application/json; charset=utf-8", response.mimeType)
+        val body = response.data.bufferedReader().readText()
+        assertTrue(JSONObject(body).has("logs"))
+    }
+
     // [PROGRAMMATIC] MESH-TEST-003: Mesh seeds endpoints
     @Test
     fun testMeshSeedsEndpoints() {

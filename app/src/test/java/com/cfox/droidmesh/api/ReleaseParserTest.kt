@@ -25,6 +25,38 @@ class ReleaseParserTest {
     }
 
     /**
+     * [UPD-TEST-005] — ReleaseParser.toGitHubApiUrl normalizes plain github.com URLs (what an
+     * admin actually copies from their browser) to the api.github.com releases endpoint, and
+     * returns null for anything that isn't a GitHub host and isn't already an API URL.
+     */
+    @Test
+    fun testToGitHubApiUrl() {
+        assertEquals(
+            "https://api.github.com/repos/jxlarrea/kiosk-satellite/releases",
+            ReleaseParser.toGitHubApiUrl("https://github.com/jxlarrea/kiosk-satellite/releases")
+        )
+        assertEquals(
+            "https://api.github.com/repos/jxlarrea/kiosk-satellite/releases",
+            ReleaseParser.toGitHubApiUrl("https://github.com/jxlarrea/kiosk-satellite")
+        )
+        // Already-API-form URLs pass through normalized, not double-converted.
+        assertEquals(
+            "https://api.github.com/repos/owner/somerepo/releases",
+            ReleaseParser.toGitHubApiUrl("https://api.github.com/repos/owner/somerepo/releases")
+        )
+    }
+
+    /**
+     * [UPD-TEST-005] — negative case: a non-GitHub, non-.apk URL doesn't get invented into a
+     * GitHub API URL.
+     */
+    @Test
+    fun testToGitHubApiUrlRejectsNonGitHubUrl() {
+        assertNull(ReleaseParser.toGitHubApiUrl("https://releases.example.com/app-1.2.3.apk"))
+        assertNull(ReleaseParser.toGitHubApiUrl("https://gitlab.com/owner/repo"))
+    }
+
+    /**
      * [APP-TEST-009] — ReleaseParser correctly extracts repository owner and name
      * from a GitHub releases API URL.
      */

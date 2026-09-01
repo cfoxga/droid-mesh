@@ -85,6 +85,34 @@ object ReleaseParser {
     }
 
     /**
+     * Plain github.com repo/releases page URLs — what an admin actually copies out of their
+     * browser address bar — matched here so they can be normalized to the api.github.com form
+     * ReleaseParser/GitHubReleaseFetcher actually understand.
+     */
+    private val PLAIN_GITHUB_URL = Regex(
+        "^https?://(www\\.)?github\\.com/([^/]+)/([^/]+?)(\\.git)?(/releases(/.*)?)?/?$",
+        RegexOption.IGNORE_CASE
+    )
+
+    /**
+     * Resolves any accepted GitHub input (a plain github.com repo/releases URL, or an already
+     * api.github.com URL) to the normalized api.github.com releases endpoint (`UPD-BEHAVE-008`).
+     *
+     * @param url the URL as entered by an admin
+     * @return the normalized api.github.com releases URL, or null if [url] is neither an
+     *   api.github.com URL nor a plain github.com repo URL
+     */
+    fun toGitHubApiUrl(url: String): String? {
+        val trimmed = url.trim()
+        if (isGitHubReleaseUrl(trimmed)) return normalizeGitHubUrl(trimmed)
+        val match = PLAIN_GITHUB_URL.find(trimmed) ?: return null
+        val owner = match.groupValues[2]
+        val repo = match.groupValues[3]
+        if (owner.isBlank() || repo.isBlank()) return null
+        return "https://api.github.com/repos/$owner/$repo/releases"
+    }
+
+    /**
      * Extracts version number from a filename using common semver patterns.
      *
      * Handles formats like:

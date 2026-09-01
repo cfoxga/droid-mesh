@@ -55,11 +55,15 @@ class UpdateCoordinator(
             return Result.success(cachedReleases)
         }
 
+        // UPD-BEHAVE-008: accept the plain github.com URL an admin actually copies out of their
+        // browser, not just the api.github.com form.
+        val resolvedUrl = ReleaseParser.toGitHubApiUrl(downloadUrl) ?: downloadUrl
+
         val result = when {
-            ReleaseParser.isGitHubReleaseUrl(downloadUrl) ->
-                githubFetcher.fetchReleases(downloadUrl, count = 10)
-            ReleaseParser.isDirectApkUrl(downloadUrl) -> {
-                val release = ReleaseParser.parseDirectApkUrl(downloadUrl)
+            ReleaseParser.isGitHubReleaseUrl(resolvedUrl) ->
+                githubFetcher.fetchReleases(resolvedUrl, count = 10)
+            ReleaseParser.isDirectApkUrl(resolvedUrl) -> {
+                val release = ReleaseParser.parseDirectApkUrl(resolvedUrl)
                 if (release != null) Result.success(listOf(release))
                 else Result.failure(IllegalArgumentException("Invalid APK URL: $downloadUrl"))
             }

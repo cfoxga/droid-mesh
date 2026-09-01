@@ -1128,7 +1128,9 @@ let state = {
   logs: [],
   initialLoaded: false,
   peerAppsExpanded: {},
-  meshLibraryExpanded: false
+  meshLibraryExpanded: false,
+  releasesByPackage: {},
+  releasesLoadingByPackage: {}
 };
 
 // Helper
@@ -1527,6 +1529,25 @@ async function loadReleases(force = false) {
   }
 }
 
+// Per-App-Library-row release list, scoped by ?package= (API-BEHAVE-014) so multiple Managed
+// apps in the same mesh each show their own Target Version options instead of sharing one
+// global list.
+async function loadReleasesForPackage(packageName, meshId, force = false) {
+  state.releasesLoadingByPackage[packageName] = true;
+  try {
+    const qs = `?package=${encodeURIComponent(packageName)}${force ? '&force=true' : ''}`;
+    const data = await apiCall(`/api/releases${qs}`);
+    state.releasesByPackage[packageName] = Array.isArray(data.releases) ? data.releases : [];
+  } catch (e) {
+    console.warn(`Could not fetch releases for ${packageName}:`, e);
+    state.releasesByPackage[packageName] = state.releasesByPackage[packageName] || [];
+  } finally {
+    state.releasesLoadingByPackage[packageName] = false;
+    const mesh = state.meshes.find(m => m.id === meshId);
+    if (mesh) renderMeshAppLibrary(mesh);
+  }
+}
+
 async function triggerUpdate() {
   const select = document.getElementById('selectRelease');
   const selectedOpt = select.selectedOptions[0];
@@ -1739,15 +1760,23 @@ function renderMeshAppLibrary(currentMesh) {
     const targetVer = app.targetVersion || 'latest';
     const hasDownloadUrl = !!(app.downloadUrl && app.downloadUrl.trim());
 
-    // Releases options for target version selector
+    // Releases options for target version selector — scoped per package (API-BEHAVE-014), not
+    // a single global list, so two Managed apps in the same mesh don't collide on one dropdown.
+    const pkgReleases = state.releasesByPackage[app.packageName];
     let versionOptions = `<option value="latest" ${targetVer === 'latest' ? 'selected' : ''}>Latest</option>`;
-    if (state.releases && state.releases.length > 0) {
-      state.releases.slice(0, 10).forEach(r => {
+    if (pkgReleases && pkgReleases.length > 0) {
+      pkgReleases.slice(0, 10).forEach(r => {
         versionOptions += `<option value="${escapeHtml(r.tagName)}" ${targetVer === r.tagName ? 'selected' : ''}>${escapeHtml(r.tagName)}</option>`;
       });
     } else if (targetVer && targetVer !== 'latest') {
       versionOptions += `<option value="${escapeHtml(targetVer)}" selected>${escapeHtml(targetVer)}</option>`;
     }
+    // Lazily fetch this row's release list once, on first render, rather than eagerly for
+    // every row regardless of whether it's Managed.
+    if (app.managed && hasDownloadUrl && pkgReleases === undefined && !state.releasesLoadingByPackage[app.packageName]) {
+      loadReleasesForPackage(app.packageName, currentMesh.id);
+    }
+    const isLoadingReleases = !!state.releasesLoadingByPackage[app.packageName];
 
     return `
       <tr style="border-bottom: 1px solid rgba(255, 255, 255, 0.04);">
@@ -1778,11 +1807,19 @@ function renderMeshAppLibrary(currentMesh) {
         </td>
         <td style="padding: 10px 12px;">
           ${isSideloaded ? `
-            <select class="field" style="padding: 4px 8px; font-size: 12px; max-width: 160px;"
-              ${!app.managed ? 'disabled style="opacity: 0.4; cursor: not-allowed;"' : ''}
-              onchange="updateLibraryApp('${currentMesh.id}', '${app.packageName}', { targetVersion: this.value })">
-              ${versionOptions}
-            </select>
+            <div style="display: flex; align-items: center; gap: 4px;">
+              <select class="field" style="padding: 4px 8px; font-size: 12px; max-width: 160px;"
+                ${!app.managed ? 'disabled style="opacity: 0.4; cursor: not-allowed;"' : ''}
+                onchange="updateLibraryApp('${currentMesh.id}', '${app.packageName}', { targetVersion: this.value })">
+                ${versionOptions}
+              </select>
+              ${app.managed && hasDownloadUrl ? `
+                <button type="button" title="Refresh versions from ${escapeHtml(app.downloadUrl)}"
+                  style="background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 12px; padding: 2px 4px;"
+                  ${isLoadingReleases ? 'disabled' : ''}
+                  onclick="loadReleasesForPackage('${app.packageName}', '${currentMesh.id}', true)">${isLoadingReleases ? '⟳' : '↻'}</button>
+              ` : ''}
+            </div>
           ` : `<span style="color: var(--text-muted); font-size: 12px;">N/A (Store App)</span>`}
         </td>
         <td style="padding: 10px 12px; text-align: center;">

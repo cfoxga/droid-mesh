@@ -536,7 +536,7 @@ input:checked + .slider:before {
 </head>
 <body>
 
-<!-- Discover Device Modal -->
+<!-- Add Device Modal -->
 <div id="connectModal" class="modal-backdrop hidden">
   <div class="modal-card">
     <div style="text-align: center;">
@@ -545,7 +545,7 @@ input:checked + .slider:before {
           <path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/>
         </svg>
       </div>
-      <h2 style="font-size: 18px; font-weight: 600;">Discover Device</h2>
+      <h2 style="font-size: 18px; font-weight: 600;">Add Device</h2>
       <p style="color: var(--text-secondary); font-size: 13px; margin-top: 4px;">
         Enter the IP address of any device on a different subnet. DroidMesh will exchange mesh information and maintain the connection across power cycles.
       </p>
@@ -558,7 +558,7 @@ input:checked + .slider:before {
       <div id="connectMsg" class="banner hidden"></div>
       <div style="display: flex; gap: 10px; justify-content: flex-end;">
         <button type="button" class="btn btn-secondary" onclick="showConnectModal(false)">Cancel</button>
-        <button type="submit" id="btnConnectSubmit" class="btn btn-primary">Discover Device</button>
+        <button type="submit" id="btnConnectSubmit" class="btn btn-primary">Add Device</button>
       </div>
     </form>
   </div>
@@ -684,12 +684,12 @@ input:checked + .slider:before {
 
       <button class="nav-item" onclick="showCreateMeshModal()" style="color: var(--teal); font-size: 13px; margin-bottom: 8px; border: 1px dashed var(--border-subtle);">
         <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-        + Mesh
+        Add Mesh
       </button>
 
       <button class="nav-item" onclick="showConnectModal(true)" style="color: var(--teal); font-size: 13px; margin-bottom: 14px; border: 1px dashed var(--border-subtle);">
         <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-        Discover Device
+        Add Device
       </button>
 
       <div style="font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--text-muted); padding: 4px 8px 6px 8px; letter-spacing: 0.5px;">
@@ -953,7 +953,7 @@ input:checked + .slider:before {
               <select id="settingMeshSelect" class="field" required onchange="updateMeshSelection()">
                 <option value="unmanaged">Unmanaged</option>
               </select>
-              <span style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">Choose the mesh this device belongs to. Create new meshes with the "+ Mesh" button in the sidebar.</span>
+              <span style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">Choose the mesh this device belongs to. Create new meshes with the "Add Mesh" button in the sidebar.</span>
             </div>
             <div id="meshSettingsMsg" class="banner hidden"></div>
             <button type="submit" class="btn btn-primary" style="align-self: flex-start;">Join Mesh</button>

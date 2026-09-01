@@ -41,24 +41,67 @@ object CpuStatsHelper {
         } catch (e: Exception) { null }
         if (!customName.isNullOrBlank()) return customName
 
-        // Fallback to Android system settings
         val globalName = try {
             Settings.Global.getString(context.contentResolver, "device_name")
         } catch (e: Exception) { null }
-        if (!globalName.isNullOrBlank()) return globalName
 
         val bluetoothName = try {
             Settings.Secure.getString(context.contentResolver, "bluetooth_name")
         } catch (e: Exception) { null }
-        if (!bluetoothName.isNullOrBlank()) return bluetoothName
+
+        return resolveSystemDeviceName(globalName, bluetoothName, Build.MODEL, Build.MANUFACTURER)
+    }
+
+    /**
+     * Resolves the OS-reported device name from the two system settings that can hold it.
+     *
+     * Which field actually carries the user-configured friendly name is manufacturer-dependent:
+     * Meta Portals leave `Settings.Global.device_name` at the raw model string (e.g. "PortalMini")
+     * and store the user's "Portal Name" (set in the Portal app) in `Settings.Secure.bluetooth_name`
+     * instead -- with an OS-appended " Portal" suffix. onn Google TV devices do the opposite: the
+     * user-set name lives in `device_name` and `bluetooth_name` stays at the generic model string.
+     *
+     * Rather than special-case by manufacturer, prefer whichever of the two values *differs* from
+     * `Build.MODEL` -- that's the one the user actually customized. If neither differs (both are
+     * still factory defaults) or both differ, fall back to the historical device_name-first order.
+     */
+    fun resolveSystemDeviceName(
+        globalName: String?,
+        bluetoothName: String?,
+        buildModel: String?,
+        buildManufacturer: String?
+    ): String {
+        val model = buildModel ?: ""
+
+        val globalDiffers = !globalName.isNullOrBlank() && !globalName.equals(model, ignoreCase = true)
+        val bluetoothDiffers = !bluetoothName.isNullOrBlank() && !bluetoothName.equals(model, ignoreCase = true)
+
+        val resolved = when {
+            globalDiffers -> globalName
+            bluetoothDiffers -> bluetoothName
+            !globalName.isNullOrBlank() -> globalName
+            !bluetoothName.isNullOrBlank() -> bluetoothName
+            else -> null
+        }
+        if (resolved != null) return dedupeTrailingWord(resolved)
 
         // Fallback to Build.MODEL and Build.MANUFACTURER
-        val model = Build.MODEL ?: "Portal"
-        val manufacturer = Build.MANUFACTURER ?: ""
-        if (manufacturer.isNotBlank() && model.startsWith(manufacturer, ignoreCase = true)) {
-            return model
+        val fallbackModel = buildModel ?: "Portal"
+        val manufacturer = buildManufacturer ?: ""
+        if (manufacturer.isNotBlank() && fallbackModel.startsWith(manufacturer, ignoreCase = true)) {
+            return fallbackModel
         }
-        return "$manufacturer $model".trim()
+        return "$manufacturer $fallbackModel".trim()
+    }
+
+    /** Collapses a name whose last two words are an exact duplicate, e.g. "Master Bedroom Portal Portal". */
+    private fun dedupeTrailingWord(name: String): String {
+        val trimmed = name.trim()
+        val words = trimmed.split(Regex("\\s+"))
+        if (words.size >= 2 && words[words.size - 1].equals(words[words.size - 2], ignoreCase = true)) {
+            return words.dropLast(1).joinToString(" ")
+        }
+        return trimmed
     }
 
     data class CpuTelemetry(

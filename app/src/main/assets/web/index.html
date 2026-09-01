@@ -884,7 +884,6 @@ input:checked + .slider:before {
             <span id="meshLibraryBadge" class="badge badge-teal" style="font-size: 11px; margin-left: 6px;">Loading...</span>
           </div>
           <div style="display: flex; align-items: center; gap: 8px;">
-            <span style="font-size: 12px; color: var(--text-secondary);">Superset of apps in this mesh partition</span>
             <span id="meshLibraryChevron" style="color: var(--text-muted); font-size: 11px;">▼</span>
           </div>
         </div>
@@ -893,6 +892,7 @@ input:checked + .slider:before {
             <thead>
               <tr style="border-bottom: 1px solid var(--border-subtle); color: var(--text-muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px;">
                 <th style="padding: 10px 12px;">App Name</th>
+                <th style="padding: 10px 12px;">Release Download URL</th>
                 <th style="padding: 10px 12px; text-align: center;">Managed</th>
                 <th style="padding: 10px 12px; text-align: center;">Auto Install</th>
                 <th style="padding: 10px 12px;">Target Version</th>
@@ -901,7 +901,7 @@ input:checked + .slider:before {
             </thead>
             <tbody id="meshLibraryTableBody">
               <tr>
-                <td colspan="5" style="text-align: center; color: var(--text-muted); padding: 24px;">Loading App Library...</td>
+                <td colspan="6" style="text-align: center; color: var(--text-muted); padding: 24px;">Loading App Library...</td>
               </tr>
             </tbody>
           </table>
@@ -1730,13 +1730,14 @@ function renderMeshAppLibrary(currentMesh) {
   }
 
   if (library.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="5" style="text-align: center; color: var(--text-muted); padding: 24px;">No apps detected in this mesh.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: var(--text-muted); padding: 24px;">No apps detected in this mesh.</td></tr>`;
     return;
   }
 
   tbody.innerHTML = library.map(app => {
     const isSideloaded = app.isSideloaded !== false;
     const targetVer = app.targetVersion || 'latest';
+    const hasDownloadUrl = !!(app.downloadUrl && app.downloadUrl.trim());
 
     // Releases options for target version selector
     let versionOptions = `<option value="latest" ${targetVer === 'latest' ? 'selected' : ''}>Latest</option>`;
@@ -1757,9 +1758,16 @@ function renderMeshAppLibrary(currentMesh) {
           </div>
           <div style="font-size: 11px; color: var(--text-muted); font-family: monospace; margin-top: 1px;">${escapeHtml(app.packageName)}</div>
         </td>
+        <td style="padding: 10px 12px;">
+          <input type="text" class="field" style="padding: 4px 8px; font-size: 12px; min-width: 220px;"
+            placeholder="Release download URL (required for Managed)"
+            value="${escapeHtml(app.downloadUrl || '')}"
+            onchange="updateLibraryApp('${currentMesh.id}', '${app.packageName}', { downloadUrl: this.value })">
+        </td>
         <td style="padding: 10px 12px; text-align: center;">
           <input type="checkbox" style="width: 16px; height: 16px; accent-color: var(--teal); cursor: pointer;"
             ${app.managed ? 'checked' : ''}
+            ${!hasDownloadUrl ? 'disabled style="opacity: 0.3; cursor: not-allowed;"' : ''}
             onchange="updateLibraryApp('${currentMesh.id}', '${app.packageName}', { managed: this.checked })">
         </td>
         <td style="padding: 10px 12px; text-align: center;">
@@ -1912,7 +1920,7 @@ function renderMeshPeers(peers, library) {
       <div class="card-header">
         <div class="card-title">
           <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
-          ${escapeHtml(peer.displayName || peer.deviceModel)} ${peer.isSelf ? '<span class="badge badge-teal">This Device</span>' : ''} ${peer.isCrossVlan ? '<span class="badge badge-gray" style="font-size:10px;">VLAN</span>' : ''}
+          ${escapeHtml(peer.displayName || peer.deviceModel)} ${peer.isCrossVlan ? '<span class="badge badge-gray" style="font-size:10px;">VLAN</span>' : ''}
         </div>
         <span class="badge ${badgeClass}">${stateText}</span>
       </div>

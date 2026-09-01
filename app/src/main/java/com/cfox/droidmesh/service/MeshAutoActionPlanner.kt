@@ -21,10 +21,13 @@ object MeshAutoActionPlanner {
         installedPackages: Set<String>,
         isExcluded: (String) -> Boolean
     ): Plan {
+        // FLT-BEHAVE-005 / APP-BEHAVE-006: manageability is URL-driven. `isSideloaded` is
+        // descriptive origin metadata (a package-prefix guess in AppVersionHelper), never a gate —
+        // gating installs on it silently dropped any admin-configured entry outside that prefix
+        // list while the UI still offered it an enabled Auto Install checkbox.
         val installs = library.values.filter { cfg ->
             cfg.managed &&
                 cfg.autoInstall &&
-                cfg.isSideloaded &&
                 cfg.downloadUrl.isNotBlank() &&
                 cfg.packageName !in installedPackages &&
                 !isExcluded(cfg.packageName)

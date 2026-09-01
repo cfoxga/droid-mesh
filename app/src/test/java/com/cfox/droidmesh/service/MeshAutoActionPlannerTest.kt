@@ -54,10 +54,22 @@ class MeshAutoActionPlannerTest {
         assertTrue(plan.installs.isEmpty())
     }
 
-    // FLT-TEST-003 (negative): isSideloaded=false excludes from installs
+    // FLT-TEST-005: isSideloaded is descriptive origin metadata, NOT a manageability gate
+    // (APP-BEHAVE-006). A store-origin entry that an admin has given a downloadUrl and marked
+    // managed + autoInstall IS an install candidate. Before this, the planner silently dropped
+    // it while the UI still rendered an enabled Auto Install checkbox for it.
     @Test
-    fun testInstallExcludedWhenNotSideloaded() {
+    fun testInstallIncludedWhenNotSideloadedButHasDownloadUrl() {
         val library = mapOf("com.example.app" to cfg("com.example.app", autoInstall = true, isSideloaded = false))
+        val plan = MeshAutoActionPlanner.plan(library, installedPackages = emptySet(), isExcluded = notExcluded)
+        assertEquals(listOf("com.example.app"), plan.installs.map { it.packageName })
+    }
+
+    // FLT-TEST-005 (negative): origin alone never promotes an entry — a sideloaded-origin entry
+    // with a blank downloadUrl is still excluded, proving downloadUrl is the real gate.
+    @Test
+    fun testInstallExcludedWhenSideloadedButDownloadUrlBlank() {
+        val library = mapOf("com.example.app" to cfg("com.example.app", autoInstall = true, isSideloaded = true, downloadUrl = ""))
         val plan = MeshAutoActionPlanner.plan(library, installedPackages = emptySet(), isExcluded = notExcluded)
         assertTrue(plan.installs.isEmpty())
     }

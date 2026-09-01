@@ -727,7 +727,7 @@ input:checked + .slider:before {
       <div style="font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--text-muted); padding: 4px 8px 6px 8px; letter-spacing: 0.5px;">
         Fleet Meshes
       </div>
-      <div id="sidebarMeshList" class="nav-list" style="flex-grow: 0; margin-bottom: 8px;">
+      <div id="sidebarMeshList" class="nav-list" style="flex-grow: 0; margin-bottom: 14px;">
         <!-- Populated dynamically -->
         <button class="nav-item active" onclick="switchTab('mesh')">
           <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/></svg>
@@ -735,15 +735,6 @@ input:checked + .slider:before {
         </button>
       </div>
 
-      <button class="nav-item" onclick="showCreateMeshModal()" style="color: var(--teal); font-size: 13px; margin-bottom: 8px; border: 1px dashed var(--border-subtle);">
-        <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-        Add Mesh
-      </button>
-
-      <button class="nav-item" onclick="showConnectModal(true)" style="color: var(--teal); font-size: 13px; margin-bottom: 14px; border: 1px dashed var(--border-subtle);">
-        <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-        Add Device
-      </button>
 
       <nav class="nav-list">
         <button id="nav-item-global-settings" class="nav-item" onclick="switchTab('global-settings')">
@@ -949,7 +940,7 @@ input:checked + .slider:before {
         <form class="settings-row" onsubmit="handleSaveMeshIdentity(event)">
           <div class="settings-row-info">
             <span class="settings-row-label">Mesh Partition</span>
-            <span class="settings-row-help">Create new meshes with the "Add Mesh" button in the sidebar or in Global Settings.</span>
+            <span class="settings-row-help">Create new meshes under Global Settings → Mesh Partitions.</span>
           </div>
           <div class="settings-row-value">
             <select id="settingMeshSelect" class="field" style="width: 160px;" required onchange="updateMeshSelection()">
@@ -1118,19 +1109,22 @@ input:checked + .slider:before {
         </div>
       </div>
 
-      <!-- App Library for Selected Mesh (Collapsible, default collapsed) -->
-      <div class="card" style="margin-bottom: 20px;">
-        <div class="card-header" onclick="toggleMeshLibrary()" style="cursor: pointer; user-select: none;">
+      <!-- App Library for the selected mesh, split by manageability (UI-BEHAVE-009).
+           Managed Apps carry the full control set; Unmanaged Apps are read-only inventory whose
+           only action is supplying a release URL, which promotes the entry into the card above.
+           The split is on downloadUrl (APP-BEHAVE-006), not the sideloaded/store origin guess. -->
+      <div class="card" style="margin-bottom: 12px;">
+        <div class="card-header" onclick="toggleMeshLibrary('managed')" style="cursor: pointer; user-select: none;">
           <div class="card-title">
             <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
-            App Library
-            <span id="meshLibraryBadge" class="badge badge-teal" style="font-size: 11px; margin-left: 6px;">Loading...</span>
+            Managed Apps
+            <span id="meshManagedLibraryBadge" class="badge badge-teal" style="font-size: 11px; margin-left: 6px;">Loading...</span>
           </div>
           <div style="display: flex; align-items: center; gap: 8px;">
-            <span id="meshLibraryChevron" style="color: var(--text-muted); font-size: 11px;">▼</span>
+            <span id="meshManagedLibraryChevron" style="color: var(--text-muted); font-size: 11px;">&#9660;</span>
           </div>
         </div>
-        <div id="meshLibraryBody" style="display: none; overflow-x: auto;">
+        <div id="meshManagedLibraryBody" style="display: none; overflow-x: auto;">
           <table style="width: 100%; border-collapse: collapse; text-align: left; font-size: 13px;">
             <thead>
               <tr style="border-bottom: 1px solid var(--border-subtle); color: var(--text-muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px;">
@@ -1142,9 +1136,43 @@ input:checked + .slider:before {
                 <th style="padding: 10px 12px; text-align: center;">Auto Update</th>
               </tr>
             </thead>
-            <tbody id="meshLibraryTableBody">
+            <tbody id="meshManagedLibraryTableBody">
               <tr>
-                <td colspan="6" style="text-align: center; color: var(--text-muted); padding: 24px;">Loading App Library...</td>
+                <td colspan="6" style="text-align: center; color: var(--text-muted); padding: 24px;">Loading Managed Apps...</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card" style="margin-bottom: 20px;">
+        <div class="card-header" onclick="toggleMeshLibrary('unmanaged')" style="cursor: pointer; user-select: none;">
+          <div class="card-title">
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
+            Unmanaged Apps
+            <span id="meshUnmanagedLibraryBadge" class="badge badge-gray" style="font-size: 11px; margin-left: 6px;">Loading...</span>
+          </div>
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <span id="meshUnmanagedLibraryChevron" style="color: var(--text-muted); font-size: 11px;">&#9660;</span>
+          </div>
+        </div>
+        <div id="meshUnmanagedLibraryBody" style="display: none; overflow-x: auto;">
+          <p style="color: var(--text-secondary); font-size: 13px; padding: 10px 12px 0 12px; margin: 0;">
+            Apps present on this mesh with no release source configured. DroidMesh tracks them but never
+            installs or updates them. Paste a release URL to move one into Managed Apps.
+          </p>
+          <table style="width: 100%; border-collapse: collapse; text-align: left; font-size: 13px;">
+            <thead>
+              <tr style="border-bottom: 1px solid var(--border-subtle); color: var(--text-muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px;">
+                <th style="padding: 10px 12px;">App Name</th>
+                <th style="padding: 10px 12px; text-align: center;">Origin</th>
+                <th style="padding: 10px 12px; text-align: center;">Installed On</th>
+                <th style="padding: 10px 12px;">Release Download URL</th>
+              </tr>
+            </thead>
+            <tbody id="meshUnmanagedLibraryTableBody">
+              <tr>
+                <td colspan="4" style="text-align: center; color: var(--text-muted); padding: 24px;">Loading Unmanaged Apps...</td>
               </tr>
             </tbody>
           </table>
@@ -1181,7 +1209,8 @@ let state = {
   logs: [],
   initialLoaded: false,
   peerAppsExpanded: {},
-  meshLibraryExpanded: false,
+  meshManagedLibraryExpanded: false,
+  meshUnmanagedLibraryExpanded: false,
   releasesByPackage: {},
   releasesLoadingByPackage: {}
 };
@@ -1784,45 +1813,79 @@ function isExcludedApp(pkg) {
   return !pkg || pkg === 'com.cfox.droidmesh';
 }
 
-function toggleMeshLibrary() {
-  state.meshLibraryExpanded = !state.meshLibraryExpanded;
-  const body = document.getElementById('meshLibraryBody');
-  const chevron = document.getElementById('meshLibraryChevron');
-  if (body) body.style.display = state.meshLibraryExpanded ? 'block' : 'none';
-  if (chevron) chevron.textContent = state.meshLibraryExpanded ? '▲' : '▼';
+// UI-BEHAVE-009: 'managed' | 'unmanaged' — each card keeps its own expand state so opening
+// one does not collapse the other.
+function toggleMeshLibrary(which) {
+  const key = which === 'unmanaged' ? 'meshUnmanagedLibraryExpanded' : 'meshManagedLibraryExpanded';
+  state[key] = !state[key];
+  applyLibraryCardVisibility(which);
 }
 
+function applyLibraryCardVisibility(which) {
+  const isUnmanaged = which === 'unmanaged';
+  const expanded = isUnmanaged ? state.meshUnmanagedLibraryExpanded : state.meshManagedLibraryExpanded;
+  const prefix = isUnmanaged ? 'meshUnmanagedLibrary' : 'meshManagedLibrary';
+  const body = document.getElementById(prefix + 'Body');
+  const chevron = document.getElementById(prefix + 'Chevron');
+  if (body) body.style.display = expanded ? 'block' : 'none';
+  if (chevron) chevron.textContent = expanded ? '▲' : '▼';
+}
+
+// UI-BEHAVE-009: the App Library renders as two cards. The dividing line is whether an entry
+// has a release source (downloadUrl), not its sideloaded/store origin — see APP-BEHAVE-006.
 function renderMeshAppLibrary(currentMesh) {
-  const tbody = document.getElementById('meshLibraryTableBody');
-  const countBadge = document.getElementById('meshLibraryBadge');
-  const body = document.getElementById('meshLibraryBody');
-  const chevron = document.getElementById('meshLibraryChevron');
-  if (body) body.style.display = state.meshLibraryExpanded ? 'block' : 'none';
-  if (chevron) chevron.textContent = state.meshLibraryExpanded ? '▲' : '▼';
+  applyLibraryCardVisibility('managed');
+  applyLibraryCardVisibility('unmanaged');
+
+  const entries = (currentMesh.app_library || []).filter(app => !isExcludedApp(app.packageName));
+  const withSource = entries.filter(hasReleaseSource).sort(compareLibraryEntries);
+  const withoutSource = entries.filter(app => !hasReleaseSource(app)).sort(compareLibraryEntries);
+
+  renderManagedLibraryRows(currentMesh, withSource);
+  renderUnmanagedLibraryRows(currentMesh, withoutSource);
+}
+
+function hasReleaseSource(app) {
+  return !!(app && app.downloadUrl && app.downloadUrl.trim());
+}
+
+// Sideloaded-origin entries first, then alphabetical within each group (APP-BEHAVE-005).
+function compareLibraryEntries(a, b) {
+  const aSide = a.isSideloaded !== false ? 1 : 0;
+  const bSide = b.isSideloaded !== false ? 1 : 0;
+  if (aSide !== bSide) return bSide - aSide;
+  return (a.appName || a.packageName || '').localeCompare(b.appName || b.packageName || '', undefined, { sensitivity: 'base' });
+}
+
+function originBadge(app) {
+  return app.isSideloaded !== false
+    ? '<span class="badge badge-teal" style="font-size: 10px; padding: 1px 6px;">Sideloaded</span>'
+    : '<span class="badge badge-gray" style="font-size: 10px; padding: 1px 6px;">Store App</span>';
+}
+
+function libraryAppNameCell(app) {
+  return `
+    <div style="display: flex; align-items: center; gap: 8px;">
+      <span style="font-weight: 500; color: var(--text-primary); font-size: 13px;">${escapeHtml(app.appName || app.packageName)}</span>
+      ${originBadge(app)}
+    </div>
+    <div style="font-size: 11px; color: var(--text-muted); font-family: monospace; margin-top: 1px;">${escapeHtml(app.packageName)}</div>
+  `;
+}
+
+function renderManagedLibraryRows(currentMesh, library) {
+  const tbody = document.getElementById('meshManagedLibraryTableBody');
+  const countBadge = document.getElementById('meshManagedLibraryBadge');
+  if (countBadge) countBadge.textContent = `${library.length} App${library.length === 1 ? '' : 's'}`;
   if (!tbody) return;
 
-  const library = (currentMesh.app_library || [])
-    .filter(app => !isExcludedApp(app.packageName))
-    .sort((a, b) => {
-      const aSide = a.isSideloaded !== false ? 1 : 0;
-      const bSide = b.isSideloaded !== false ? 1 : 0;
-      if (aSide !== bSide) return bSide - aSide;
-      return (a.appName || a.packageName || '').localeCompare(b.appName || b.packageName || '', undefined, { sensitivity: 'base' });
-    });
-
-  if (countBadge) {
-    countBadge.textContent = `${library.length} App${library.length === 1 ? '' : 's'}`;
-  }
-
   if (library.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: var(--text-muted); padding: 24px;">No apps detected in this mesh.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: var(--text-muted); padding: 24px;">No apps have a release source yet. Add a Release Download URL under Unmanaged Apps to manage one.</td></tr>`;
     return;
   }
 
   tbody.innerHTML = library.map(app => {
-    const isSideloaded = app.isSideloaded !== false;
     const targetVer = app.targetVersion || 'latest';
-    const hasDownloadUrl = !!(app.downloadUrl && app.downloadUrl.trim());
 
     // Releases options for target version selector — scoped per package (API-BEHAVE-014), not
     // a single global list, so two Managed apps in the same mesh don't collide on one dropdown.
@@ -1837,30 +1900,24 @@ function renderMeshAppLibrary(currentMesh) {
     }
     // Lazily fetch this row's release list once, on first render, rather than eagerly for
     // every row regardless of whether it's Managed.
-    if (app.managed && hasDownloadUrl && pkgReleases === undefined && !state.releasesLoadingByPackage[app.packageName]) {
+    if (app.managed && pkgReleases === undefined && !state.releasesLoadingByPackage[app.packageName]) {
       loadReleasesForPackage(app.packageName, currentMesh.id);
     }
     const isLoadingReleases = !!state.releasesLoadingByPackage[app.packageName];
 
     return `
       <tr style="border-bottom: 1px solid rgba(255, 255, 255, 0.04);">
-        <td style="padding: 10px 12px;">
-          <div style="display: flex; align-items: center; gap: 8px;">
-            <span style="font-weight: 500; color: var(--text-primary); font-size: 13px;">${escapeHtml(app.appName)}</span>
-            ${isSideloaded ? '<span class="badge badge-teal" style="font-size: 10px; padding: 1px 6px;">Sideloaded</span>' : '<span class="badge badge-gray" style="font-size: 10px; padding: 1px 6px;">Store App</span>'}
-          </div>
-          <div style="font-size: 11px; color: var(--text-muted); font-family: monospace; margin-top: 1px;">${escapeHtml(app.packageName)}</div>
-        </td>
+        <td style="padding: 10px 12px;">${libraryAppNameCell(app)}</td>
         <td style="padding: 10px 12px;">
           <input type="text" class="field" style="padding: 4px 8px; font-size: 12px; min-width: 220px;"
             placeholder="Release download URL (required for Managed)"
             value="${escapeHtml(app.downloadUrl || '')}"
             onchange="updateLibraryApp('${currentMesh.id}', '${app.packageName}', { downloadUrl: this.value })">
+          <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">Clearing this returns the app to Unmanaged.</div>
         </td>
         <td style="padding: 10px 12px; text-align: center;">
           <input type="checkbox" style="width: 16px; height: 16px; accent-color: var(--teal); cursor: pointer;"
             ${app.managed ? 'checked' : ''}
-            ${!hasDownloadUrl ? 'disabled style="opacity: 0.3; cursor: not-allowed;"' : ''}
             onchange="updateLibraryApp('${currentMesh.id}', '${app.packageName}', { managed: this.checked })">
         </td>
         <td style="padding: 10px 12px; text-align: center;">
@@ -1870,33 +1927,81 @@ function renderMeshAppLibrary(currentMesh) {
             onchange="updateLibraryApp('${currentMesh.id}', '${app.packageName}', { autoInstall: this.checked })">
         </td>
         <td style="padding: 10px 12px;">
-          ${isSideloaded ? `
-            <div style="display: flex; align-items: center; gap: 4px;">
-              <select class="field" style="padding: 4px 8px; font-size: 12px; max-width: 160px;"
-                ${!app.managed ? 'disabled style="opacity: 0.4; cursor: not-allowed;"' : ''}
-                onchange="updateLibraryApp('${currentMesh.id}', '${app.packageName}', { targetVersion: this.value })">
-                ${versionOptions}
-              </select>
-              ${app.managed && hasDownloadUrl ? `
-                <button type="button" title="Refresh versions from ${escapeHtml(app.downloadUrl)}"
-                  style="background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 12px; padding: 2px 4px;"
-                  ${isLoadingReleases ? 'disabled' : ''}
-                  onclick="loadReleasesForPackage('${app.packageName}', '${currentMesh.id}', true)">${isLoadingReleases ? '⟳' : '↻'}</button>
-              ` : ''}
-            </div>
-          ` : `<span style="color: var(--text-muted); font-size: 12px;">N/A (Store App)</span>`}
+          <div style="display: flex; align-items: center; gap: 4px;">
+            <select class="field" style="padding: 4px 8px; font-size: 12px; max-width: 160px;"
+              ${!app.managed ? 'disabled style="opacity: 0.4; cursor: not-allowed;"' : ''}
+              onchange="updateLibraryApp('${currentMesh.id}', '${app.packageName}', { targetVersion: this.value })">
+              ${versionOptions}
+            </select>
+            ${app.managed ? `
+              <button type="button" title="Refresh versions from ${escapeHtml(app.downloadUrl)}"
+                style="background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 12px; padding: 2px 4px;"
+                ${isLoadingReleases ? 'disabled' : ''}
+                onclick="loadReleasesForPackage('${app.packageName}', '${currentMesh.id}', true)">${isLoadingReleases ? '⟳' : '↻'}</button>
+            ` : ''}
+          </div>
         </td>
         <td style="padding: 10px 12px; text-align: center;">
-          ${isSideloaded ? `
-            <input type="checkbox" style="width: 16px; height: 16px; accent-color: var(--teal); cursor: pointer;"
-              ${app.autoUpdate ? 'checked' : ''}
-              ${!app.managed ? 'disabled style="opacity: 0.3; cursor: not-allowed;"' : ''}
-              onchange="updateLibraryApp('${currentMesh.id}', '${app.packageName}', { autoUpdate: this.checked })">
-          ` : `<span style="color: var(--text-muted); font-size: 12px;">--</span>`}
+          <input type="checkbox" style="width: 16px; height: 16px; accent-color: var(--teal); cursor: pointer;"
+            ${app.autoUpdate ? 'checked' : ''}
+            ${!app.managed ? 'disabled style="opacity: 0.3; cursor: not-allowed;"' : ''}
+            onchange="updateLibraryApp('${currentMesh.id}', '${app.packageName}', { autoUpdate: this.checked })">
         </td>
       </tr>
     `;
   }).join('');
+}
+
+function renderUnmanagedLibraryRows(currentMesh, library) {
+  const tbody = document.getElementById('meshUnmanagedLibraryTableBody');
+  const countBadge = document.getElementById('meshUnmanagedLibraryBadge');
+  if (countBadge) countBadge.textContent = `${library.length} App${library.length === 1 ? '' : 's'}`;
+  if (!tbody) return;
+
+  if (library.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="4" style="text-align: center; color: var(--text-muted); padding: 24px;">Every app in this mesh has a release source.</td></tr>`;
+    return;
+  }
+
+  const meshPeers = currentMesh.peers
+    || state.peers.filter(p => (p.meshId || p.mesh_id || 'unmanaged') === currentMesh.id);
+
+  tbody.innerHTML = library.map(app => {
+    const holders = meshPeers.filter(peer =>
+      (peer.installedApps || []).some(a => a.packageName === app.packageName));
+    const versions = [...new Set(holders.map(peer =>
+      (peer.installedApps || []).find(a => a.packageName === app.packageName)?.versionName).filter(Boolean))];
+    const versionText = versions.length === 1 ? `v${versions[0]}` : (versions.length > 1 ? 'mixed versions' : '');
+
+    return `
+      <tr style="border-bottom: 1px solid rgba(255, 255, 255, 0.04);">
+        <td style="padding: 10px 12px;">${libraryAppNameCell(app)}</td>
+        <td style="padding: 10px 12px; text-align: center; color: var(--text-muted); font-size: 12px;">
+          ${app.isSideloaded !== false ? 'Sideloaded' : 'App Store'}
+        </td>
+        <td style="padding: 10px 12px; text-align: center; color: var(--text-secondary); font-size: 12px;">
+          ${holders.length} node${holders.length === 1 ? '' : 's'}
+          ${versionText ? `<div style="font-size: 11px; color: var(--text-muted);">${escapeHtml(versionText)}</div>` : ''}
+        </td>
+        <td style="padding: 10px 12px;">
+          <input type="text" class="field" style="padding: 4px 8px; font-size: 12px; min-width: 220px;"
+            placeholder="Paste a release URL to manage this app"
+            value=""
+            onchange="promoteLibraryApp('${currentMesh.id}', '${app.packageName}', this.value)">
+        </td>
+      </tr>
+    `;
+  }).join('');
+}
+
+// Giving an entry a release source is what makes it manageable (APP-BEHAVE-006), so supplying a
+// URL here moves the row into Managed Apps and marks it managed in one write. A blank/whitespace
+// value is a no-op rather than a write that SET-BEHAVE-005 would coerce straight back.
+async function promoteLibraryApp(meshId, packageName, url) {
+  const trimmed = (url || '').trim();
+  if (!trimmed) return;
+  state.meshManagedLibraryExpanded = true;
+  await updateLibraryApp(meshId, packageName, { downloadUrl: trimmed, managed: true });
 }
 
 async function updateLibraryApp(meshId, packageName, patch) {
@@ -1950,7 +2055,7 @@ function renderMeshPeers(peers, library) {
     // Calculate out of date apps and missing auto-install apps
     const outOfDateApps = managedApps.filter(app => {
       const cfg = libraryMap[app.packageName];
-      return cfg && cfg.isSideloaded && cfg.targetVersion && isVersionMismatch(app.versionName, cfg.targetVersion);
+      return cfg && cfg.targetVersion && isVersionMismatch(app.versionName, cfg.targetVersion);
     });
 
     const installedPkgSet = new Set(rawApps.map(a => a.packageName));
@@ -1964,16 +2069,17 @@ function renderMeshPeers(peers, library) {
     } else {
       // Sort: sideloaded first, then store apps; alpha within each group
       const sortedApps = [...managedApps].sort((a, b) => {
-        const aSide = libraryMap[a.packageName]?.isSideloaded ? 1 : 0;
-        const bSide = libraryMap[b.packageName]?.isSideloaded ? 1 : 0;
+        const aSide = libraryMap[a.packageName]?.isSideloaded !== false ? 1 : 0;
+        const bSide = libraryMap[b.packageName]?.isSideloaded !== false ? 1 : 0;
         if (bSide !== aSide) return bSide - aSide;
         return (a.appName || a.packageName || '').localeCompare(b.appName || b.packageName || '', undefined, { sensitivity: 'base' });
       });
 
       const installedRows = sortedApps.map(app => {
         const cfg = libraryMap[app.packageName];
-        const isSideloaded = cfg ? cfg.isSideloaded : false;
-        const needsUpdate = cfg && cfg.isSideloaded && cfg.targetVersion && isVersionMismatch(app.versionName, cfg.targetVersion);
+        // APP-BEHAVE-006: version tracking follows the release source, not the origin guess.
+        const isTracked = hasReleaseSource(cfg);
+        const needsUpdate = cfg && cfg.targetVersion && isVersionMismatch(app.versionName, cfg.targetVersion);
 
         return `
           <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; padding: 4px 0; border-bottom: 1px solid rgba(255,255,255,0.03);">
@@ -1982,7 +2088,7 @@ function renderMeshPeers(peers, library) {
               <span style="font-size: 11px; color: var(--text-muted); font-family: monospace;">${escapeHtml(app.packageName)}</span>
             </div>
             <div style="display: flex; align-items: center; gap: 6px;">
-              ${isSideloaded ? `
+              ${isTracked ? `
                 <span class="badge ${needsUpdate ? 'badge-rust' : 'badge-teal'}" style="font-size: 11px; padding: 2px 6px;">
                   ${app.versionName ? `v${escapeHtml(app.versionName)}` : (app.versionCode ? `build ${escapeHtml(String(app.versionCode))}` : 'Installed')}
                 </span>
@@ -2005,7 +2111,7 @@ function renderMeshPeers(peers, library) {
           </div>
           <div style="display: flex; align-items: center; gap: 6px;">
             <span class="badge badge-rust" style="font-size: 11px; padding: 2px 6px;">Not Installed</span>
-            ${app.isSideloaded ? `
+            ${hasReleaseSource(app) ? `
               <button class="btn btn-primary btn-sm" style="font-size: 11px; padding: 2px 8px;" onclick="triggerAppUpdate('${peer.ip}', ${peer.port}, '${app.packageName}', '${app.targetVersion}')">
                 Install
               </button>

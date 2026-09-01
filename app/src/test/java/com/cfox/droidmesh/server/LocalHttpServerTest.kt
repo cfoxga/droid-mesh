@@ -800,4 +800,59 @@ class LocalHttpServerTest {
         assertTrue("Must have globalDmVersion", html.contains("id=\"globalDmVersion\""))
         assertTrue("Must have globalConfigVersion", html.contains("id=\"globalConfigVersion\""))
     }
+
+    // [PROGRAMMATIC] UI-TEST-007: the sidebar no longer carries inline "Add Mesh" / "Add Device"
+    // actions — both live in Global Settings (UI-BEHAVE-008). Counting launcher call sites rather
+    // than button labels: "Add Device" also appears as the modal's own title and submit label, so a
+    // label-absence assertion would be unfalsifiable. Exactly one call site each = the Global
+    // Settings card button, and none in the sidebar.
+    @Test
+    fun testSidebarHasNoInlineAddMeshOrAddDeviceActions() {
+        val assetFile = java.io.File("src/main/assets/web/index.html")
+        assertTrue("index.html asset must exist", assetFile.exists())
+        val html = assetFile.readText()
+        assertEquals(
+            "showCreateMeshModal() must be launched from exactly one place (Global Settings)",
+            1,
+            Regex(Regex.escape("onclick=\"showCreateMeshModal()\"")).findAll(html).count()
+        )
+        assertEquals(
+            "showConnectModal(true) must be launched from exactly one place (Global Settings)",
+            1,
+            Regex(Regex.escape("onclick=\"showConnectModal(true)\"")).findAll(html).count()
+        )
+        assertFalse(
+            "Sidebar must not reference an \"Add Mesh\" button in help text",
+            html.contains("\"Add Mesh\" button in the sidebar")
+        )
+    }
+
+    // [PROGRAMMATIC] UI-TEST-008: the App Library renders as two separate cards — Managed Apps
+    // (full control set) and Unmanaged Apps (inventory + promote-by-URL) — not one mixed table.
+    @Test
+    fun testAppLibrarySplitIntoManagedAndUnmanagedCards() {
+        val assetFile = java.io.File("src/main/assets/web/index.html")
+        assertTrue("index.html asset must exist", assetFile.exists())
+        val html = assetFile.readText()
+        for (id in listOf(
+            "meshManagedLibraryBody",
+            "meshManagedLibraryBadge",
+            "meshManagedLibraryTableBody",
+            "meshManagedLibraryChevron",
+            "meshUnmanagedLibraryBody",
+            "meshUnmanagedLibraryBadge",
+            "meshUnmanagedLibraryTableBody",
+            "meshUnmanagedLibraryChevron"
+        )) {
+            assertTrue("Must have id=\"$id\"", html.contains("id=\"$id\""))
+        }
+        assertFalse(
+            "Old single-table App Library body must be gone",
+            html.contains("id=\"meshLibraryTableBody\"")
+        )
+        assertFalse(
+            "Store-app rows must no longer render a dead \"N/A (Store App)\" target-version cell",
+            html.contains("N/A (Store App)")
+        )
+    }
 }

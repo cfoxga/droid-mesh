@@ -3,7 +3,9 @@ package com.cfox.droidmesh.server
 import android.content.Context
 import com.cfox.droidmesh.api.GitHubReleaseFetcher
 import com.cfox.droidmesh.api.ReleaseInfo
+import com.cfox.droidmesh.api.ReleaseCache
 import com.cfox.droidmesh.api.ReleaseParser
+import com.cfox.droidmesh.api.ReleaseSelector
 import com.cfox.droidmesh.api.UpdateStatus
 import com.cfox.droidmesh.api.VersionComparison
 import com.cfox.droidmesh.downloader.ApkDownloader
@@ -44,22 +46,22 @@ class UpdateCoordinator(
     )
     val statusFlow: StateFlow<UpdateStatus> = _statusFlow.asStateFlow()
 
-    private var cachedReleases: List<ReleaseInfo> = emptyList()
-    private var cachedDownloadUrl: String = ""
+    private val releaseCache = ReleaseCache()
 
+    /**
+     * Resolves the release list for [downloadUrl], served from [releaseCache] when a fetch is not
+     * warranted (`UPD-BEHAVE-009`) and falling back to the last known-good list when the upstream
+     * fetch fails (`UPD-BEHAVE-010`).
+     */
     suspend fun fetchAvailableReleases(
         downloadUrl: String,
         forceRefresh: Boolean = false
-    ): Result<List<ReleaseInfo>> {
-        if (!forceRefresh && cachedReleases.isNotEmpty() && cachedDownloadUrl == downloadUrl) {
-            return Result.success(cachedReleases)
-        }
-
+    ): Result<List<ReleaseInfo>> = releaseCache.resolve(downloadUrl, forceRefresh) {
         // UPD-BEHAVE-008: accept the plain github.com URL an admin actually copies out of their
         // browser, not just the api.github.com form.
         val resolvedUrl = ReleaseParser.toGitHubApiUrl(downloadUrl) ?: downloadUrl
 
-        val result = when {
+        when {
             ReleaseParser.isGitHubReleaseUrl(resolvedUrl) ->
                 githubFetcher.fetchReleases(resolvedUrl, count = 10)
             ReleaseParser.isDirectApkUrl(resolvedUrl) -> {
@@ -70,19 +72,36 @@ class UpdateCoordinator(
             else ->
                 Result.failure(IllegalArgumentException("Unsupported download URL format: $downloadUrl"))
         }
-
-        if (result.isSuccess) {
-            cachedReleases = result.getOrThrow()
-            cachedDownloadUrl = downloadUrl
-        }
-        return result
     }
 
-    fun getCachedReleases(): List<ReleaseInfo> = cachedReleases
+    /** Last successfully fetched releases for [downloadUrl] — no network, never fails. */
+    suspend fun getCachedReleases(downloadUrl: String): List<ReleaseInfo> = releaseCache.peek(downloadUrl)
 
-    suspend fun checkVersion(packageName: String, downloadUrl: String): Result<VersionComparison> {
+    /**
+     * Resolves [downloadUrl] to the release matching [targetVersion] (`UPD-BEHAVE-012`), or the
+     * newest release when [targetVersion] is `latest`/blank.
+     */
+    suspend fun resolveTargetRelease(
+        downloadUrl: String,
+        targetVersion: String?
+    ): Result<ReleaseInfo> = fetchAvailableReleases(downloadUrl).mapCatching { releases ->
+        ReleaseSelector.selectRelease(releases, targetVersion)
+            ?: throw IllegalStateException(
+                "No release matching target version '${targetVersion?.trim().orEmpty()}' at $downloadUrl"
+            )
+    }
+
+    /**
+     * `forceRefresh` defaults to false so advisory pollers ride the cache (`UPD-BEHAVE-011`) —
+     * this used to force unconditionally, which is what exhausted GitHub's hourly limit.
+     */
+    suspend fun checkVersion(
+        packageName: String,
+        downloadUrl: String,
+        forceRefresh: Boolean = false
+    ): Result<VersionComparison> {
         val installed = AppVersionHelper.getInstalledVersion(context, packageName)
-        val releaseResult = fetchAvailableReleases(downloadUrl, forceRefresh = true)
+        val releaseResult = fetchAvailableReleases(downloadUrl, forceRefresh = forceRefresh)
 
         return releaseResult.map { releases ->
             val latest = releases.first()
@@ -132,7 +151,9 @@ class UpdateCoordinator(
         _statusFlow.value = UpdateStatus(state = "CHECKING", message = "Checking for updates...")
         Logger.i("Starting update sequence for $packageName from $downloadUrl (force=$force)")
 
-        val versionCheck = checkVersion(packageName, downloadUrl)
+        // Explicit, user-initiated update: pay for fresh data. A 403 here still falls back to
+        // the cached list via ReleaseCache, so forcing cannot make this fail closed.
+        val versionCheck = checkVersion(packageName, downloadUrl, forceRefresh = true)
         if (versionCheck.isFailure) {
             val err = versionCheck.exceptionOrNull()?.message ?: "Failed to check version"
             _statusFlow.value = UpdateStatus(state = "ERROR", message = err, error = err)

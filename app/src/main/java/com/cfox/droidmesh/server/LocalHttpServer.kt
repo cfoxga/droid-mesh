@@ -534,7 +534,22 @@ class LocalHttpServer(
         }
 
         val releasesResult = runBlocking { coordinator.fetchAvailableReleases(downloadUrl, forceRefresh = force) }
+        // Reuses whatever the fetch above just cached (UPD-BEHAVE-011) instead of firing a second
+        // upstream request per /check, which is what doubled this endpoint's rate-limit cost.
         val checkResult = runBlocking { coordinator.checkVersion(packageName, downloadUrl) }
+
+        fun releasesJson(list: List<com.cfox.droidmesh.api.ReleaseInfo>) = JSONArray().apply {
+            for (rel in list) {
+                put(JSONObject().apply {
+                    put("name", rel.name)
+                    put("tagName", rel.tagName)
+                    put("publishedAt", rel.publishedAt)
+                    put("apkAssetUrl", rel.apkAssetUrl)
+                    put("apkFileName", rel.apkFileName)
+                    put("apkSize", rel.apkSize)
+                })
+            }
+        }
 
         if (checkResult.isSuccess) {
             val comp = checkResult.getOrThrow()
@@ -554,29 +569,26 @@ class LocalHttpServer(
                     put("apkSize", comp.releaseInfo.apkSize)
                 })
 
-                val relArr = JSONArray()
-                if (releasesResult.isSuccess) {
-                    for (rel in releasesResult.getOrThrow()) {
-                        relArr.put(JSONObject().apply {
-                            put("name", rel.name)
-                            put("tagName", rel.tagName)
-                            put("publishedAt", rel.publishedAt)
-                            put("apkAssetUrl", rel.apkAssetUrl)
-                            put("apkFileName", rel.apkFileName)
-                            put("apkSize", rel.apkSize)
-                        })
-                    }
-                }
-                put("releases", relArr)
+                put("releases", releasesJson(releasesResult.getOrElse { emptyList() }))
             }
             return jsonResponse(Response.Status.OK, json)
         } else {
+            // The version comparison failed, but the release list may still have resolved (or be
+            // cached from an earlier fetch). Return it rather than a bare 500 with no releases —
+            // otherwise the Web UI's Target Version selector collapses to just "latest"
+            // (UPD-BEHAVE-010).
             val err = checkResult.exceptionOrNull()?.message ?: "Check failed"
+            val fallback = releasesResult.getOrElse { runBlocking { coordinator.getCachedReleases(downloadUrl) } }
             val json = JSONObject().apply {
-                put("status", "error")
+                put("status", if (fallback.isEmpty()) "error" else "partial")
                 put("message", err)
+                put("targetPackage", packageName)
+                put("releases", releasesJson(fallback))
             }
-            return jsonResponse(Response.Status.INTERNAL_ERROR, json)
+            return jsonResponse(
+                if (fallback.isEmpty()) Response.Status.INTERNAL_ERROR else Response.Status.OK,
+                json
+            )
         }
     }
 

@@ -219,11 +219,23 @@ class UpdaterForegroundService : Service() {
                         if (!isActive) break
                         val pkg = cfg.packageName
                         val downloadUrl = cfg.downloadUrl.trim()
-                        Logger.i("Mesh auto-install: $pkg (${cfg.appName}) is missing — downloading from $downloadUrl")
+                        Logger.i("Mesh auto-install: $pkg (${cfg.appName}) is missing — resolving release from $downloadUrl")
                         try {
-                            val fileName = "$pkg-${cfg.targetVersion.trim().ifBlank { "latest" }}.apk"
+                            // UPD-BEHAVE-012: downloadUrl is a *releases page*, not an APK. Resolve
+                            // it to the concrete asset for the pinned targetVersion first — feeding
+                            // the raw URL to the downloader saved the HTML page as a .apk and
+                            // dispatched that to the package installer.
+                            val releaseResult = updateCoordinator?.resolveTargetRelease(downloadUrl, cfg.targetVersion)
+                                ?: Result.failure(IllegalStateException("Update coordinator unavailable"))
+                            if (releaseResult.isFailure) {
+                                Logger.w("Mesh auto-install: could not resolve a release for $pkg: ${releaseResult.exceptionOrNull()?.message}")
+                                continue
+                            }
+                            val release = releaseResult.getOrThrow()
+                            val fileName = release.apkFileName.ifBlank { "$pkg-${release.tagName}.apk" }
+                            Logger.i("Mesh auto-install: $pkg resolved to ${release.tagName} (${release.apkAssetUrl})")
                             val downloader = com.cfox.droidmesh.downloader.ApkDownloader(applicationContext)
-                            val apkResult = downloader.downloadApk(downloadUrl, fileName)
+                            val apkResult = downloader.downloadApk(release.apkAssetUrl, fileName)
                             if (apkResult.isSuccess) {
                                 val apkFile = apkResult.getOrThrow()
                                 com.cfox.droidmesh.service.AutoInstallService.pendingInstallPackage = pkg
@@ -248,6 +260,8 @@ class UpdaterForegroundService : Service() {
                             if (comparison?.isUpdateAvailable == true) {
                                 Logger.i("Mesh auto-update: $pkg (${cfg.appName}) has an update available — starting")
                                 updateCoordinator?.startUpdateAsync(pkg, downloadUrl, force = false)
+                            } else if (checkResult?.isFailure == true) {
+                                Logger.w("Mesh auto-update: version check failed for $pkg: ${checkResult.exceptionOrNull()?.message}")
                             }
                         } catch (e: Exception) {
                             Logger.e("Mesh auto-update error for $pkg", e)

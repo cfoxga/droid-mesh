@@ -18,6 +18,7 @@ import org.mockito.kotlin.eq
 import org.mockito.kotlin.mock
 import org.mockito.kotlin.verify
 import org.mockito.kotlin.whenever
+import kotlinx.coroutines.runBlocking
 import java.io.ByteArrayInputStream
 
 class LocalHttpServerTest {
@@ -103,8 +104,11 @@ class LocalHttpServerTest {
             // so stub deterministic failures rather than leaving these suspend calls unstubbed.
             onBlocking { it.fetchAvailableReleases(any(), any()) } doReturn
                 Result.failure(IllegalStateException("stubbed: no network in test"))
-            onBlocking { it.checkVersion(any(), any()) } doReturn
+            onBlocking { it.checkVersion(any(), any(), any()) } doReturn
                 Result.failure(IllegalStateException("stubbed: no network in test"))
+            // Non-null return type: an unstubbed suspend mock hands back null and trips Kotlin's
+            // null-check intrinsic, so stub the real class's "nothing cached yet" answer.
+            onBlocking { it.getCachedReleases(any()) } doReturn emptyList()
         }
 
         // Dedicated coordinator for self-update, mirroring the production wiring in
@@ -116,7 +120,7 @@ class LocalHttpServerTest {
                     com.cfox.droidmesh.api.UpdateStatus(state = "IDLE", message = "Ready")
                 )
             )
-            onBlocking { it.checkVersion(any(), any()) } doReturn
+            onBlocking { it.checkVersion(any(), any(), any()) } doReturn
                 Result.failure(IllegalStateException("stubbed: no network in test"))
         }
 
@@ -494,6 +498,71 @@ class LocalHttpServerTest {
         assertEquals(NanoHTTPD.Response.Status.BAD_REQUEST, response.status)
         val json = JSONObject(response.data?.readBytes()?.toString(Charsets.UTF_8) ?: "")
         assertTrue(json.getString("message").contains("com.example.nodownload"))
+    }
+
+    // [PROGRAMMATIC] API-TEST-029: /check must still hand back the release list when only the
+    // version *comparison* failed. Regression: the old handler returned a bare 500 with no
+    // `releases` key in that case, so the Web UI's Target Version selector fell back to a lone
+    // "latest" option (UPD-BEHAVE-010).
+    @Test
+    fun testCheckReturnsReleasesWhenOnlyVersionComparisonFails() = runBlocking {
+        SettingsStore.setMeshAppConfig(
+            mockContext, "unmanaged",
+            SettingsStore.MeshAppConfig(
+                packageName = "com.example.partial",
+                appName = "Partial",
+                managed = true,
+                downloadUrl = "https://github.com/owner/partial/releases"
+            )
+        )
+        whenever(mockCoordinator.fetchAvailableReleases(any(), any())).thenReturn(
+            Result.success(
+                listOf(
+                    com.cfox.droidmesh.api.ReleaseInfo(
+                        tagName = "v2.0.0", name = "v2.0.0", publishedAt = "",
+                        apkAssetUrl = "https://example.com/app-2.0.0.apk",
+                        apkFileName = "app-2.0.0.apk", apkSize = 10L
+                    ),
+                    com.cfox.droidmesh.api.ReleaseInfo(
+                        tagName = "v1.0.0", name = "v1.0.0", publishedAt = "",
+                        apkAssetUrl = "https://example.com/app-1.0.0.apk",
+                        apkFileName = "app-1.0.0.apk", apkSize = 10L
+                    )
+                )
+            )
+        )
+        // checkVersion stays stubbed as a failure by setUp().
+
+        val response = server.serve(mockSession("/api/check?package=com.example.partial"))
+        val json = JSONObject(response.data?.readBytes()?.toString(Charsets.UTF_8) ?: "")
+
+        assertEquals(NanoHTTPD.Response.Status.OK, response.status)
+        assertEquals("partial", json.getString("status"))
+        val tags = (0 until json.getJSONArray("releases").length())
+            .map { json.getJSONArray("releases").getJSONObject(it).getString("tagName") }
+        assertEquals(listOf("v2.0.0", "v1.0.0"), tags)
+    }
+
+    // [PROGRAMMATIC] API-TEST-029 (negative): when the release fetch fails too and nothing is
+    // cached, /check must still fail loudly rather than pretend success with an empty list.
+    @Test
+    fun testCheckStillReturns500WhenNoReleasesAvailableAtAll() {
+        SettingsStore.setMeshAppConfig(
+            mockContext, "unmanaged",
+            SettingsStore.MeshAppConfig(
+                packageName = "com.example.nothing",
+                appName = "Nothing",
+                managed = true,
+                downloadUrl = "https://github.com/owner/nothing/releases"
+            )
+        )
+        // Both fetchAvailableReleases and checkVersion stay stubbed as failures by setUp().
+        val response = server.serve(mockSession("/api/check?package=com.example.nothing"))
+        val json = JSONObject(response.data?.readBytes()?.toString(Charsets.UTF_8) ?: "")
+
+        assertEquals(NanoHTTPD.Response.Status.INTERNAL_ERROR, response.status)
+        assertEquals("error", json.getString("status"))
+        assertEquals(0, json.getJSONArray("releases").length())
     }
 
     // [PROGRAMMATIC] API-TEST-024: two App Library entries simultaneously managed=true, each

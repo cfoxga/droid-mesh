@@ -10,44 +10,64 @@ import org.json.JSONObject
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 
-class GitHubReleaseApi(
-    private val repoOwner: String = "jxlarrea",
-    private val repoName: String = "kiosk-satellite",
+/**
+ * Generic GitHub releases fetcher.
+ *
+ * Given a GitHub releases API URL like:
+ * "https://api.github.com/repos/jxlarrea/kiosk-satellite/releases"
+ *
+ * Fetches and parses releases without any app-specific hardcoding.
+ */
+class GitHubReleaseFetcher(
     private val client: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(20, TimeUnit.SECONDS)
         .build()
 ) {
 
-    suspend fun fetchLatestRelease(): Result<ReleaseInfo> = withContext(Dispatchers.IO) {
-        val releasesResult = fetchReleases(count = 1)
-        releasesResult.mapCatching { releases ->
-            releases.firstOrNull() ?: throw IllegalStateException("No releases found on GitHub")
+    suspend fun fetchLatestRelease(githubReleasesUrl: String): Result<ReleaseInfo> =
+        withContext(Dispatchers.IO) {
+            val releasesResult = fetchReleases(githubReleasesUrl, count = 1)
+            releasesResult.mapCatching { releases ->
+                releases.firstOrNull() ?: throw IllegalStateException("No releases found")
+            }
         }
-    }
 
-    suspend fun fetchReleases(count: Int = 10): Result<List<ReleaseInfo>> = withContext(Dispatchers.IO) {
-        // Request up to max(count * 2, 15) to account for draft/pre-releases without APKs
+    suspend fun fetchReleases(
+        githubReleasesUrl: String,
+        count: Int = 10
+    ): Result<List<ReleaseInfo>> = withContext(Dispatchers.IO) {
+        if (!ReleaseParser.isGitHubReleaseUrl(githubReleasesUrl)) {
+            return@withContext Result.failure(
+                IllegalArgumentException("Not a GitHub releases URL: $githubReleasesUrl")
+            )
+        }
+
+        val url = ReleaseParser.normalizeGitHubUrl(githubReleasesUrl)
         val queryLimit = maxOf(count * 2, 15)
-        val url = "https://api.github.com/repos/$repoOwner/$repoName/releases?per_page=$queryLimit"
-        Logger.i("Fetching releases list from $url")
+        val queryUrl = "$url?per_page=$queryLimit"
+
+        Logger.i("Fetching releases from $queryUrl")
 
         val request = Request.Builder()
-            .url(url)
+            .url(queryUrl)
             .header("Accept", "application/vnd.github+json")
-            .header("User-Agent", "KioskSatelliteUpdater-Android")
+            .header("User-Agent", "DroidMesh-Android")
             .build()
 
-        try {
+        return@withContext try {
             client.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) {
                     val code = response.code
                     val errBody = response.body?.string() ?: "Empty body"
                     Logger.e("GitHub API error HTTP $code: $errBody")
-                    return@withContext Result.failure(IOException("GitHub API responded with code $code: $errBody"))
+                    return@withContext Result.failure(
+                        IOException("GitHub API responded with code $code")
+                    )
                 }
 
-                val bodyString = response.body?.string() ?: throw IOException("Empty response body from GitHub")
+                val bodyString = response.body?.string()
+                    ?: throw IOException("Empty response body from GitHub")
                 val jsonArray = JSONArray(bodyString)
                 val releases = mutableListOf<ReleaseInfo>()
 
@@ -57,6 +77,7 @@ class GitHubReleaseApi(
                     val name = json.optString("name", tagName).trim()
                     val publishedAt = json.optString("published_at", "")
                     val isDraft = json.optBoolean("draft", false)
+
                     if (isDraft || tagName.isEmpty()) continue
 
                     val assets = json.optJSONArray("assets") ?: continue
@@ -95,8 +116,10 @@ class GitHubReleaseApi(
                 }
 
                 if (releases.isEmpty()) {
-                    Logger.w("No valid releases with APK assets found on GitHub")
-                    return@withContext Result.failure(IllegalStateException("No releases with APK assets found"))
+                    Logger.w("No valid releases with APK assets found")
+                    return@withContext Result.failure(
+                        IllegalStateException("No releases with APK assets found")
+                    )
                 }
 
                 Logger.i("Successfully retrieved ${releases.size} releases (latest: ${releases.first().tagName})")

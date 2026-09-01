@@ -1,8 +1,9 @@
 package com.cfox.droidmesh.server
 
 import android.content.Context
-import com.cfox.droidmesh.api.GitHubReleaseApi
+import com.cfox.droidmesh.api.GitHubReleaseFetcher
 import com.cfox.droidmesh.api.ReleaseInfo
+import com.cfox.droidmesh.api.ReleaseParser
 import com.cfox.droidmesh.api.UpdateStatus
 import com.cfox.droidmesh.api.VersionComparison
 import com.cfox.droidmesh.downloader.ApkDownloader
@@ -19,11 +20,24 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 
+/**
+ * Coordinates update checking and installation for any app with a release source URL.
+ *
+ * Supports:
+ * - GitHub releases API endpoints: https://api.github.com/repos/owner/repo/releases
+ * - Direct APK download URLs: https://example.com/app-1.2.3.apk
+ *
+ * No app-specific hardcoding; passes downloadUrl as a parameter.
+ */
 class UpdateCoordinator(
     private val context: Context,
-    private val releaseApi: GitHubReleaseApi = GitHubReleaseApi(),
+    private val githubFetcher: GitHubReleaseFetcher = GitHubReleaseFetcher(),
     private val downloader: ApkDownloader = ApkDownloader(context)
 ) {
+    companion object {
+        // Default GitHub releases endpoint for Kiosk Satellite
+        const val DEFAULT_KIOSK_SATELLITE_RELEASES_URL = "https://api.github.com/repos/jxlarrea/kiosk-satellite/releases"
+    }
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val updateMutex = Mutex()
 
@@ -33,23 +47,40 @@ class UpdateCoordinator(
     val statusFlow: StateFlow<UpdateStatus> = _statusFlow.asStateFlow()
 
     private var cachedReleases: List<ReleaseInfo> = emptyList()
+    private var cachedDownloadUrl: String = ""
 
-    suspend fun fetchAvailableReleases(forceRefresh: Boolean = false): Result<List<ReleaseInfo>> {
-        if (!forceRefresh && cachedReleases.isNotEmpty()) {
+    suspend fun fetchAvailableReleases(
+        downloadUrl: String = DEFAULT_KIOSK_SATELLITE_RELEASES_URL,
+        forceRefresh: Boolean = false
+    ): Result<List<ReleaseInfo>> {
+        if (!forceRefresh && cachedReleases.isNotEmpty() && cachedDownloadUrl == downloadUrl) {
             return Result.success(cachedReleases)
         }
-        val result = releaseApi.fetchReleases(count = 10)
+
+        val result = when {
+            ReleaseParser.isGitHubReleaseUrl(downloadUrl) ->
+                githubFetcher.fetchReleases(downloadUrl, count = 10)
+            ReleaseParser.isDirectApkUrl(downloadUrl) -> {
+                val release = ReleaseParser.parseDirectApkUrl(downloadUrl)
+                if (release != null) Result.success(listOf(release))
+                else Result.failure(IllegalArgumentException("Invalid APK URL: $downloadUrl"))
+            }
+            else ->
+                Result.failure(IllegalArgumentException("Unsupported download URL format: $downloadUrl"))
+        }
+
         if (result.isSuccess) {
             cachedReleases = result.getOrThrow()
+            cachedDownloadUrl = downloadUrl
         }
         return result
     }
 
     fun getCachedReleases(): List<ReleaseInfo> = cachedReleases
 
-    suspend fun checkVersion(): Result<VersionComparison> {
+    suspend fun checkVersion(downloadUrl: String = DEFAULT_KIOSK_SATELLITE_RELEASES_URL): Result<VersionComparison> {
         val installed = AppVersionHelper.getInstalledVersion(context)
-        val releaseResult = fetchAvailableReleases(forceRefresh = true)
+        val releaseResult = fetchAvailableReleases(downloadUrl, forceRefresh = true)
 
         return releaseResult.map { releases ->
             val latest = releases.first()
@@ -67,9 +98,13 @@ class UpdateCoordinator(
         }
     }
 
-    fun startUpdateAsync(force: Boolean = false, onComplete: (Result<ReleaseInfo>) -> Unit = {}) {
+    fun startUpdateAsync(
+        downloadUrl: String = DEFAULT_KIOSK_SATELLITE_RELEASES_URL,
+        force: Boolean = false,
+        onComplete: (Result<ReleaseInfo>) -> Unit = {}
+    ) {
         scope.launch {
-            val result = executeUpdateSequence(force)
+            val result = executeUpdateSequence(downloadUrl, force)
             onComplete(result)
         }
     }
@@ -81,11 +116,14 @@ class UpdateCoordinator(
         }
     }
 
-    suspend fun executeUpdateSequence(force: Boolean = false): Result<ReleaseInfo> {
-        _statusFlow.value = UpdateStatus(state = "CHECKING", message = "Querying latest release from GitHub...")
-        Logger.i("Starting update sequence (force=$force)")
+    suspend fun executeUpdateSequence(
+        downloadUrl: String = DEFAULT_KIOSK_SATELLITE_RELEASES_URL,
+        force: Boolean = false
+    ): Result<ReleaseInfo> {
+        _statusFlow.value = UpdateStatus(state = "CHECKING", message = "Checking for updates...")
+        Logger.i("Starting update sequence for $downloadUrl (force=$force)")
 
-        val versionCheck = checkVersion()
+        val versionCheck = checkVersion(downloadUrl)
         if (versionCheck.isFailure) {
             val err = versionCheck.exceptionOrNull()?.message ?: "Failed to check version"
             _statusFlow.value = UpdateStatus(state = "ERROR", message = err, error = err)
@@ -128,7 +166,7 @@ class UpdateCoordinator(
 
             val downloadResult = downloader.downloadApk(
                 downloadUrl = release.apkAssetUrl,
-                targetFileName = "kiosk-satellite-${release.tagName}.apk"
+                targetFileName = release.apkFileName
             ) { progress ->
                 _statusFlow.value = UpdateStatus(
                     state = "DOWNLOADING",

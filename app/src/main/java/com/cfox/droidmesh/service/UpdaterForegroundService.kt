@@ -168,7 +168,7 @@ class UpdaterForegroundService : Service() {
         when (action) {
             ACTION_TRIGGER_UPDATE -> {
                 val force = intent?.getBooleanExtra("force", false) ?: false
-                updateCoordinator?.startUpdateAsync(force)
+                updateCoordinator?.startUpdateAsync(force = force)
             }
             ACTION_STOP -> {
                 stopSelf()

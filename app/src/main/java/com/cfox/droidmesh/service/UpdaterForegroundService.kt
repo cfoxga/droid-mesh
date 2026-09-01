@@ -38,10 +38,6 @@ class UpdaterForegroundService : Service() {
         const val ACTION_STOP = "com.cfox.droidmesh.action.STOP"
         const val ACTION_TRIGGER_UPDATE = "com.cfox.droidmesh.action.TRIGGER_UPDATE"
 
-        // How often the auto-update loop re-checks GitHub while enabled.
-        // Not user-configurable; only the on/off toggle is exposed.
-        const val AUTO_UPDATE_INTERVAL_MS = 6 * 60 * 60 * 1000L
-
         // How often the mesh app auto-install loop checks for missing managed apps.
         const val AUTO_INSTALL_CHECK_MS = 60 * 60 * 1000L // 1 hour
 
@@ -74,7 +70,6 @@ class UpdaterForegroundService : Service() {
     private var updateCoordinator: UpdateCoordinator? = null
     private var meshDiscoveryManager: MeshDiscoveryManager? = null
     private var wakeLock: PowerManager.WakeLock? = null
-    private var autoUpdateJob: Job? = null
     private var meshAutoInstallJob: Job? = null
 
     override fun onCreate() {
@@ -105,14 +100,11 @@ class UpdaterForegroundService : Service() {
 
     private val configChangeListener = SettingsStore.OnConfigChangeListener { result ->
         serviceScope.launch(Dispatchers.Main) {
-            Logger.i("Config change received in UpdaterForegroundService: portChanged=${result.portChanged}, webServerToggled=${result.webServerToggled}, autoUpdateToggled=${result.autoUpdateToggled}")
+            Logger.i("Config change received in UpdaterForegroundService: portChanged=${result.portChanged}, webServerToggled=${result.webServerToggled}")
             if (result.portChanged || result.webServerToggled) {
                 manageHttpServer()
                 val currentPort = SettingsStore.getWebServerPort(applicationContext)
                 updateNotification("Listening on port $currentPort")
-            }
-            if (result.autoUpdateToggled) {
-                manageAutoUpdateLoop()
             }
         }
     }
@@ -162,7 +154,6 @@ class UpdaterForegroundService : Service() {
         isRunning = true
 
         manageHttpServer()
-        manageAutoUpdateLoop()
         manageAutoInstallLoop()
 
         when (action) {
@@ -176,30 +167,6 @@ class UpdaterForegroundService : Service() {
         }
 
         return START_STICKY
-    }
-
-    /**
-     * Starts (or stops) the periodic auto-update loop to match the current
-     * SettingsStore value. Idempotent: safe to call from every
-     * onStartCommand without spawning duplicate loops.
-     */
-    private fun manageAutoUpdateLoop() {
-        val enabled = SettingsStore.isAutoUpdateEnabled(applicationContext)
-        if (enabled) {
-            if (autoUpdateJob?.isActive == true) return
-            Logger.i("Auto-update enabled — starting periodic check every ${AUTO_UPDATE_INTERVAL_MS / 3_600_000}h")
-            autoUpdateJob = serviceScope.launch {
-                while (isActive) {
-                    Logger.i("Auto-update: checking for a Kiosk Satellite update")
-                    updateCoordinator?.startUpdateAsync(force = false)
-                    delay(AUTO_UPDATE_INTERVAL_MS)
-                }
-            }
-        } else {
-            if (autoUpdateJob != null) Logger.i("Auto-update disabled — stopping periodic check")
-            autoUpdateJob?.cancel()
-            autoUpdateJob = null
-        }
     }
 
     /**

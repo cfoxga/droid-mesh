@@ -152,7 +152,6 @@ class LocalHttpServer(
                 uri == "/api/mesh/update" && method == Method.POST -> handleMeshUpdate(session)
                 uri == "/api/mesh/delete" && method == Method.POST -> handleMeshDelete(session)
                 uri == "/api/peers/update" && method == Method.POST -> handlePeerUpdate(session)
-                uri == "/api/peers/update-all" && method == Method.POST -> handlePeerUpdateAll(session)
                 uri == "/api/peers/adb/toggle" && method == Method.POST -> handlePeerAdbToggle(session)
 
                 // Runtime Logs
@@ -370,7 +369,6 @@ class LocalHttpServer(
             put("installedApps", appsArray)
 
             put("accessibilityServiceActive", AutoInstallService.isServiceRunning)
-            put("autoUpdateEnabled", SettingsStore.isAutoUpdateEnabled(context))
             put("webServerEnabled", SettingsStore.isWebServerEnabled(context))
             put("webServerPort", SettingsStore.getWebServerPort(context))
             put("adbEnabled", AdbHelper.isAdbEnabled(context))
@@ -393,7 +391,6 @@ class LocalHttpServer(
 
         val json = JSONObject().apply {
             put("status", "ok")
-            put("autoUpdateEnabled", SettingsStore.isAutoUpdateEnabled(context))
             put("webServerEnabled", SettingsStore.isWebServerEnabled(context))
             put("webServerPort", SettingsStore.getWebServerPort(context))
             put("hasPassword", SettingsStore.isPasswordSet(context))
@@ -418,12 +415,6 @@ class LocalHttpServer(
 
         val body = parseJsonBody(session)
         var settingsChanged = false
-        if (body.has("autoUpdateEnabled")) {
-            val enabled = body.getBoolean("autoUpdateEnabled")
-            SettingsStore.setAutoUpdateEnabled(context, enabled)
-            Logger.i("Auto-update toggled via HTTP API: $enabled")
-            settingsChanged = true
-        }
         if (body.has("webServerEnabled")) {
             val enabled = body.getBoolean("webServerEnabled")
             SettingsStore.setWebServerEnabled(context, enabled)
@@ -732,7 +723,6 @@ class LocalHttpServer(
             put("new_version", result.newVersion)
             put("port_changed", result.portChanged)
             put("web_server_toggled", result.webServerToggled)
-            put("auto_update_toggled", result.autoUpdateToggled)
             put("password_changed", result.passwordChanged)
             put("seeds_changed", result.seedsChanged)
             put("config_version", SettingsStore.getConfigVersion(context))
@@ -1000,51 +990,6 @@ class LocalHttpServer(
         val json = JSONObject().apply {
             put("status", "accepted")
             put("message", "Dispatched update sequence to peer $ip:$port")
-        }
-        return jsonResponse(Response.Status.ACCEPTED, json)
-    }
-
-    private fun handlePeerUpdateAll(session: IHTTPSession): Response {
-        if (!isAuthorized(session)) {
-            return jsonResponse(Response.Status.UNAUTHORIZED, JSONObject().apply {
-                put("status", "error")
-                put("error", "Unauthorized")
-            })
-        }
-
-        val body = parseJsonBody(session)
-        val tag = body.optString("tag", "")
-        val url = body.optString("url", "")
-
-        // 1. Trigger local
-        coordinator.startUpdateAsync(force = true)
-
-        // 2. Trigger remotes
-        val peers = meshManager?.peersFlow?.value ?: emptyList()
-        val remotes = peers.filter { !it.isSelf && it.isOnline }
-
-        scope.launch {
-            for (peer in remotes) {
-                try {
-                    val queryParams = mutableListOf("force=true")
-                    if (tag.isNotBlank()) queryParams.add("tag=${URLEncoder.encode(tag, "UTF-8")}")
-                    if (url.isNotBlank()) queryParams.add("url=${URLEncoder.encode(url, "UTF-8")}")
-                    val updateUrl = "http://${peer.ip}:${peer.port}/update?${queryParams.joinToString("&")}"
-
-                    val req = Request.Builder()
-                        .url(updateUrl)
-                        .post(ByteArray(0).toRequestBody(null, 0, 0))
-                        .build()
-                    httpClient.newCall(req).execute().close()
-                } catch (e: Exception) {
-                    Logger.e("Failed to dispatch update to peer ${peer.ip}", e)
-                }
-            }
-        }
-
-        val json = JSONObject().apply {
-            put("status", "accepted")
-            put("message", "Dispatched update command to local unit and ${remotes.size} online remote peers")
         }
         return jsonResponse(Response.Status.ACCEPTED, json)
     }

@@ -18,7 +18,6 @@ import javax.crypto.spec.SecretKeySpec
 object SettingsStore {
     private const val PREFS_NAME = "kiosk_satellite_updater_settings"
     private const val KEY_CONFIG_VERSION = "config_version"
-    private const val KEY_AUTO_UPDATE_ENABLED = "auto_update_enabled"
     private const val KEY_WEB_SERVER_ENABLED = "web_server_enabled"
     private const val KEY_WEB_SERVER_PORT = "web_server_port"
     private const val KEY_WEB_PASSWORD_HASH = "web_password_hash"
@@ -30,9 +29,9 @@ object SettingsStore {
     private const val KEY_CUSTOM_DEVICE_NAME = "custom_device_name"
     private const val KEY_KNOWN_MESHES = "known_meshes"
     private const val KEY_DELETED_MESHES = "deleted_meshes"
+    private const val KEY_DELETED_CONNECTIONS = "deleted_connections"
     private const val KEY_MESH_APP_LIBRARIES = "mesh_app_libraries"
 
-    private const val DEFAULT_AUTO_UPDATE_ENABLED = true
     private const val DEFAULT_WEB_SERVER_ENABLED = true
     private const val DEFAULT_WEB_SERVER_PORT = 2325
 
@@ -83,7 +82,6 @@ object SettingsStore {
         val newVersion: Long,
         val portChanged: Boolean = false,
         val webServerToggled: Boolean = false,
-        val autoUpdateToggled: Boolean = false,
         val passwordChanged: Boolean = false,
         val seedsChanged: Boolean = false,
         val libraryChanged: Boolean = false,
@@ -320,6 +318,35 @@ object SettingsStore {
         return true
     }
 
+    /** [MESH-BEHAVE-011/012] A record that persistent connection [connection] was removed at [deletedAt] (epoch ms). */
+    data class ConnectionTombstone(val connection: String, val deletedAt: Long)
+
+    fun getDeletedConnections(context: Context): List<ConnectionTombstone> {
+        val json = prefs(context).getString(KEY_DELETED_CONNECTIONS, null) ?: return emptyList()
+        return try {
+            val arr = JSONArray(json)
+            (0 until arr.length()).mapNotNull { i ->
+                val obj = arr.optJSONObject(i)
+                val conn = obj?.optString("connection") ?: ""
+                if (conn.isNotEmpty()) ConnectionTombstone(conn, obj.optLong("deletedAt", 0L)) else null
+            }
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
+    fun setDeletedConnections(context: Context, tombstones: List<ConnectionTombstone>) {
+        val json = JSONArray().apply {
+            tombstones.forEach { t ->
+                put(JSONObject().apply {
+                    put("connection", t.connection)
+                    put("deletedAt", t.deletedAt)
+                })
+            }
+        }
+        prefs(context).edit().putString(KEY_DELETED_CONNECTIONS, json.toString()).apply()
+    }
+
     fun getPersistentConnections(context: Context): Set<String> {
         val connections = prefs(context).getStringSet(KEY_PERSISTENT_CONNECTIONS, emptySet()) ?: emptySet()
         return connections.toSet()
@@ -351,17 +378,42 @@ object SettingsStore {
         if (added) {
             setPersistentConnections(context, current)
         }
+
+        // [MESH-BEHAVE-012] Explicit add always wins over a stale local tombstone, mirroring
+        // addKnownMesh -- otherwise a re-add would be immediately re-deleted by the next merge.
+        val tombstones = getDeletedConnections(context)
+        if (tombstones.any { it.connection == cleanConnection }) {
+            setDeletedConnections(context, tombstones.filterNot { it.connection == cleanConnection })
+        }
         return added
     }
 
+    /**
+     * [MESH-BEHAVE-012] Removes a persistent connection, recording a tombstone so the removal
+     * propagates across the fleet via config sync instead of being silently resurrected by the
+     * union merge in [importConfigJson].
+     */
     fun removePersistentConnection(context: Context, connection: String): Boolean {
         val cleanConnection = connection.trim()
-        val current = getPersistentConnections(context).toMutableSet()
-        val removed = current.remove(cleanConnection)
-        if (removed) {
-            setPersistentConnections(context, current)
-        }
-        return removed
+        val current = getPersistentConnections(context)
+        if (!current.contains(cleanConnection)) return false
+
+        val oldVer = getConfigVersion(context)
+        prefs(context).edit().putStringSet(KEY_PERSISTENT_CONNECTIONS, current - cleanConnection).apply()
+
+        val ver = updateConfigVersion(context)
+        val tombstones = getDeletedConnections(context).filterNot { it.connection == cleanConnection }
+        setDeletedConnections(context, tombstones + ConnectionTombstone(cleanConnection, ver))
+
+        notifyListeners(
+            ConfigImportResult(
+                applied = true,
+                oldVersion = oldVer,
+                newVersion = ver,
+                seedsChanged = true
+            )
+        )
+        return true
     }
 
     // Backward compatibility: map old cross_vlan_seeds to persistent_connections
@@ -376,27 +428,6 @@ object SettingsStore {
 
     @Deprecated("Use removePersistentConnection")
     fun removeCrossVlanSeed(context: Context, seed: String): Boolean = removePersistentConnection(context, seed)
-
-    fun isAutoUpdateEnabled(context: Context): Boolean =
-        prefs(context).getBoolean(KEY_AUTO_UPDATE_ENABLED, DEFAULT_AUTO_UPDATE_ENABLED)
-
-    fun setAutoUpdateEnabled(context: Context, enabled: Boolean) {
-        val prev = isAutoUpdateEnabled(context)
-        if (prev == enabled) return
-        val ver = maxOf(System.currentTimeMillis(), getConfigVersion(context) + 1L)
-        val editor = prefs(context).edit()
-        editor.putBoolean(KEY_AUTO_UPDATE_ENABLED, enabled)
-        editor.putLong(KEY_CONFIG_VERSION, ver)
-        editor.apply()
-        notifyListeners(
-            ConfigImportResult(
-                applied = true,
-                oldVersion = ver - 1,
-                newVersion = ver,
-                autoUpdateToggled = true
-            )
-        )
-    }
 
     fun isPasswordSet(context: Context): Boolean =
         !prefs(context).getString(KEY_WEB_PASSWORD_HASH, null).isNullOrBlank()
@@ -586,12 +617,21 @@ object SettingsStore {
         put("web_password_salt", salt ?: JSONObject.NULL)
         put("web_password_hash", hash ?: JSONObject.NULL)
         put("auth_secret", secret ?: JSONObject.NULL)
-        put("auto_update_enabled", isAutoUpdateEnabled(context))
         val connectionsArr = JSONArray()
         getPersistentConnections(context).forEach { connectionsArr.put(it) }
         put("persistent_connections", connectionsArr)
         // For backward compatibility, also include under old key
         put("cross_vlan_seeds", connectionsArr)
+        // [MESH-BEHAVE-012] Tombstones so persistent-connection removal propagates instead of
+        // being resurrected by the union merge, mirroring deleted_meshes below.
+        val deletedConnectionsArr = JSONArray()
+        getDeletedConnections(context).forEach { t ->
+            deletedConnectionsArr.put(JSONObject().apply {
+                put("connection", t.connection)
+                put("deletedAt", t.deletedAt)
+            })
+        }
+        put("deleted_connections", deletedConnectionsArr)
         put("mesh_app_libraries", getAllMeshAppLibraries(context))
         // Include known mesh templates
         val meshesArr = JSONArray()
@@ -632,7 +672,6 @@ object SettingsStore {
         val editor = prefs(context).edit()
         var portChanged = false
         var webServerToggled = false
-        var autoUpdateToggled = false
         var passwordChanged = false
         var seedsChanged = false
         var libraryChanged = false
@@ -651,14 +690,6 @@ object SettingsStore {
             if (port in 1024..65535 && getWebServerPort(context) != port) {
                 editor.putInt(KEY_WEB_SERVER_PORT, port)
                 portChanged = true
-            }
-        }
-
-        if (json.has("auto_update_enabled")) {
-            val autoUpdate = json.getBoolean("auto_update_enabled")
-            if (isAutoUpdateEnabled(context) != autoUpdate) {
-                editor.putBoolean(KEY_AUTO_UPDATE_ENABLED, autoUpdate)
-                autoUpdateToggled = true
             }
         }
 
@@ -685,20 +716,59 @@ object SettingsStore {
             }
         }
 
-        // Synchronize persistent connections (handles both old "cross_vlan_seeds" and new "persistent_connections" keys)
+        // [MESH-BEHAVE-012] Synchronize persistent-connection deletion tombstones first: union of
+        // local + incoming, keeping the max deletedAt per connection. Mirrors deleted_meshes below
+        // -- this is what makes a removal durable across the union merge instead of looking
+        // identical to "peer hasn't heard about this connection yet".
+        val incomingConnectionTombstones = mutableListOf<ConnectionTombstone>()
+        val connectionTombstonesArr = json.optJSONArray("deleted_connections")
+        if (connectionTombstonesArr != null) {
+            for (i in 0 until connectionTombstonesArr.length()) {
+                val obj = connectionTombstonesArr.optJSONObject(i) ?: continue
+                val conn = obj.optString("connection")
+                if (conn.isNotEmpty()) incomingConnectionTombstones.add(ConnectionTombstone(conn, obj.optLong("deletedAt", 0L)))
+            }
+        }
+        val currentConnectionTombstones = getDeletedConnections(context)
+        val mergedConnectionTombstones = (currentConnectionTombstones + incomingConnectionTombstones)
+            .groupBy { it.connection }
+            .map { (conn, versions) -> ConnectionTombstone(conn, versions.maxOf { it.deletedAt }) }
+        val tombstonedConnections = mergedConnectionTombstones.map { it.connection }.toSet()
+        if (mergedConnectionTombstones.toSet() != currentConnectionTombstones.toSet()) {
+            setDeletedConnections(context, mergedConnectionTombstones)
+            seedsChanged = true
+        }
+
+        // [MESH-BEHAVE-011] Synchronize persistent connections (handles both old "cross_vlan_seeds"
+        // and new "persistent_connections" keys) as a tombstone-filtered union merge, not a flat
+        // overwrite -- an import that omits a connection this device already knows about must not
+        // delete it, so a reciprocally-learned connection can't be clobbered by an unrelated,
+        // higher-config_version push from a third device that never knew about it. This is also
+        // what lets IP address lists gossip transitively: startPersistentConnectionSyncer re-reads
+        // getPersistentConnections() every cycle, so a connection learned purely through this merge
+        // is picked up and polled automatically without requiring an explicit handshake.
         var connectionsArr = json.optJSONArray("persistent_connections")
         if (connectionsArr == null) {
             connectionsArr = json.optJSONArray("cross_vlan_seeds")
         }
+        val currentConnections = getPersistentConnections(context)
         if (connectionsArr != null) {
-            val newConnections = mutableSetOf<String>()
+            val incomingConnections = mutableSetOf<String>()
             for (i in 0 until connectionsArr.length()) {
                 val s = connectionsArr.optString(i, "").trim()
-                if (s.isNotBlank()) newConnections.add(s)
+                if (s.isNotBlank()) incomingConnections.add(s)
             }
-            val currentConnections = getPersistentConnections(context)
-            if (currentConnections != newConnections) {
-                editor.putStringSet(KEY_PERSISTENT_CONNECTIONS, newConnections)
+            val merged = (currentConnections + incomingConnections).filterNot { it in tombstonedConnections }.toSet()
+            if (merged != currentConnections) {
+                editor.putStringSet(KEY_PERSISTENT_CONNECTIONS, merged)
+                seedsChanged = true
+            }
+        } else if (tombstonedConnections.isNotEmpty()) {
+            // No incoming persistent_connections this round, but a newly-merged tombstone may
+            // still apply to what's stored locally (e.g. a delete-only sync payload).
+            val filtered = currentConnections.filterNot { it in tombstonedConnections }.toSet()
+            if (filtered != currentConnections) {
+                editor.putStringSet(KEY_PERSISTENT_CONNECTIONS, filtered)
                 seedsChanged = true
             }
         }
@@ -804,7 +874,6 @@ object SettingsStore {
             newVersion = incomingVersion,
             portChanged = portChanged,
             webServerToggled = webServerToggled,
-            autoUpdateToggled = autoUpdateToggled,
             passwordChanged = passwordChanged,
             seedsChanged = seedsChanged,
             libraryChanged = libraryChanged,

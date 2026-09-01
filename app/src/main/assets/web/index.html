@@ -762,10 +762,6 @@ input:checked + .slider:before {
               <span class="kv-key">Latest Release</span>
               <span class="kv-val" id="valLatestVersion">--</span>
             </div>
-            <div class="kv-row">
-              <span class="kv-key">Auto-Update</span>
-              <span class="kv-val" id="valAutoUpdate">--</span>
-            </div>
           </div>
         </div>
 
@@ -875,9 +871,6 @@ input:checked + .slider:before {
           <button id="btnDeleteMesh" class="btn btn-secondary btn-sm" onclick="handleDeleteMesh()" style="display: none;">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6h14z"/></svg>
             Delete Mesh
-          </button>
-          <button id="btnUpdateMeshAll" class="btn btn-primary btn-sm" onclick="triggerUpdateAll()">
-            Update All in Mesh
           </button>
         </div>
       </div>
@@ -1005,20 +998,10 @@ input:checked + .slider:before {
           <div class="card-header">
             <div class="card-title">
               <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-              Auto-Update Engine
+              General Preferences
             </div>
           </div>
-          <p style="color: var(--text-secondary); font-size: 13px;">
-            When enabled, DroidMesh continuously checks for target app releases and automatically performs silent installations.
-          </p>
-          <label class="switch-label">
-            <span style="font-weight: 500;">Enable Automatic Background Updates</span>
-            <div class="switch">
-              <input type="checkbox" id="settingAutoUpdate" onchange="saveAutoUpdateSetting()">
-              <span class="slider"></span>
-            </div>
-          </label>
-          <div class="field-group" style="margin-top: 14px; border-top: 1px solid var(--border-subtle); padding-top: 12px;">
+          <div class="field-group">
             <label class="field-label" for="settingWebServerPort">HTTP Management Server Port</label>
             <div style="display: flex; gap: 8px;">
               <input id="settingWebServerPort" class="field" type="number" value="2325" min="1024" max="65535" style="width: 110px;">
@@ -1498,8 +1481,6 @@ async function refreshStatus(forceReleases = false) {
     }
 
     document.getElementById('valInstalledVersion').textContent = status.installedVersionName ? `v${status.installedVersionName}` : 'None';
-    document.getElementById('valAutoUpdate').textContent = status.autoUpdateEnabled ? 'Enabled' : 'Disabled';
-    document.getElementById('settingAutoUpdate').checked = status.autoUpdateEnabled;
 
     // Service & Vitals
     document.getElementById('updaterStateBadge').textContent = status.updaterState || 'IDLE';
@@ -1676,7 +1657,6 @@ function renderCurrentMeshView() {
   const titleEl = document.getElementById('meshViewTitle');
   const badgeEl = document.getElementById('meshViewBadge');
   const subEl = document.getElementById('meshViewSubtitle');
-  const updateAllBtn = document.getElementById('btnUpdateMeshAll');
   const meshEditBtn = document.getElementById('meshEditBtn');
   const deleteMeshBtn = document.getElementById('btnDeleteMesh');
 
@@ -1709,10 +1689,6 @@ function renderCurrentMeshView() {
     const total = currentMesh.peers ? currentMesh.peers.length : 0;
     const online = currentMesh.peers ? currentMesh.peers.filter(p => p.isOnline !== false).length : 0;
     subEl.textContent = `Partition: ${currentMesh.id} • ${online}/${total} nodes online`;
-  }
-
-  if (updateAllBtn) {
-    updateAllBtn.textContent = `Update All in ${currentMesh.name}`;
   }
 
   renderMeshAppLibrary(currentMesh);
@@ -2005,19 +1981,6 @@ async function handleDeleteMesh() {
   }
 }
 
-async function triggerUpdateAll() {
-  const currentMesh = state.meshes.find(m => m.id === state.selectedMeshId);
-  const meshName = currentMesh ? currentMesh.name : 'this mesh';
-  if (!confirm(`Broadcast update trigger to all active nodes in ${meshName}?`)) return;
-
-  try {
-    const res = await apiCall('/api/peers/update-all', { method: 'POST' });
-    alert(res.message || 'Update broadcast dispatched.');
-  } catch (e) {
-    alert('Update all failed: ' + e.message);
-  }
-}
-
 async function triggerPeerUpdate(ip, port) {
   try {
     const res = await apiCall('/api/peers/update', {
@@ -2046,7 +2009,6 @@ async function togglePeerAdb(ip, port) {
 async function loadSettings() {
   try {
     const data = await apiCall('/api/settings');
-    document.getElementById('settingAutoUpdate').checked = data.autoUpdateEnabled;
     // Set device name field - show custom name if set, otherwise placeholder with effective name
     const deviceNameInput = document.getElementById('settingDeviceName');
     deviceNameInput.value = data.customDeviceName || '';
@@ -2214,19 +2176,6 @@ async function handleSaveMeshIdentity(e) {
     msgEl.className = 'banner banner-rust';
     msgEl.textContent = `Failed: ${err.message}`;
     msgEl.classList.remove('hidden');
-  }
-}
-
-async function saveAutoUpdateSetting() {
-  const enabled = document.getElementById('settingAutoUpdate').checked;
-  try {
-    await apiCall('/api/settings', {
-      method: 'POST',
-      body: JSON.stringify({ autoUpdateEnabled: enabled })
-    });
-    refreshStatus(false);
-  } catch (e) {
-    alert('Failed to update auto-update preference: ' + e.message);
   }
 }
 

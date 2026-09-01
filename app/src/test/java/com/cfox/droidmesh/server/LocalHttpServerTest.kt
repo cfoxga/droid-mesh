@@ -174,7 +174,7 @@ class LocalHttpServerTest {
         val unauthSession = mockSession(
             uri = "/api/settings",
             method = NanoHTTPD.Method.POST,
-            postBody = """{"autoUpdateEnabled": false}"""
+            postBody = """{"webServerPort": 2330}"""
         )
         val unauthResponse = server.serve(unauthSession)
         assertEquals(NanoHTTPD.Response.Status.UNAUTHORIZED, unauthResponse.status)
@@ -203,11 +203,11 @@ class LocalHttpServerTest {
             uri = "/api/settings",
             method = NanoHTTPD.Method.POST,
             headers = mapOf("authorization" to "Bearer $validToken"),
-            postBody = """{"autoUpdateEnabled": false}"""
+            postBody = """{"webServerPort": 2330}"""
         )
         val authedResponse = server.serve(authedSession)
         assertEquals(NanoHTTPD.Response.Status.OK, authedResponse.status)
-        assertFalse(SettingsStore.isAutoUpdateEnabled(mockContext))
+        assertEquals(2330, SettingsStore.getWebServerPort(mockContext))
     }
 
     // [PROGRAMMATIC] API-TEST-002: Mesh endpoint response
@@ -262,7 +262,6 @@ class LocalHttpServerTest {
             put("config_version", 2000000000000L)
             put("web_server_enabled", true)
             put("web_server_port", 2326)
-            put("auto_update_enabled", false)
             put("web_password_hash", "testhash123")
             put("web_password_salt", "testsalt123")
             put("auth_secret", "testsecret123")
@@ -283,7 +282,6 @@ class LocalHttpServerTest {
 
         // Verify that SettingsStore reflects the synced values
         assertEquals(2326, SettingsStore.getWebServerPort(mockContext))
-        assertFalse(SettingsStore.isAutoUpdateEnabled(mockContext))
         assertTrue(SettingsStore.isPasswordSet(mockContext))
         assertTrue(SettingsStore.getPersistentConnections(mockContext).contains("192.168.50.64:2326"))
         assertEquals(2000000000000L, SettingsStore.getConfigVersion(mockContext))
@@ -381,5 +379,19 @@ class LocalHttpServerTest {
         assertEquals(NanoHTTPD.Response.Status.OK, response.status)
         assertFalse(SettingsStore.getKnownMeshes(mockContext).any { it.id == "googletv" })
         assertTrue(SettingsStore.getConfigVersion(mockContext) > versionBefore)
+    }
+
+    // [PROGRAMMATIC] API-BEHAVE-008 (deprecated): "Update All" fanned an update trigger out to
+    // every online peer fleet-wide with no mesh filter, contradicting its own confirm-dialog
+    // text, and had no accepted use case. The endpoint must no longer exist.
+    @Test
+    fun testPeerUpdateAllEndpointRemoved() {
+        val session = mockSession(
+            uri = "/api/peers/update-all",
+            method = NanoHTTPD.Method.POST,
+            postBody = "{}"
+        )
+        val response = server.serve(session)
+        assertEquals(NanoHTTPD.Response.Status.NOT_FOUND, response.status)
     }
 }

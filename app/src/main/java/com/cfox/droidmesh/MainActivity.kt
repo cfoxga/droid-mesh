@@ -235,9 +235,6 @@ class MainActivity : AppCompatActivity() {
             Toast.makeText(this, "Beacon broadcast sent", Toast.LENGTH_SHORT).show()
         }
 
-        binding.btnMeshUpdateAll.setOnClickListener {
-            triggerMeshUpdateAll()
-        }
     }
 
     private fun observeMeshDiscovery() {
@@ -322,7 +319,6 @@ class MainActivity : AppCompatActivity() {
 
         binding.tvMeshViewTitle.text = "$meshName Mesh"
         binding.tvMeshViewSubtitle.text = "Partition: $activeMeshId • $onlineCount/$peerCount nodes online"
-        binding.btnMeshUpdateAll.text = "Update All in $meshName"
 
         if (isLocal) {
             binding.tvMeshViewBadge.text = "Local Subnet"
@@ -668,43 +664,6 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun triggerMeshUpdateAll() {
-        val targetRelease = getSelectedRelease()
-        val allPeers = UpdaterForegroundService.activeMeshManager?.peersFlow?.value ?: emptyList()
-        val localMeshId = SettingsStore.getLocalMeshId(this)
-        val activeMeshId = selectedMeshId ?: localMeshId
-        val meshPeers = allPeers.filter { it.meshId == activeMeshId }
-
-        Logger.i("Triggering Update All in mesh partition $activeMeshId (${meshPeers.size} nodes)")
-
-        val selfNode = meshPeers.firstOrNull { it.isSelf }
-        if (selfNode != null && targetRelease != null) {
-            val activeCoordinator = coordinator ?: UpdateCoordinator(this)
-            activeCoordinator.startUpdateForRelease(targetRelease, force = true)
-        }
-
-        val remotes = meshPeers.filter { !it.isSelf && it.isOnline }
-        if (remotes.isNotEmpty()) {
-            lifecycleScope.launch(Dispatchers.IO) {
-                for (peer in remotes) {
-                    try {
-                        val tag = targetRelease?.tagName ?: "latest"
-                        val url = "http://${peer.ip}:${peer.port}/update?force=true&tag=$tag"
-                        val request = Request.Builder()
-                            .url(url)
-                            .post(ByteArray(0).toRequestBody(null, 0, 0))
-                            .build()
-                        httpClient.newCall(request).execute().close()
-                        Logger.i("Dispatched update to ${peer.deviceModel} (${peer.ip})")
-                    } catch (e: Exception) {
-                        Logger.e("Error updating ${peer.ip}: ${e.message}")
-                    }
-                }
-            }
-        }
-        Toast.makeText(this, "Update broadcast sent to all nodes in mesh", Toast.LENGTH_SHORT).show()
-    }
-
     private fun toggleRemoteAdb(peer: PeerNode) {
         lifecycleScope.launch(Dispatchers.IO) {
             try {
@@ -956,11 +915,6 @@ class MainActivity : AppCompatActivity() {
             showConnectVlanDialog()
         }
 
-        binding.switchAutoUpdate.setOnCheckedChangeListener { _, isChecked ->
-            SettingsStore.setAutoUpdateEnabled(this, isChecked)
-            Logger.i("Auto-update preference set to $isChecked")
-        }
-
         binding.btnSaveWebServerPort.setOnClickListener {
             val portText = binding.etWebServerPort.text?.toString()?.trim() ?: ""
             val port = portText.toIntOrNull()
@@ -997,7 +951,6 @@ class MainActivity : AppCompatActivity() {
     private fun refreshSettingsUI() {
         binding.etSettingMeshId.setText(SettingsStore.getLocalMeshId(this))
         binding.etSettingMeshName.setText(SettingsStore.getLocalMeshName(this))
-        binding.switchAutoUpdate.isChecked = SettingsStore.isAutoUpdateEnabled(this)
         binding.etWebServerPort.setText(SettingsStore.getWebServerPort(this).toString())
 
         val isPassSet = SettingsStore.isPasswordSet(this)

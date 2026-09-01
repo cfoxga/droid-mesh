@@ -468,13 +468,6 @@
                         android:layout_height="wrap_content"
                         android:text="Beacon" />
 
-                    <com.google.android.material.button.MaterialButton
-                        android:id="@+id/btnMeshUpdateAll"
-                        style="@style/Widget.KS.Button.Pill"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_marginStart="8dp"
-                        android:text="Update All in Mesh" />
                 </LinearLayout>
 
                 <View
@@ -1160,7 +1153,7 @@
                     </LinearLayout>
                 </com.google.android.material.card.MaterialCardView>
 
-                <!-- Auto-Update Engine Card -->
+                <!-- General Preferences Card -->
                 <com.google.android.material.card.MaterialCardView
                     style="@style/Widget.KS.Card"
                     android:layout_width="match_parent"
@@ -1172,50 +1165,6 @@
                         android:layout_height="wrap_content"
                         android:orientation="vertical"
                         android:padding="20dp">
-
-                        <LinearLayout
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:gravity="center_vertical">
-
-                            <LinearLayout
-                                android:layout_width="0dp"
-                                android:layout_height="wrap_content"
-                                android:layout_weight="1"
-                                android:orientation="vertical">
-
-                                <TextView
-                                    android:layout_width="wrap_content"
-                                    android:layout_height="wrap_content"
-                                    android:fontFamily="@font/rubik"
-                                    android:text="Auto-Update Engine"
-                                    android:textColor="@color/ks_on_surface"
-                                    android:textSize="16sp"
-                                    android:textStyle="bold" />
-
-                                <TextView
-                                    android:layout_width="wrap_content"
-                                    android:layout_height="wrap_content"
-                                    android:layout_marginTop="2dp"
-                                    android:fontFamily="@font/rubik"
-                                    android:text="Automatically checks and silently installs latest target app releases"
-                                    android:textColor="@color/ks_on_surface_variant"
-                                    android:textSize="12sp" />
-                            </LinearLayout>
-
-                            <androidx.appcompat.widget.SwitchCompat
-                                android:id="@+id/switchAutoUpdate"
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                app:thumbTint="@color/ks_sage"
-                                app:trackTint="@color/ks_sage_container" />
-                        </LinearLayout>
-
-                        <View
-                            android:layout_width="match_parent"
-                            android:layout_height="1dp"
-                            android:layout_marginVertical="14dp"
-                            android:background="@color/ks_outline_variant" />
 
                         <!-- HTTP Server Port -->
                         <LinearLayout

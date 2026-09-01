@@ -89,7 +89,6 @@ class SettingsStoreTest {
         // Configure node A
         SettingsStore.setWebServerPort(mockContext, 2329)
         SettingsStore.setWebServerEnabled(mockContext, true)
-        SettingsStore.setAutoUpdateEnabled(mockContext, false)
         SettingsStore.setPassword(mockContext, "fleetPassword123")
         SettingsStore.addPersistentConnection(mockContext, "192.168.50.64:2329")
 
@@ -97,24 +96,20 @@ class SettingsStoreTest {
         val initialVersion = exported.getLong("config_version")
         assertTrue(initialVersion > 0L)
         assertEquals(2329, exported.getInt("web_server_port"))
-        assertFalse(exported.getBoolean("auto_update_enabled"))
 
         // Reset prefs for simulated node B
         inMemoryPrefs.clear()
         assertEquals(2325, SettingsStore.getWebServerPort(mockContext)) // default
-        assertTrue(SettingsStore.isAutoUpdateEnabled(mockContext)) // default
 
         // Import exported config onto node B
         val importResult = SettingsStore.importConfigJson(mockContext, exported)
         assertTrue(importResult.applied)
         assertTrue(importResult.portChanged)
-        assertTrue(importResult.autoUpdateToggled)
         assertTrue(importResult.passwordChanged)
         assertTrue(importResult.seedsChanged)
 
         // Verify Node B now matches Node A
         assertEquals(2329, SettingsStore.getWebServerPort(mockContext))
-        assertFalse(SettingsStore.isAutoUpdateEnabled(mockContext))
         assertTrue(SettingsStore.verifyPassword(mockContext, "fleetPassword123"))
         assertTrue(SettingsStore.getPersistentConnections(mockContext).contains("192.168.50.64:2329"))
 
@@ -385,6 +380,82 @@ class SettingsStoreTest {
         assertFalse(
             "recreating a mesh must clear its stale tombstone",
             SettingsStore.getDeletedMeshes(mockContext).any { it.id == "googletv" }
+        )
+    }
+
+    // [PROGRAMMATIC] MESH-TEST-013: persistent_connections sync merge is union, not overwrite --
+    // an import that omits a connection this device already has must not delete it. This is the
+    // exact clobber bug reported on fleet: a reciprocally-learned connection to a peer getting
+    // wiped out by an unrelated, higher-config_version config push from a third device that never
+    // knew about it, because the field was a flat last-writer-wins overwrite instead of a merge.
+    @Test
+    fun testImportConfigMergesPersistentConnectionsUnion() {
+        SettingsStore.addPersistentConnection(mockContext, "192.168.50.64:2325") // local-only, e.g. Great Room TV
+        val localVersion = SettingsStore.getConfigVersion(mockContext)
+
+        val remoteVersion = localVersion + 1000
+        val remoteConfig = JSONObject().apply {
+            put("config_version", remoteVersion)
+            put("persistent_connections", JSONArray().apply { put("192.168.40.250:2325") }) // remote-only, e.g. Master Bedroom Portal
+        }
+
+        val result = SettingsStore.importConfigJson(mockContext, remoteConfig)
+
+        assertTrue(result.applied)
+        assertTrue(result.seedsChanged)
+        val merged = SettingsStore.getPersistentConnections(mockContext)
+        assertTrue("local-only connection must survive the merge, not be overwritten", merged.contains("192.168.50.64:2325"))
+        assertTrue("incoming connection must be added", merged.contains("192.168.40.250:2325"))
+    }
+
+    // [PROGRAMMATIC] MESH-TEST-014: removePersistentConnection records a tombstone that appears in
+    // exportConfigJson's deleted_connections, and importing a config carrying that tombstone
+    // removes the connection from the merged set on a peer that still has it locally (deletion
+    // propagates instead of being resurrected by the union merge).
+    @Test
+    fun testRemovePersistentConnectionTombstonesAndPropagates() {
+        SettingsStore.addPersistentConnection(mockContext, "192.168.50.64:2325")
+        val removed = SettingsStore.removePersistentConnection(mockContext, "192.168.50.64:2325")
+        assertTrue(removed)
+        assertFalse(SettingsStore.getPersistentConnections(mockContext).contains("192.168.50.64:2325"))
+
+        val exported = SettingsStore.exportConfigJson(mockContext)
+        val tombstonesArr = exported.optJSONArray("deleted_connections")
+        assertNotNull(tombstonesArr)
+        assertTrue((0 until tombstonesArr!!.length()).any { tombstonesArr.getJSONObject(it).optString("connection") == "192.168.50.64:2325" })
+
+        // A peer that still has the connection locally (never saw the removal) should drop it on import.
+        inMemoryPrefs.clear()
+        SettingsStore.addPersistentConnection(mockContext, "192.168.50.64:2325")
+        val localVersion = SettingsStore.getConfigVersion(mockContext)
+        val remoteConfig = JSONObject().apply {
+            put("config_version", localVersion + 1000)
+            put("deleted_connections", tombstonesArr)
+        }
+        val result = SettingsStore.importConfigJson(mockContext, remoteConfig)
+        assertTrue(result.applied)
+        assertFalse(
+            "deletion must propagate, not be resurrected by the union merge",
+            SettingsStore.getPersistentConnections(mockContext).contains("192.168.50.64:2325")
+        )
+    }
+
+    // [PROGRAMMATIC] MESH-TEST-015: re-adding a connection whose address has a local tombstone
+    // clears that tombstone -- explicit re-add wins over a stale delete record, mirroring
+    // testRecreatingMeshClearsLocalTombstone for known_meshes.
+    @Test
+    fun testReaddingPersistentConnectionClearsLocalTombstone() {
+        SettingsStore.addPersistentConnection(mockContext, "192.168.50.124:2325")
+        SettingsStore.removePersistentConnection(mockContext, "192.168.50.124:2325")
+        assertTrue(SettingsStore.getDeletedConnections(mockContext).any { it.connection == "192.168.50.124:2325" })
+
+        val added = SettingsStore.addPersistentConnection(mockContext, "192.168.50.124:2325")
+
+        assertTrue(added)
+        assertTrue(SettingsStore.getPersistentConnections(mockContext).contains("192.168.50.124:2325"))
+        assertFalse(
+            "re-adding a connection must clear its stale tombstone",
+            SettingsStore.getDeletedConnections(mockContext).any { it.connection == "192.168.50.124:2325" }
         )
     }
 }

@@ -391,6 +391,59 @@ body {
   color: var(--text-secondary);
 }
 
+/* Settings Row — Device Settings page (UI-BEHAVE-007): label+help left, value right */
+.settings-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+}
+
+.settings-row:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.settings-row-info {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.settings-row-label {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.settings-row-help {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.settings-row-value {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-primary);
+  font-weight: 500;
+  flex-shrink: 0;
+}
+
+.settings-row-value-clickable {
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.settings-row-msg {
+  flex-basis: 100%;
+  margin-top: -4px;
+}
+
 /* Switch */
 .switch-label {
   display: flex;
@@ -692,21 +745,10 @@ input:checked + .slider:before {
         Add Device
       </button>
 
-      <div style="font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--text-muted); padding: 4px 8px 6px 8px; letter-spacing: 0.5px;">
-        Device Control
-      </div>
       <nav class="nav-list">
-        <button id="nav-item-overview" class="nav-item" onclick="switchTab('overview')">
-          <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
-          Overview
-        </button>
-        <button id="nav-item-settings" class="nav-item" onclick="switchTab('settings')">
+        <button id="nav-item-device-settings" class="nav-item" onclick="switchTab('device-settings')">
           <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-          Settings
-        </button>
-        <button id="nav-item-logs" class="nav-item" onclick="switchTab('logs')">
-          <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
-          Logs Console
+          Device Settings
         </button>
       </nav>
     </div>
@@ -730,134 +772,227 @@ input:checked + .slider:before {
       <div>
         <strong>Security Warning:</strong> No admin password configured. Port 2325 is currently accessible to all LAN clients.
       </div>
-      <button class="btn btn-primary btn-sm" onclick="switchTab('settings')">Set Password</button>
+      <button class="btn btn-primary btn-sm" onclick="switchTab('device-settings')">Set Password</button>
     </div>
 
-    <!-- TAB: OVERVIEW -->
-    <section id="tab-overview" class="tab-pane">
+    <!-- TAB: DEVICE SETTINGS (UI-BEHAVE-007) — device-owned config, not mesh-synced -->
+    <section id="tab-device-settings" class="tab-pane">
       <div class="header-bar">
-        <h1>System Overview</h1>
+        <h1>Device Settings</h1>
         <div class="header-actions">
-          <button class="btn btn-secondary btn-sm" onclick="refreshStatus(true)">
+          <button class="btn btn-secondary btn-sm" onclick="refreshStatus(true); loadSettings();">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
             Refresh
           </button>
         </div>
       </div>
 
-      <!-- Quick Status Cards -->
-      <div class="grid-3">
-        <!-- Target App Status -->
-        <div class="card">
-          <div class="card-header">
-            <div class="card-title">
-              <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>
-              Target App
-            </div>
-            <span id="targetInstallBadge" class="badge badge-gray">Checking...</span>
+      <!-- Main section (untitled) -->
+      <div class="card">
+        <form class="settings-row" onsubmit="handleSaveDeviceName(event)">
+          <div class="settings-row-info">
+            <span class="settings-row-label">Device Name</span>
+            <span class="settings-row-help">Custom name shown in mesh peer lists and discovery.</span>
           </div>
-          <div class="kv-list">
-            <div class="kv-row">
-              <span class="kv-key">Installed</span>
-              <span class="kv-val" id="valInstalledVersion">--</span>
-            </div>
-            <div class="kv-row">
-              <span class="kv-key">Latest Release</span>
-              <span class="kv-val" id="valLatestVersion">--</span>
-            </div>
+          <div class="settings-row-value">
+            <input id="settingDeviceName" class="field" type="text" style="width: 200px;" placeholder="e.g., Theater Portal">
+            <button type="submit" class="btn btn-secondary btn-sm">Save</button>
           </div>
+          <div id="deviceNameMsg" class="banner hidden settings-row-msg"></div>
+        </form>
+
+        <div class="settings-row">
+          <div class="settings-row-info">
+            <span class="settings-row-label">IP Address</span>
+          </div>
+          <div class="settings-row-value" id="valIpAddress">--</div>
         </div>
 
-        <!-- Service Status -->
-        <div class="card">
-          <div class="card-header">
-            <div class="card-title">
-              <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
-              DroidMesh Services
-            </div>
-            <span id="updaterStateBadge" class="badge badge-sage">IDLE</span>
+        <div class="settings-row">
+          <div class="settings-row-info">
+            <span class="settings-row-label">Current DroidMesh Version</span>
           </div>
-          <div class="kv-list">
-            <div class="kv-row">
-              <span class="kv-key">Accessibility</span>
-              <span class="kv-val" id="valA11y" style="cursor: pointer; text-decoration: underline;" onclick="openAccessibilitySettings()" title="Open Accessibility settings">--</span>
-            </div>
-            <div class="kv-row">
-              <span class="kv-key">Install Unknown Apps</span>
-              <span class="kv-val" id="valInstallPerm" style="cursor: pointer; text-decoration: underline;" onclick="openInstallSettings()" title="Open Install Unknown Apps settings">--</span>
-            </div>
-            <div class="kv-row">
-              <span class="kv-key">Network ADB (:5555)</span>
-              <span class="kv-val" id="valAdb">--</span>
-            </div>
-            <div class="kv-row">
-              <span class="kv-key">HTTP Server</span>
-              <span class="kv-val" id="valHttpPort">Port 2325</span>
-            </div>
-          </div>
+          <div class="settings-row-value" id="valDeviceVersion">--</div>
         </div>
 
-        <!-- System Vitals -->
-        <div class="card">
-          <div class="card-header">
-            <div class="card-title">
-              <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 20V10"/><path d="M12 20V4"/><path d="M6 20v-6"/></svg>
-              Device Telemetry
-            </div>
-            <span class="badge badge-teal" id="telemetryModelBadge">Portal</span>
+        <form class="settings-row" onsubmit="handleSaveMeshIdentity(event)">
+          <div class="settings-row-info">
+            <span class="settings-row-label">Mesh Partition</span>
+            <span class="settings-row-help">Create new meshes with the "Add Mesh" button in the sidebar.</span>
           </div>
-          <div class="kv-list">
-            <div class="kv-row">
-              <span class="kv-key">CPU Usage</span>
-              <span class="kv-val" id="valCpuUsage">--</span>
-            </div>
-            <div class="kv-row">
-              <span class="kv-key">Temperature</span>
-              <span class="kv-val" id="valCpuTemp">--</span>
-            </div>
-            <div class="kv-row">
-              <span class="kv-key">IP Address</span>
-              <span class="kv-val" id="valIpAddress">--</span>
-            </div>
+          <div class="settings-row-value">
+            <select id="settingMeshSelect" class="field" style="width: 160px;" required onchange="updateMeshSelection()">
+              <option value="unmanaged">Unmanaged</option>
+            </select>
+            <button type="submit" class="btn btn-secondary btn-sm">Join</button>
           </div>
-        </div>
+          <div id="meshSettingsMsg" class="banner hidden settings-row-msg"></div>
+        </form>
       </div>
 
-      <!-- Actions & Update Controls -->
+      <!-- Services -->
       <div class="card">
         <div class="card-header">
           <div class="card-title">
-            <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
-            Deployment & OTA Controls
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+            Services
           </div>
         </div>
 
-        <div style="display: flex; flex-wrap: wrap; gap: 14px; align-items: flex-end;">
-          <div class="field-group" style="min-width: 240px; flex-grow: 1;">
-            <label class="field-label" for="selectRelease">Target Release Version</label>
-            <select id="selectRelease" class="field">
-              <option value="">Fetching available versions...</option>
-            </select>
+        <div class="settings-row">
+          <div class="settings-row-info">
+            <span class="settings-row-label">Accessibility</span>
+            <span class="settings-row-help">Required for automatic install/update click-through on Leanback dialogs.</span>
           </div>
-
-          <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px;">
-            <input type="checkbox" id="chkForceUpdate" style="width: 16px; height: 16px; accent-color: var(--teal);">
-            <label for="chkForceUpdate" style="font-size: 13px; color: var(--text-secondary); cursor: pointer;">Force Reinstall</label>
-          </div>
-
-          <button id="btnTriggerUpdate" class="btn btn-primary" onclick="triggerUpdate()">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-            Install on This Device
-          </button>
-
-          <button id="btnToggleAdb" class="btn btn-secondary" onclick="toggleAdb()">
-            Toggle Network ADB
-          </button>
+          <span class="settings-row-value settings-row-value-clickable" id="valA11y" onclick="openAccessibilitySettings()" title="Open Accessibility settings">--</span>
         </div>
 
-        <div id="updateStatusMsg" class="banner banner-teal hidden" style="margin-top: 6px;"></div>
+        <div class="settings-row">
+          <div class="settings-row-info">
+            <span class="settings-row-label">Install Unknown Apps</span>
+            <span class="settings-row-help">Required to sideload App Library releases.</span>
+          </div>
+          <span class="settings-row-value settings-row-value-clickable" id="valInstallPerm" onclick="openInstallSettings()" title="Open Install Unknown Apps settings">--</span>
+        </div>
+
+        <div class="settings-row">
+          <div class="settings-row-info">
+            <span class="settings-row-label">ADB (:5555)</span>
+            <span class="settings-row-help">Enable Network ADB access to this device.</span>
+          </div>
+          <span class="settings-row-value settings-row-value-clickable" id="valAdb" onclick="toggleAdb()" title="Toggle Network ADB">--</span>
+        </div>
+
+        <div class="settings-row">
+          <div class="settings-row-info">
+            <span class="settings-row-label">HTTP Server Port</span>
+            <span class="settings-row-help">Default port is 2325. Reconnect on the new port after changing.</span>
+          </div>
+          <div class="settings-row-value">
+            <input id="settingWebServerPort" class="field" type="number" value="2325" min="1024" max="65535" style="width: 90px;">
+            <button type="button" class="btn btn-secondary btn-sm" onclick="saveWebServerPort()">Update</button>
+          </div>
+          <div id="remoteManagementMsg" class="banner hidden settings-row-msg"></div>
+        </div>
+
+        <div class="settings-row">
+          <div class="settings-row-info">
+            <span class="settings-row-label">Admin Password</span>
+            <span class="settings-row-help">Protects this management UI and REST API on the local network.</span>
+          </div>
+          <div class="settings-row-value">
+            <span id="passwordStatusText">Not set</span>
+            <button type="button" class="btn btn-secondary btn-sm" onclick="showPasswordChangeModal()">Change</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Other -->
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 20V10"/><path d="M12 20V4"/><path d="M6 20v-6"/></svg>
+            Other
+          </div>
+        </div>
+
+        <div class="settings-row">
+          <div class="settings-row-info">
+            <span class="settings-row-label">Logs</span>
+            <span class="settings-row-help">View, filter, and export runtime logs.</span>
+          </div>
+          <button type="button" class="btn btn-secondary btn-sm" onclick="showLogsModal(true)">View Logs</button>
+        </div>
+
+        <div class="settings-row">
+          <div class="settings-row-info">
+            <span class="settings-row-label">CPU Usage</span>
+          </div>
+          <div class="settings-row-value" id="valCpuUsage">--</div>
+        </div>
+
+        <div class="settings-row">
+          <div class="settings-row-info">
+            <span class="settings-row-label">Temperature</span>
+          </div>
+          <div class="settings-row-value" id="valCpuTemp">--</div>
+        </div>
+      </div>
+
+      <!-- Persistent Discovered Devices -->
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+            Persistent Discovered Devices
+          </div>
+        </div>
+        <p style="color: var(--text-secondary); font-size: 13px;">
+          Devices discovered on other subnets. DroidMesh automatically reconnects to these devices after power cycles.
+        </p>
+        <div id="crossVlanSeedList" style="display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px;">
+          <span style="color: var(--text-muted); font-size: 13px;">No discovered devices configured.</span>
+        </div>
+        <button type="button" class="btn btn-secondary btn-sm" onclick="showConnectModal(true)" style="align-self: flex-start;">
+          + Add Device IP
+        </button>
       </div>
     </section>
+
+    <!-- Password Change Modal -->
+    <div id="passwordChangeModal" class="modal-backdrop hidden">
+      <div class="modal-card">
+        <div style="text-align: center;">
+          <h2 style="font-size: 18px; font-weight: 600;">Change Access Password</h2>
+        </div>
+        <form onsubmit="handlePasswordChange(event)" style="display: flex; flex-direction: column; gap: 12px;">
+          <div class="field-group" id="groupCurrentPassword">
+            <label class="field-label" for="pwdCurrent">Current Password</label>
+            <input id="pwdCurrent" class="field" type="password" placeholder="Current Password (if set)" autocomplete="current-password">
+          </div>
+          <div class="field-group">
+            <label class="field-label" for="pwdNew">New Password</label>
+            <input id="pwdNew" class="field" type="password" placeholder="New Password (leave blank to remove)" autocomplete="new-password">
+          </div>
+          <div class="field-group">
+            <label class="field-label" for="pwdConfirm">Confirm Password</label>
+            <input id="pwdConfirm" class="field" type="password" placeholder="Confirm New Password" autocomplete="new-password">
+          </div>
+          <div id="pwdMsg" class="banner hidden"></div>
+          <div style="display: flex; gap: 8px; justify-content: flex-end;">
+            <button type="button" class="btn btn-secondary" onclick="closeModal('passwordChangeModal')">Cancel</button>
+            <button type="submit" class="btn btn-primary">Save Password</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- Logs Modal -->
+    <div id="logsModal" class="modal-backdrop hidden">
+      <div class="modal-card" style="max-width: 720px;">
+        <div class="header-bar" style="margin: 0;">
+          <div>
+            <h2 style="font-size: 18px; font-weight: 600;">Runtime Logs</h2>
+            <span id="logsCountBadge" style="color: var(--text-muted); font-size: 12px;">0 entries</span>
+          </div>
+          <div class="header-actions">
+            <button class="btn btn-secondary btn-sm" onclick="copyLogs()">Copy Logs</button>
+            <button class="btn btn-danger btn-sm" onclick="clearLogs()">Clear</button>
+            <button class="btn btn-primary btn-sm" onclick="fetchLogs()">Refresh</button>
+            <button class="btn btn-secondary btn-sm" onclick="showLogsModal(false)">Close</button>
+          </div>
+        </div>
+
+        <div style="display: flex; gap: 10px; align-items: center;">
+          <input id="logFilter" class="field" type="text" placeholder="Filter logs (e.g. error, update, mesh)..." oninput="applyLogFilter()">
+          <label style="display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-secondary); cursor: pointer; white-space: nowrap;">
+            <input type="checkbox" id="chkAutoScroll" checked style="accent-color: var(--teal);"> Auto-scroll
+          </label>
+        </div>
+
+        <div id="logConsole" class="log-container">Loading logs...</div>
+      </div>
+    </div>
 
     <!-- TAB: MESH FLEET -->
     <section id="tab-mesh" class="tab-pane active">
@@ -924,188 +1059,6 @@ input:checked + .slider:before {
           Scanning network for mesh nodes...
         </div>
       </div>
-    </section>
-
-    <!-- TAB: SETTINGS -->
-    <section id="tab-settings" class="tab-pane">
-      <div class="header-bar">
-        <div>
-          <h1>Application Settings</h1>
-          <span style="font-size: 12px; color: var(--teal); font-weight: 500;">✓ Synchronized across all active nodes in the mesh fleet</span>
-        </div>
-      </div>
-
-      <div class="grid-2">
-        <!-- Mesh Identity Configuration -->
-        <div class="card">
-          <div class="card-header">
-            <div class="card-title">
-              <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/></svg>
-              Mesh Identity & Partition
-            </div>
-          </div>
-          <p style="color: var(--text-secondary); font-size: 13px;">
-            Identifies this device's local mesh group (e.g. meta-portals, googletv).
-          </p>
-          <form onsubmit="handleSaveMeshIdentity(event)" style="display: flex; flex-direction: column; gap: 12px;">
-            <div class="field-group">
-              <label class="field-label" for="settingMeshSelect">Mesh Partition</label>
-              <select id="settingMeshSelect" class="field" required onchange="updateMeshSelection()">
-                <option value="unmanaged">Unmanaged</option>
-              </select>
-              <span style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">Choose the mesh this device belongs to. Create new meshes with the "Add Mesh" button in the sidebar.</span>
-            </div>
-            <div id="meshSettingsMsg" class="banner hidden"></div>
-            <button type="submit" class="btn btn-primary" style="align-self: flex-start;">Join Mesh</button>
-          </form>
-        </div>
-
-        <!-- Persistent Discovered Devices -->
-        <div class="card">
-          <div class="card-header">
-            <div class="card-title">
-              <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
-              Persistent Discovered Devices
-            </div>
-          </div>
-          <p style="color: var(--text-secondary); font-size: 13px;">
-            Devices discovered on other subnets. DroidMesh automatically reconnects to these devices after power cycles.
-          </p>
-          <div id="crossVlanSeedList" style="display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px;">
-            <span style="color: var(--text-muted); font-size: 13px;">No discovered devices configured.</span>
-          </div>
-          <button type="button" class="btn btn-secondary btn-sm" onclick="showConnectModal(true)" style="align-self: flex-start;">
-            + Add Device IP
-          </button>
-        </div>
-
-        <!-- Device Identity -->
-        <div class="card">
-          <div class="card-header">
-            <div class="card-title">
-              <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-              Device Name
-            </div>
-          </div>
-          <p style="color: var(--text-secondary); font-size: 13px;">
-            Set a custom name for this device that will appear in mesh peer lists and discovery. Leave blank to use default system name.
-          </p>
-          <form onsubmit="handleSaveDeviceName(event)" style="display: flex; flex-direction: column; gap: 12px;">
-            <div class="field-group">
-              <label class="field-label" for="settingDeviceName">Device Name</label>
-              <input id="settingDeviceName" class="field" type="text" placeholder="e.g., Theater Portal, Living Room TV">
-            </div>
-            <div id="deviceNameMsg" class="banner hidden"></div>
-            <button type="submit" class="btn btn-primary" style="align-self: flex-start;">Save Device Name</button>
-          </form>
-        </div>
-
-        <!-- General Preferences -->
-        <div class="card">
-          <div class="card-header">
-            <div class="card-title">
-              <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-              General Preferences
-            </div>
-          </div>
-          <div class="field-group">
-            <label class="field-label" for="settingWebServerPort">HTTP Management Server Port</label>
-            <div style="display: flex; gap: 8px;">
-              <input id="settingWebServerPort" class="field" type="number" value="2325" min="1024" max="65535" style="width: 110px;">
-              <button type="button" class="btn btn-secondary btn-sm" onclick="saveWebServerPort()">Update Port</button>
-            </div>
-            <span style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">Default port is 2325.</span>
-          </div>
-        </div>
-
-
-        <!-- Remote Management -->
-        <div class="card">
-          <div class="card-header">
-            <div class="card-title">
-              <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
-              Remote Management
-            </div>
-          </div>
-          <p style="color: var(--text-secondary); font-size: 13px;">
-            The management UI and REST API are always reachable on the local network — this page
-            is served by the same listener. Protect access with an optional password below.
-          </p>
-
-          <div class="field-group" style="margin-top: 14px; border-top: 1px solid var(--border-subtle); padding-top: 12px;">
-            <label class="field-label" for="settingRemotePort">Management Server Port</label>
-            <div style="display: flex; gap: 8px;">
-              <input id="settingRemotePort" class="field" type="number" value="2325" min="1024" max="65535" style="width: 110px;">
-              <button type="button" class="btn btn-secondary btn-sm" onclick="saveRemoteManagementPort()">Update Port</button>
-            </div>
-            <span style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">Default port is 2325.</span>
-          </div>
-
-          <div style="margin-top: 14px; border-top: 1px solid var(--border-subtle); padding-top: 12px;">
-            <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px;">
-              <div>
-                <label style="display: block; font-weight: 500; margin-bottom: 4px;">Access Password</label>
-                <span id="passwordStatusText" style="font-size: 12px; color: var(--text-muted);">Not set</span>
-              </div>
-              <button type="button" class="btn btn-secondary btn-sm" onclick="showPasswordChangeModal()">Change Password</button>
-            </div>
-          </div>
-          <div id="remoteManagementMsg" class="banner hidden" style="margin-top: 12px;"></div>
-        </div>
-
-        <!-- Password Change Modal -->
-        <div id="passwordChangeModal" class="modal hidden">
-          <div class="modal-content">
-            <div class="modal-header">
-              <h2>Change Access Password</h2>
-              <button type="button" class="btn-close" onclick="closeModal('passwordChangeModal')">×</button>
-            </div>
-            <form onsubmit="handlePasswordChange(event)" style="display: flex; flex-direction: column; gap: 12px;">
-              <div class="field-group" id="groupCurrentPassword">
-                <label class="field-label" for="pwdCurrent">Current Password</label>
-                <input id="pwdCurrent" class="field" type="password" placeholder="Current Password (if set)" autocomplete="current-password">
-              </div>
-              <div class="field-group">
-                <label class="field-label" for="pwdNew">New Password</label>
-                <input id="pwdNew" class="field" type="password" placeholder="New Password (leave blank to remove)" autocomplete="new-password">
-              </div>
-              <div class="field-group">
-                <label class="field-label" for="pwdConfirm">Confirm Password</label>
-                <input id="pwdConfirm" class="field" type="password" placeholder="Confirm New Password" autocomplete="new-password">
-              </div>
-              <div id="pwdMsg" class="banner hidden"></div>
-              <div style="display: flex; gap: 8px; justify-content: flex-end;">
-                <button type="button" class="btn btn-secondary" onclick="closeModal('passwordChangeModal')">Cancel</button>
-                <button type="submit" class="btn btn-primary">Save Password</button>
-              </div>
-            </form>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- TAB: LOGS CONSOLE -->
-    <section id="tab-logs" class="tab-pane">
-      <div class="header-bar">
-        <div>
-          <h1>Runtime Logs</h1>
-          <span id="logsCountBadge" style="color: var(--text-muted); font-size: 12px;">0 entries</span>
-        </div>
-        <div class="header-actions">
-          <button class="btn btn-secondary btn-sm" onclick="copyLogs()">Copy Logs</button>
-          <button class="btn btn-danger btn-sm" onclick="clearLogs()">Clear</button>
-          <button class="btn btn-primary btn-sm" onclick="fetchLogs()">Refresh</button>
-        </div>
-      </div>
-
-      <div style="display: flex; gap: 10px; align-items: center;">
-        <input id="logFilter" class="field" type="text" placeholder="Filter logs (e.g. error, update, mesh)..." oninput="applyLogFilter()">
-        <label style="display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-secondary); cursor: pointer; white-space: nowrap;">
-          <input type="checkbox" id="chkAutoScroll" checked style="accent-color: var(--teal);"> Auto-scroll
-        </label>
-      </div>
-
-      <div id="logConsole" class="log-container">Loading logs...</div>
     </section>
 
   </main>
@@ -1179,14 +1132,21 @@ function switchTab(tabId) {
   const navBtn = document.getElementById(`nav-item-${tabId}`);
   if (navBtn) navBtn.classList.add('active');
 
-  if (tabId === 'logs') {
-    fetchLogs();
-  } else if (tabId === 'settings') {
+  if (tabId === 'device-settings') {
     loadSettings();
-  } else if (tabId === 'overview') {
     refreshStatus();
   } else if (tabId === 'mesh') {
     fetchMeshInfo();
+  }
+}
+
+function showLogsModal(show) {
+  const modal = document.getElementById('logsModal');
+  if (show) {
+    modal.classList.remove('hidden');
+    fetchLogs();
+  } else {
+    modal.classList.add('hidden');
   }
 }
 
@@ -1470,62 +1430,21 @@ async function refreshStatus(forceReleases = false) {
     if (modelBadge) {
       modelBadge.textContent = status.deviceModel || 'Portal';
     }
-
-    // Target App
-    const targetBadge = document.getElementById('targetInstallBadge');
-    if (status.targetInstalled) {
-      targetBadge.className = 'badge badge-sage';
-      targetBadge.textContent = 'Installed';
-    } else {
-      targetBadge.className = 'badge badge-ochre';
-      targetBadge.textContent = 'Not Installed';
+    const versionRow = document.getElementById('valDeviceVersion');
+    if (versionRow) {
+      versionRow.textContent = status.version ? (status.version.startsWith('v') ? status.version : `v${status.version}`) : '--';
     }
 
-    document.getElementById('valInstalledVersion').textContent = status.installedVersionName ? `v${status.installedVersionName}` : 'None';
-
-    // Service & Vitals
-    document.getElementById('updaterStateBadge').textContent = status.updaterState || 'IDLE';
+    // Services & Vitals (Device Settings page)
     document.getElementById('valA11y').textContent = status.accessibilityServiceActive ? 'Active (Auto-Click Ready)' : 'Disabled';
     document.getElementById('valInstallPerm').textContent = status.canRequestPackageInstalls ? 'Allowed' : 'Blocked';
     document.getElementById('valAdb').textContent = status.adbEnabled ? 'Enabled' : 'Disabled';
-    document.getElementById('btnToggleAdb').textContent = status.adbEnabled ? 'Disable Network ADB' : 'Enable Network ADB';
 
     document.getElementById('valCpuUsage').textContent = status.cpuUsage ? `${Math.round(status.cpuUsage)}%` : '--';
     document.getElementById('valCpuTemp').textContent = status.cpuTemp ? `${Math.round(status.cpuTemp)}°C` : '--';
     document.getElementById('valIpAddress').textContent = status.ip || window.location.hostname;
-
-    // Load available releases
-    loadReleases(forceReleases);
   } catch (err) {
     console.error('Failed to refresh status:', err);
-  }
-}
-
-// Releases & Updates
-async function loadReleases(force = false) {
-  try {
-    const data = await apiCall(`/api/releases${force ? '?force=true' : ''}`);
-    if (Array.isArray(data.releases)) {
-      state.releases = data.releases;
-      const select = document.getElementById('selectRelease');
-      select.innerHTML = '';
-
-      if (data.releases.length > 0) {
-        const latest = data.releases[0];
-        document.getElementById('valLatestVersion').textContent = latest.tagName;
-      }
-
-      data.releases.forEach((rel, idx) => {
-        const opt = document.createElement('option');
-        opt.value = rel.tagName;
-        opt.dataset.url = rel.apkAssetUrl;
-        opt.dataset.filename = rel.apkFileName;
-        opt.textContent = idx === 0 ? `Latest (${rel.tagName})` : rel.tagName;
-        select.appendChild(opt);
-      });
-    }
-  } catch (e) {
-    console.warn('Could not fetch releases:', e);
   }
 }
 
@@ -1545,38 +1464,6 @@ async function loadReleasesForPackage(packageName, meshId, force = false) {
     state.releasesLoadingByPackage[packageName] = false;
     const mesh = state.meshes.find(m => m.id === meshId);
     if (mesh) renderMeshAppLibrary(mesh);
-  }
-}
-
-async function triggerUpdate() {
-  const select = document.getElementById('selectRelease');
-  const selectedOpt = select.selectedOptions[0];
-  const tag = selectedOpt ? selectedOpt.value : null;
-  const url = selectedOpt ? selectedOpt.dataset.url : null;
-  const filename = selectedOpt ? selectedOpt.dataset.filename : null;
-  const force = document.getElementById('chkForceUpdate').checked;
-
-  const btn = document.getElementById('btnTriggerUpdate');
-  const statusMsg = document.getElementById('updateStatusMsg');
-
-  btn.disabled = true;
-  statusMsg.classList.remove('hidden');
-  statusMsg.className = 'banner banner-teal';
-  statusMsg.textContent = `Initiating OTA update sequence to ${tag || 'latest'}...`;
-
-  try {
-    const res = await apiCall('/api/update', {
-      method: 'POST',
-      body: JSON.stringify({ tag, url, filename, force })
-    });
-    statusMsg.className = 'banner banner-sage';
-    statusMsg.textContent = res.message || 'Update initiated successfully!';
-    setTimeout(() => refreshStatus(false), 2000);
-  } catch (err) {
-    statusMsg.className = 'banner banner-rust';
-    statusMsg.textContent = `Update failed: ${err.message}`;
-  } finally {
-    btn.disabled = false;
   }
 }
 
@@ -2164,10 +2051,10 @@ async function loadSettings() {
         seedsList.appendChild(row);
       });
     }
-    // Load remote management settings
+    // Load HTTP server port (single consolidated field — UI-BEHAVE-007)
     if (data.webServerPort) {
-      const remotePortEl = document.getElementById('settingRemotePort');
-      if (remotePortEl) remotePortEl.value = data.webServerPort;
+      const portEl = document.getElementById('settingWebServerPort');
+      if (portEl) portEl.value = data.webServerPort;
     }
     // Update password status badge
     const passwordStatusText = document.getElementById('passwordStatusText');
@@ -2182,8 +2069,11 @@ async function loadSettings() {
 
 async function saveWebServerPort() {
   const port = parseInt(document.getElementById('settingWebServerPort').value, 10);
+  const msgEl = document.getElementById('remoteManagementMsg');
   if (!port || port < 1024 || port > 65535) {
-    alert('Please enter a valid port between 1024 and 65535');
+    msgEl.className = 'banner banner-rust settings-row-msg';
+    msgEl.textContent = 'Please enter a valid port between 1024 and 65535';
+    msgEl.classList.remove('hidden');
     return;
   }
   try {
@@ -2191,10 +2081,14 @@ async function saveWebServerPort() {
       method: 'POST',
       body: JSON.stringify({ webServerPort: port })
     });
-    alert('Web Server port updated to ' + port + '. If you changed the port, reconnect on the new port.');
+    msgEl.className = 'banner banner-sage settings-row-msg';
+    msgEl.textContent = `Port updated to ${port}. If you changed it, reconnect on the new port.`;
+    msgEl.classList.remove('hidden');
     refreshStatus(false);
   } catch (e) {
-    alert('Failed to update web server port: ' + e.message);
+    msgEl.className = 'banner banner-rust settings-row-msg';
+    msgEl.textContent = 'Failed to update port: ' + e.message;
+    msgEl.classList.remove('hidden');
   }
 }
 
@@ -2212,7 +2106,7 @@ async function handleSaveDeviceName(e) {
     msgEl.textContent = 'Device name saved!';
     msgEl.classList.remove('hidden');
     // Refresh to show updated device name in peer lists
-    setTimeout(() => fetchStatus(false), 500);
+    setTimeout(() => refreshStatus(false), 500);
   } catch (err) {
     msgEl.className = 'banner banner-rust';
     msgEl.textContent = `Failed: ${err.message}`;
@@ -2310,26 +2204,6 @@ function showPasswordChangeModal() {
   document.getElementById('pwdMsg').classList.add('hidden');
 }
 
-async function saveRemoteManagementPort() {
-  const port = parseInt(document.getElementById('settingRemotePort').value, 10);
-  if (!port || port < 1024 || port > 65535) {
-    alert('Please enter a valid port between 1024 and 65535');
-    return;
-  }
-  try {
-    await apiCall('/api/settings', {
-      method: 'POST',
-      body: JSON.stringify({ webServerPort: port })
-    });
-    const msgEl = document.getElementById('remoteManagementMsg');
-    msgEl.className = 'banner banner-sage';
-    msgEl.textContent = `Port updated to ${port}. If you changed it, reconnect on the new port.`;
-    msgEl.classList.remove('hidden');
-  } catch (e) {
-    alert('Failed to update port: ' + e.message);
-  }
-}
-
 // Logs Console
 async function fetchLogs() {
   try {
@@ -2383,12 +2257,13 @@ window.addEventListener('DOMContentLoaded', () => {
 
   // Background polling loop every 4s
   setInterval(() => {
-    if (state.currentTab === 'overview') {
+    if (state.currentTab === 'device-settings') {
       refreshStatus(false);
+      if (!document.getElementById('logsModal').classList.contains('hidden')) {
+        fetchLogs();
+      }
     } else if (state.currentTab === 'mesh') {
       fetchMeshInfo();
-    } else if (state.currentTab === 'logs') {
-      fetchLogs();
     }
   }, 4000);
 

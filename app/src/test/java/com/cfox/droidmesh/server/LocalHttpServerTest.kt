@@ -416,30 +416,68 @@ class LocalHttpServerTest {
         assertFalse("managed must coerce to false with no downloadUrl", lib["com.cfoxga.nodownloadurl"]?.managed == true)
     }
 
-    // [PROGRAMMATIC] API-TEST-007 (API-BEHAVE-014/015): /status fails open with targetPackage=null
-    // and an empty managedCandidates array when nothing is Managed.
+    // [PROGRAMMATIC] API-TEST-020: /status no longer reports any singleton-target-app fields —
+    // the old resolveTargetApp() mechanism (API-BEHAVE-014/015, deprecated) is gone entirely.
     @Test
-    fun testStatusFailsOpenWithNoManagedApp() {
+    fun testStatusHasNoTargetAppFields() {
         val session = mockSession("/api/status")
         val response = server.serve(session)
         assertEquals(NanoHTTPD.Response.Status.OK, response.status)
         val json = JSONObject(response.data?.readBytes()?.toString(Charsets.UTF_8) ?: "")
-        assertTrue(json.isNull("targetPackage"))
-        assertEquals(0, json.getJSONArray("managedCandidates").length())
+        assertFalse(json.has("targetPackage"))
+        assertFalse(json.has("managedCandidates"))
+        assertFalse(json.has("targetInstalled"))
+        assertFalse(json.has("installedVersionName"))
+        assertFalse(json.has("installedVersionCode"))
     }
 
-    // [PROGRAMMATIC] API-TEST-008: /check fails closed (400) with no managed app configured.
+    // [PROGRAMMATIC] API-TEST-021: /check with no ?package= returns 400 "package is required",
+    // regardless of whether any App Library entry exists or is managed.
     @Test
-    fun testCheckFailsClosedWithNoManagedApp() {
+    fun testCheckWithoutPackageReturns400() {
         val session = mockSession("/api/check")
         val response = server.serve(session)
         assertEquals(NanoHTTPD.Response.Status.BAD_REQUEST, response.status)
+        val json = JSONObject(response.data?.readBytes()?.toString(Charsets.UTF_8) ?: "")
+        assertTrue(json.getString("message").contains("package is required", ignoreCase = true))
     }
 
-    // [PROGRAMMATIC] API-TEST-009: /check auto-resolves the single managed app, then fails
-    // closed (400) once a second managed app makes resolution ambiguous.
+    // [PROGRAMMATIC] API-TEST-022: /check?package=<unknown> (not in the local mesh's App
+    // Library) returns 400 naming the package.
     @Test
-    fun testCheckResolvesSingleManagedThenAmbiguous() {
+    fun testCheckWithUnknownPackageReturns400() {
+        val session = mockSession("/api/check?package=com.example.unknown")
+        val response = server.serve(session)
+        assertEquals(NanoHTTPD.Response.Status.BAD_REQUEST, response.status)
+        val json = JSONObject(response.data?.readBytes()?.toString(Charsets.UTF_8) ?: "")
+        assertTrue(json.getString("message").contains("com.example.unknown"))
+    }
+
+    // [PROGRAMMATIC] API-TEST-023: /check?package=<pkg> with a blank downloadUrl returns 400
+    // naming the package.
+    @Test
+    fun testCheckWithBlankDownloadUrlReturns400() {
+        SettingsStore.setMeshAppConfig(
+            mockContext, "unmanaged",
+            SettingsStore.MeshAppConfig(
+                packageName = "com.example.nodownload",
+                appName = "No Download",
+                managed = false,
+                downloadUrl = ""
+            )
+        )
+        val session = mockSession("/api/check?package=com.example.nodownload")
+        val response = server.serve(session)
+        assertEquals(NanoHTTPD.Response.Status.BAD_REQUEST, response.status)
+        val json = JSONObject(response.data?.readBytes()?.toString(Charsets.UTF_8) ?: "")
+        assertTrue(json.getString("message").contains("com.example.nodownload"))
+    }
+
+    // [PROGRAMMATIC] API-TEST-024: two App Library entries simultaneously managed=true, each
+    // resolved independently via explicit ?package= with no ambiguity error — proves the
+    // singleton "one managed app" resolver (API-BEHAVE-014, deprecated) is gone.
+    @Test
+    fun testCheckResolvesEitherOfMultipleSimultaneouslyManagedApps() {
         SettingsStore.setMeshAppConfig(
             mockContext, "unmanaged",
             SettingsStore.MeshAppConfig(
@@ -449,10 +487,6 @@ class LocalHttpServerTest {
                 downloadUrl = "https://example.com/appone.apk"
             )
         )
-        val soloSession = mockSession("/api/check")
-        val soloResponse = server.serve(soloSession)
-        assertNotEquals(NanoHTTPD.Response.Status.BAD_REQUEST, soloResponse.status)
-
         SettingsStore.setMeshAppConfig(
             mockContext, "unmanaged",
             SettingsStore.MeshAppConfig(
@@ -462,16 +496,36 @@ class LocalHttpServerTest {
                 downloadUrl = "https://example.com/apptwo.apk"
             )
         )
-        val ambiguousSession = mockSession("/api/check")
-        val ambiguousResponse = server.serve(ambiguousSession)
-        assertEquals(NanoHTTPD.Response.Status.BAD_REQUEST, ambiguousResponse.status)
-        val json = JSONObject(ambiguousResponse.data?.readBytes()?.toString(Charsets.UTF_8) ?: "")
-        assertEquals(2, json.getJSONArray("managedCandidates").length())
 
-        // Explicit ?package= still resolves unambiguously.
-        val explicitSession = mockSession("/api/check?package=com.example.appone")
-        val explicitResponse = server.serve(explicitSession)
-        assertNotEquals(NanoHTTPD.Response.Status.BAD_REQUEST, explicitResponse.status)
+        val oneResponse = server.serve(mockSession("/api/check?package=com.example.appone"))
+        assertNotEquals(NanoHTTPD.Response.Status.BAD_REQUEST, oneResponse.status)
+        val twoResponse = server.serve(mockSession("/api/check?package=com.example.apptwo"))
+        assertNotEquals(NanoHTTPD.Response.Status.BAD_REQUEST, twoResponse.status)
+    }
+
+    // [PROGRAMMATIC] API-TEST-025: /update with no package (query or body) returns 400
+    // "package is required".
+    @Test
+    fun testUpdateWithoutPackageReturns400() {
+        val session = mockSession("/api/update", method = NanoHTTPD.Method.POST, postBody = "{}")
+        val response = server.serve(session)
+        assertEquals(NanoHTTPD.Response.Status.BAD_REQUEST, response.status)
+        val json = JSONObject(response.data?.readBytes()?.toString(Charsets.UTF_8) ?: "")
+        assertTrue(json.getString("message").contains("package is required", ignoreCase = true))
+    }
+
+    // [PROGRAMMATIC] API-TEST-026: /update?package=<unknown> returns 400 naming the package.
+    @Test
+    fun testUpdateWithUnknownPackageReturns400() {
+        val session = mockSession(
+            "/api/update?package=com.example.unknown",
+            method = NanoHTTPD.Method.POST,
+            postBody = "{}"
+        )
+        val response = server.serve(session)
+        assertEquals(NanoHTTPD.Response.Status.BAD_REQUEST, response.status)
+        val json = JSONObject(response.data?.readBytes()?.toString(Charsets.UTF_8) ?: "")
+        assertTrue(json.getString("message").contains("com.example.unknown"))
     }
 
     // [PROGRAMMATIC] MESH-TEST-008: Deleting "unmanaged" is rejected (negative case for MESH-BEHAVE-009)

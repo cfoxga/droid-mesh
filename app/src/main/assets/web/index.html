@@ -1619,8 +1619,15 @@ async function loadReleasesForPackage(packageName, meshId, force = false) {
     state.releasesByPackage[packageName] = state.releasesByPackage[packageName] || [];
   } finally {
     state.releasesLoadingByPackage[packageName] = false;
-    const mesh = state.meshes.find(m => m.id === meshId);
-    if (mesh) renderMeshAppLibrary(mesh);
+    // Repaint the whole mesh view, not just the App Library table: peer cards resolve "latest"
+    // from this same list (UI-BEHAVE-011) and would otherwise keep rendering a stale
+    // "up to date" badge until some other event forced a re-render.
+    if (state.currentTab === 'mesh') {
+      renderCurrentMeshView();
+    } else {
+      const mesh = state.meshes.find(m => m.id === meshId);
+      if (mesh) renderMeshAppLibrary(mesh);
+    }
   }
 }
 
@@ -1746,6 +1753,24 @@ function renderSidebarMeshes() {
     btn.onclick = () => selectMesh(m.id);
     sidebarList.appendChild(btn);
   });
+}
+
+// UI-BEHAVE-011: resolve what an App Library entry's targetVersion actually *points at*.
+// A pinned tag is its own answer; "latest" (the default for every entry) only becomes a
+// comparable version once the release list for that package has loaded. Returns null when the
+// list has not arrived yet, so callers render "no drift known" rather than a false "up to date".
+function resolveTargetTag(cfg) {
+  if (!cfg) return null;
+  const pinned = (cfg.targetVersion || '').trim();
+  if (pinned && pinned.toLowerCase() !== 'latest') return pinned;
+  const releases = state.releasesByPackage[cfg.packageName];
+  return (releases && releases.length > 0) ? releases[0].tagName : null;
+}
+
+// UI-BEHAVE-011: true when this peer's installed build differs from the resolved target tag.
+function peerAppNeedsUpdate(cfg, installedVersion) {
+  const resolved = resolveTargetTag(cfg);
+  return !!resolved && isVersionMismatch(installedVersion, resolved);
 }
 
 function isVersionMismatch(installedVersion, targetVersion) {
@@ -2040,6 +2065,18 @@ function renderMeshPeers(peers, library) {
     libraryMap[app.packageName] = app;
   });
 
+  // UI-BEHAVE-011: a managed entry on the default "latest" target can only be compared against
+  // a real release tag, so make sure its release list is on its way. Same lazy, once-per-package
+  // guard the App Library table uses — this just stops peer drift detection depending on whether
+  // that table happened to render first.
+  Object.values(libraryMap).forEach(cfg => {
+    if (cfg.managed && hasReleaseSource(cfg) &&
+        state.releasesByPackage[cfg.packageName] === undefined &&
+        !state.releasesLoadingByPackage[cfg.packageName]) {
+      loadReleasesForPackage(cfg.packageName, state.selectedMeshId);
+    }
+  });
+
   peers.forEach(peer => {
     const card = document.createElement('div');
     card.className = 'card';
@@ -2053,10 +2090,8 @@ function renderMeshPeers(peers, library) {
     const managedApps = rawApps.filter(app => libraryMap[app.packageName]?.managed);
 
     // Calculate out of date apps and missing auto-install apps
-    const outOfDateApps = managedApps.filter(app => {
-      const cfg = libraryMap[app.packageName];
-      return cfg && cfg.targetVersion && isVersionMismatch(app.versionName, cfg.targetVersion);
-    });
+    const outOfDateApps = managedApps.filter(app =>
+      peerAppNeedsUpdate(libraryMap[app.packageName], app.versionName));
 
     const installedPkgSet = new Set(rawApps.map(a => a.packageName));
     const missingApps = (library || []).filter(libApp => !isExcludedApp(libApp.packageName) && libApp.managed && libApp.autoInstall && !installedPkgSet.has(libApp.packageName));
@@ -2079,7 +2114,7 @@ function renderMeshPeers(peers, library) {
         const cfg = libraryMap[app.packageName];
         // APP-BEHAVE-006: version tracking follows the release source, not the origin guess.
         const isTracked = hasReleaseSource(cfg);
-        const needsUpdate = cfg && cfg.targetVersion && isVersionMismatch(app.versionName, cfg.targetVersion);
+        const needsUpdate = peerAppNeedsUpdate(cfg, app.versionName);
 
         return `
           <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; padding: 4px 0; border-bottom: 1px solid rgba(255,255,255,0.03);">
@@ -2093,7 +2128,7 @@ function renderMeshPeers(peers, library) {
                   ${app.versionName ? `v${escapeHtml(app.versionName)}` : (app.versionCode ? `build ${escapeHtml(String(app.versionCode))}` : 'Installed')}
                 </span>
                 ${needsUpdate ? `
-                  <button class="btn btn-primary btn-sm" style="font-size: 11px; padding: 2px 8px;" onclick="triggerAppUpdate('${peer.ip}', ${peer.port}, '${app.packageName}', '${cfg.targetVersion}')">
+                  <button class="btn btn-primary btn-sm" style="font-size: 11px; padding: 2px 8px;" onclick="triggerAppUpdate('${peer.ip}', ${peer.port}, '${app.packageName}', '${escapeHtml(resolveTargetTag(cfg) || '')}')">
                     Update
                   </button>
                 ` : ''}

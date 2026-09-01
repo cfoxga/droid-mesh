@@ -16,6 +16,7 @@ import org.mockito.kotlin.atLeastOnce
 import org.mockito.kotlin.doReturn
 import org.mockito.kotlin.eq
 import org.mockito.kotlin.mock
+import org.mockito.kotlin.never
 import org.mockito.kotlin.verify
 import org.mockito.kotlin.whenever
 import kotlinx.coroutines.runBlocking
@@ -498,6 +499,115 @@ class LocalHttpServerTest {
         assertEquals(NanoHTTPD.Response.Status.BAD_REQUEST, response.status)
         val json = JSONObject(response.data?.readBytes()?.toString(Charsets.UTF_8) ?: "")
         assertTrue(json.getString("message").contains("com.example.nodownload"))
+    }
+
+    // [PROGRAMMATIC] UI-TEST-009: peer-card drift detection must resolve what `targetVersion`
+    // points at before comparing. `isVersionMismatch` hard-returns false for the literal "latest",
+    // which is every entry's default, so comparing the raw field made `needsUpdate` permanently
+    // false and the per-node Update button never rendered no matter how far a peer had drifted.
+    @Test
+    fun testPeerCardsResolveLatestBeforeComparingVersions() {
+        val assetFile = java.io.File("src/main/assets/web/index.html")
+        assertTrue("index.html asset must exist", assetFile.exists())
+        val html = assetFile.readText()
+
+        assertTrue(
+            "index.html must define resolveTargetTag()",
+            html.contains("function resolveTargetTag(")
+        )
+        assertTrue(
+            "index.html must define peerAppNeedsUpdate()",
+            html.contains("function peerAppNeedsUpdate(")
+        )
+        // Negative case: no peer-card path may compare the raw targetVersion field any more.
+        assertEquals(
+            "peer cards must not compare the raw cfg.targetVersion",
+            0,
+            Regex("isVersionMismatch\\(\\s*app\\.versionName\\s*,\\s*cfg\\.targetVersion")
+                .findAll(html).count()
+        )
+        // The Update button must hand the peer the *resolved* tag, not the literal "latest".
+        assertEquals(
+            "the peer Update button must pass a resolved tag to triggerAppUpdate",
+            0,
+            Regex("triggerAppUpdate\\([^)]*cfg\\.targetVersion").findAll(html).count()
+        )
+        assertTrue(
+            "the peer Update button must pass resolveTargetTag(cfg)",
+            html.contains("triggerAppUpdate") && html.contains("resolveTargetTag(cfg)")
+        )
+        // Resolution is useless if the release list never arrives on the Mesh Nodes tab, so pin
+        // the two pieces of wiring that make it arrive and take effect.
+        assertTrue(
+            "renderMeshPeers must lazily kick off loadReleasesForPackage for managed entries",
+            html.contains("loadReleasesForPackage(cfg.packageName, state.selectedMeshId)")
+        )
+        assertTrue(
+            "loadReleasesForPackage must repaint the whole mesh view when the list arrives",
+            html.contains("renderCurrentMeshView()")
+        )
+    }
+
+    // [PROGRAMMATIC] API-TEST-030: /update with a `tag` but no explicit `url` must resolve that
+    // tag against the entry's downloadUrl and install THAT release. It previously fell through to
+    // the plain "install latest" path, so a peer Update button for a pinned version silently
+    // installed the newest build instead (API-BEHAVE-021).
+    @Test
+    fun testUpdateWithTagButNoUrlInstallsThatSpecificRelease() = runBlocking {
+        SettingsStore.setMeshAppConfig(
+            mockContext, "unmanaged",
+            SettingsStore.MeshAppConfig(
+                packageName = "com.example.pinned",
+                appName = "Pinned",
+                managed = true,
+                downloadUrl = "https://github.com/owner/pinned/releases"
+            )
+        )
+        val pinned = ReleaseInfo(
+            tagName = "v1.5.0", name = "v1.5.0", publishedAt = "",
+            apkAssetUrl = "https://example.com/app-1.5.0.apk",
+            apkFileName = "app-1.5.0.apk", apkSize = 5L
+        )
+        whenever(mockCoordinator.resolveTargetRelease(any(), any())).thenReturn(Result.success(pinned))
+
+        val response = server.serve(
+            mockSession("/api/update?package=com.example.pinned&tag=v1.5.0", NanoHTTPD.Method.POST)
+        )
+
+        assertEquals(NanoHTTPD.Response.Status.ACCEPTED, response.status)
+        verify(mockCoordinator).startUpdateForRelease(
+            eq("com.example.pinned"), eq(pinned), eq(false), any()
+        )
+        // Must NOT have taken the "just install latest" path.
+        verify(mockCoordinator, never()).startUpdateAsync(any(), any(), any(), any())
+    }
+
+    // [PROGRAMMATIC] API-TEST-030 (negative): a tag that matches no release is a 400 naming the
+    // tag, never a silent fall-back to installing latest.
+    @Test
+    fun testUpdateWithUnresolvableTagReturns400AndInstallsNothing() = runBlocking {
+        SettingsStore.setMeshAppConfig(
+            mockContext, "unmanaged",
+            SettingsStore.MeshAppConfig(
+                packageName = "com.example.badpin",
+                appName = "Bad Pin",
+                managed = true,
+                downloadUrl = "https://github.com/owner/badpin/releases"
+            )
+        )
+        whenever(mockCoordinator.resolveTargetRelease(any(), any())).thenReturn(
+            Result.failure(IllegalStateException("No release matching target version 'v9.9.9'"))
+        )
+
+        val response = server.serve(
+            mockSession("/api/update?package=com.example.badpin&tag=v9.9.9", NanoHTTPD.Method.POST)
+        )
+
+        assertEquals(NanoHTTPD.Response.Status.BAD_REQUEST, response.status)
+        val json = JSONObject(response.data?.readBytes()?.toString(Charsets.UTF_8) ?: "")
+        assertTrue(json.getString("message").contains("v9.9.9"))
+        verify(mockCoordinator, never()).startUpdateForRelease(any(), any(), any(), any())
+        verify(mockCoordinator, never()).startUpdateAsync(any(), any(), any(), any())
     }
 
     // [PROGRAMMATIC] API-TEST-029: /check must still hand back the release list when only the

@@ -635,7 +635,25 @@ class LocalHttpServer(
                     put("message", "No downloadUrl configured for $packageName")
                 })
             }
-            coordinator.startUpdateAsync(packageName, downloadUrl, force = force)
+            if (tag.isNotBlank()) {
+                // API-BEHAVE-021: a `tag` with no explicit `url` is still a pin. Resolve it against
+                // the entry's release source and install THAT build. Falling through to
+                // startUpdateAsync here would silently install the newest release instead.
+                val resolved = runBlocking { coordinator.resolveTargetRelease(downloadUrl, tag) }
+                val release = resolved.getOrElse { err ->
+                    return jsonResponse(Response.Status.BAD_REQUEST, JSONObject().apply {
+                        put("status", "error")
+                        put(
+                            "message",
+                            "Could not resolve version '$tag' for $packageName: " +
+                                (err.message ?: err.javaClass.simpleName)
+                        )
+                    })
+                }
+                coordinator.startUpdateForRelease(packageName, release, force = force)
+            } else {
+                coordinator.startUpdateAsync(packageName, downloadUrl, force = force)
+            }
         }
 
         val json = JSONObject().apply {

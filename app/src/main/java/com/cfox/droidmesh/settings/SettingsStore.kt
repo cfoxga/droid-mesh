@@ -456,7 +456,7 @@ object SettingsStore {
         return ver
     }
 
-    fun exportConfigJson(context: Context): JSONObject = JSONObject().apply {
+    fun exportConfigJson(context: Context, knownPeersJson: JSONArray? = null): JSONObject = JSONObject().apply {
         put("config_version", getConfigVersion(context))
         put("web_server_enabled", isWebServerEnabled(context))
         put("web_server_port", getWebServerPort(context))
@@ -473,6 +473,10 @@ object SettingsStore {
         // For backward compatibility, also include under old key
         put("cross_vlan_seeds", connectionsArr)
         put("mesh_app_libraries", getAllMeshAppLibraries(context))
+        // Include known peers for recovery after power loss
+        if (knownPeersJson != null) {
+            put("known_peers", knownPeersJson)
+        }
     }
 
     fun importConfigJson(context: Context, json: JSONObject): ConfigImportResult {
@@ -557,6 +561,16 @@ object SettingsStore {
             if (currentConnections != newConnections) {
                 editor.putStringSet(KEY_PERSISTENT_CONNECTIONS, newConnections)
                 seedsChanged = true
+            }
+        }
+
+        // Restore known peers for recovery after power loss (optional, best-effort)
+        // The known_peers list helps bootstrap mesh discovery by providing last-known peer metadata
+        if (json.has("known_peers")) {
+            val knownPeersArr = json.optJSONArray("known_peers")
+            if (knownPeersArr != null && knownPeersArr.length() > 0) {
+                // Store known peers for MeshDiscoveryManager to restore on startup
+                editor.putString("known_peers_json", knownPeersArr.toString())
             }
         }
 

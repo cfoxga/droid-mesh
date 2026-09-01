@@ -34,6 +34,14 @@ object CpuStatsHelper {
     private var cachedTelemetry = CpuTelemetry(null, null)
 
     fun getDeviceName(context: Context): String {
+        // Check custom device name first (user override)
+        val customName = try {
+            val settings = context.getSharedPreferences("kiosk_satellite_updater_settings", 0)
+            settings.getString("custom_device_name", null)
+        } catch (e: Exception) { null }
+        if (!customName.isNullOrBlank()) return customName
+
+        // Fallback to Android system settings
         val globalName = try {
             Settings.Global.getString(context.contentResolver, "device_name")
         } catch (e: Exception) { null }
@@ -44,6 +52,7 @@ object CpuStatsHelper {
         } catch (e: Exception) { null }
         if (!bluetoothName.isNullOrBlank()) return bluetoothName
 
+        // Fallback to Build.MODEL and Build.MANUFACTURER
         val model = Build.MODEL ?: "Portal"
         val manufacturer = Build.MANUFACTURER ?: ""
         if (manufacturer.isNotBlank() && model.startsWith(manufacturer, ignoreCase = true)) {

@@ -55,7 +55,7 @@ class MeshDiscoveryManager(
     private var txJob: Job? = null
     private var rxJob: Job? = null
     private var pruneJob: Job? = null
-    private var syncJob: Job? = null
+    private var discoveryJob: Job? = null
 
     private val httpClient = OkHttpClient.Builder()
         .connectTimeout(5, TimeUnit.SECONDS)
@@ -94,7 +94,7 @@ class MeshDiscoveryManager(
         startReceiver()
         startTransmitter()
         startPruner()
-        startCrossVlanSyncer()
+        startDiscoverySyncer()
     }
 
     fun stop() {
@@ -102,7 +102,7 @@ class MeshDiscoveryManager(
         txJob?.cancel()
         rxJob?.cancel()
         pruneJob?.cancel()
-        syncJob?.cancel()
+        discoveryJob?.cancel()
 
         try {
             rxSocket?.close()
@@ -342,16 +342,16 @@ class MeshDiscoveryManager(
         }
     }
 
-    private fun startCrossVlanSyncer() {
-        syncJob = scope.launch(Dispatchers.IO) {
+    private fun startDiscoverySyncer() {
+        discoveryJob = scope.launch(Dispatchers.IO) {
             while (isActive) {
-                val seeds = SettingsStore.getCrossVlanSeeds(context)
-                for (seed in seeds) {
+                val connections = SettingsStore.getPersistentConnections(context)
+                for (connection in connections) {
                     if (!isActive) break
                     try {
-                        syncWithSeed(seed)
+                        syncWithConnection(connection)
                     } catch (e: Exception) {
-                        Logger.w("Failed cross-VLAN sync with seed $seed: ${e.message}")
+                        Logger.w("Failed discovery sync with connection $connection: ${e.message}")
                     }
                 }
                 delay(CROSS_VLAN_SYNC_INTERVAL_MS)
@@ -359,57 +359,63 @@ class MeshDiscoveryManager(
         }
     }
 
-    suspend fun syncWithSeed(seed: String) = withContext(Dispatchers.IO) {
-        val normalized = normalizeSeedAddress(seed)
+    suspend fun syncWithConnection(connection: String) = withContext(Dispatchers.IO) {
+        val normalized = normalizeConnectionAddress(connection)
         val url = "http://$normalized/api/mesh"
         val request = Request.Builder()
             .url(url)
             .header("Accept", "application/json")
-            .header("User-Agent", "DroidMesh-Sync")
+            .header("User-Agent", "DroidMesh-Discovery")
             .build()
 
         httpClient.newCall(request).execute().use { response ->
             if (!response.isSuccessful) {
-                throw IllegalStateException("HTTP ${response.code} from seed $seed")
+                throw IllegalStateException("HTTP ${response.code} from connection $connection")
             }
             val body = response.body?.string() ?: return@use
             val json = JSONObject(body)
             val peersArray = json.optJSONArray("peers")
             if (peersArray != null) {
-                ingestRemotePeers(peersArray, seed)
+                ingestRemotePeers(peersArray, connection)
             }
 
-            // Check remote config version from seed
-            val seedConfigVer = json.optLong("config_version", 0L)
+            // Check remote config version
+            val remoteConfigVer = json.optLong("config_version", 0L)
             val localConfigVer = SettingsStore.getConfigVersion(context)
             val host = normalized.substringBefore(":")
             val port = normalized.substringAfter(":", "2325").toIntOrNull() ?: 2325
-            if (seedConfigVer > localConfigVer) {
+            if (remoteConfigVer > localConfigVer) {
                 pullConfigFromPeer(host, port)
-            } else if (seedConfigVer < localConfigVer && localConfigVer > 0L) {
+            } else if (remoteConfigVer < localConfigVer && localConfigVer > 0L) {
                 pushConfigToPeer(host, port)
             }
         }
     }
 
-    fun addCrossVlanSeed(rawIp: String, reciprocal: Boolean = true): Result<String> {
-        val normalized = normalizeSeedAddress(rawIp)
-        SettingsStore.addCrossVlanSeed(context, normalized)
+    // Backward compatibility: alias for renamed method
+    suspend fun syncWithSeed(seed: String) = syncWithConnection(seed)
+
+    fun addDiscoveredDevice(rawIp: String, reciprocal: Boolean = true): Result<String> {
+        val normalized = normalizeConnectionAddress(rawIp)
+        SettingsStore.addPersistentConnection(context, normalized)
 
         // Launch immediate handshake in background
         scope.launch(Dispatchers.IO) {
             try {
                 performHandshake(normalized, reciprocal)
             } catch (e: Exception) {
-                Logger.e("Handshake failed with cross-VLAN seed $normalized", e)
+                Logger.e("Handshake failed with discovered device $normalized", e)
             }
         }
 
         return Result.success(normalized)
     }
 
-    private suspend fun performHandshake(seed: String, reciprocal: Boolean) = withContext(Dispatchers.IO) {
-        val normalized = normalizeSeedAddress(seed)
+    // Backward compatibility: alias for renamed method
+    fun addCrossVlanSeed(rawIp: String, reciprocal: Boolean = true): Result<String> = addDiscoveredDevice(rawIp, reciprocal)
+
+    private suspend fun performHandshake(connection: String, reciprocal: Boolean) = withContext(Dispatchers.IO) {
+        val normalized = normalizeConnectionAddress(connection)
         val localIp = getLocalIpAddress() ?: "127.0.0.1"
         val handshakeUrl = "http://$normalized/api/mesh/handshake"
         val activePort = SettingsStore.getWebServerPort(context)
@@ -447,9 +453,9 @@ class MeshDiscoveryManager(
                         SettingsStore.importConfigJson(context, remoteConfig)
                     }
                 }
-                Logger.i("Successfully performed handshake with cross-VLAN seed $normalized")
+                Logger.i("Successfully performed handshake with discovered device $normalized")
             } else {
-                Logger.w("Handshake returned HTTP ${response.code} from seed $normalized")
+                Logger.w("Handshake returned HTTP ${response.code} from discovered device $normalized")
             }
         }
     }
@@ -457,51 +463,54 @@ class MeshDiscoveryManager(
     fun handleIncomingHandshake(json: JSONObject, senderIp: String): JSONObject {
         val remoteSenderIp = json.optString("sender_ip", senderIp)
         val remotePort = json.optInt("sender_port", 2325)
-        val remoteSeed = "$remoteSenderIp:$remotePort"
+        val remoteConnection = "$remoteSenderIp:$remotePort"
         val reciprocal = json.optBoolean("reciprocal", false)
 
-        // Automatically persist remote peer as cross-VLAN seed for power outage resilience
-        SettingsStore.addCrossVlanSeed(context, remoteSeed)
-        Logger.i("Registered incoming cross-VLAN handshake from $remoteSeed (Mesh: ${json.optString("mesh_id")})")
+        // Automatically persist remote peer as persistent connection for power outage resilience
+        SettingsStore.addPersistentConnection(context, remoteConnection)
+        Logger.i("Registered incoming handshake from $remoteConnection (Mesh: ${json.optString("mesh_id")})")
 
         // Import config if provided
         val incomingConfig = json.optJSONObject("config")
         if (incomingConfig != null) {
             val result = SettingsStore.importConfigJson(context, incomingConfig)
             if (result.applied) {
-                Logger.i("Imported config v${result.newVersion} during incoming handshake from $remoteSeed")
+                Logger.i("Imported config v${result.newVersion} during incoming handshake from $remoteConnection")
             }
         }
 
-        // Trigger reciprocal connect if requested
+        // Trigger reciprocal connect if requested, and broadcast immediately to announce ourselves
         if (reciprocal) {
             scope.launch(Dispatchers.IO) {
                 try {
-                    syncWithSeed(remoteSeed)
+                    syncWithConnection(remoteConnection)
                 } catch (e: Exception) {
-                    Logger.w("Reciprocal sync failed with $remoteSeed: ${e.message}")
+                    Logger.w("Reciprocal sync failed with $remoteConnection: ${e.message}")
                 }
             }
         }
+
+        // Immediately send a beacon so the remote peer knows this device is now aware of them
+        triggerBeacon()
 
         val res = getMeshesGrouped()
         res.put("config", SettingsStore.exportConfigJson(context))
         return res
     }
 
-    fun removeCrossVlanSeed(rawIp: String): Boolean {
-        val normalized = normalizeSeedAddress(rawIp)
+    fun removeDiscoveredDevice(rawIp: String): Boolean {
+        val normalized = normalizeConnectionAddress(rawIp)
         val cleanHost = normalized.substringBefore(":")
-        val removed = SettingsStore.removeCrossVlanSeed(context, normalized) ||
-                      SettingsStore.removeCrossVlanSeed(context, cleanHost) ||
-                      SettingsStore.removeCrossVlanSeed(context, rawIp.trim())
+        val removed = SettingsStore.removePersistentConnection(context, normalized) ||
+                      SettingsStore.removePersistentConnection(context, cleanHost) ||
+                      SettingsStore.removePersistentConnection(context, rawIp.trim())
 
-        // Prune peers matching this seed host
+        // Prune peers matching this connection host
         val iterator = peersMap.entries.iterator()
         var changed = false
         while (iterator.hasNext()) {
             val entry = iterator.next()
-            if (entry.value.isCrossVlan && (entry.value.ip == cleanHost || entry.value.ip == normalized)) {
+            if (entry.value.isDiscoveredPeer && (entry.value.ip == cleanHost || entry.value.ip == normalized)) {
                 iterator.remove()
                 changed = true
             }
@@ -511,6 +520,9 @@ class MeshDiscoveryManager(
         }
         return removed
     }
+
+    // Backward compatibility alias
+    fun removeCrossVlanSeed(rawIp: String): Boolean = removeDiscoveredDevice(rawIp)
 
     fun ingestRemotePeers(peersArray: JSONArray, seed: String) {
         var changed = false
@@ -580,7 +592,7 @@ class MeshDiscoveryManager(
                 isSelf = false,
                 meshId = meshId,
                 meshName = meshName,
-                isCrossVlan = true
+                isDiscoveredPeer = true
             )
             peersMap[id] = remotePeer
             changed = true
@@ -590,7 +602,7 @@ class MeshDiscoveryManager(
         }
     }
 
-    private fun normalizeSeedAddress(raw: String): String {
+    private fun normalizeConnectionAddress(raw: String): String {
         val trimmed = raw.trim().removePrefix("http://").removePrefix("https://").trimEnd('/')
         return if (!trimmed.contains(":")) {
             "$trimmed:2325"
@@ -598,6 +610,9 @@ class MeshDiscoveryManager(
             trimmed
         }
     }
+
+    // Backward compatibility alias
+    private fun normalizeSeedAddress(raw: String): String = normalizeConnectionAddress(raw)
 
     private fun startPruner() {
         pruneJob = scope.launch(Dispatchers.IO) {
@@ -645,7 +660,7 @@ class MeshDiscoveryManager(
             isSelf = true,
             meshId = localMeshId,
             meshName = localMeshName,
-            isCrossVlan = false
+            isDiscoveredPeer = false
         )
 
         val remotes = peersMap.values.toList().sortedBy { it.ip }
@@ -659,7 +674,7 @@ class MeshDiscoveryManager(
     fun getMeshesGrouped(): JSONObject {
         val currentPeers = _peersFlow.value
         val localIp = getLocalIpAddress() ?: "127.0.0.1"
-        val seeds = SettingsStore.getCrossVlanSeeds(context)
+        val connections = SettingsStore.getPersistentConnections(context)
 
         val byMesh = currentPeers.groupBy { it.meshId }
         val meshesArray = JSONArray()
@@ -727,8 +742,8 @@ class MeshDiscoveryManager(
         val allPeersJson = JSONArray()
         currentPeers.forEach { allPeersJson.put(it.toJson()) }
 
-        val seedsJson = JSONArray()
-        seeds.forEach { seedsJson.put(it) }
+        val connectionsJson = JSONArray()
+        connections.forEach { connectionsJson.put(it) }
 
         return JSONObject().apply {
             put("local_mesh_id", localMeshId)
@@ -736,7 +751,9 @@ class MeshDiscoveryManager(
             put("local_ip", localIp)
             put("device_id", deviceId)
             put("meshes", meshesArray)
-            put("seeds", seedsJson)
+            put("persistent_connections", connectionsJson)
+            // Backward compatibility: also include under old key
+            put("seeds", connectionsJson)
             put("peers", allPeersJson)
         }
     }

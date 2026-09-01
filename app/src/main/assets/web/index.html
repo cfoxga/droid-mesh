@@ -536,7 +536,7 @@ input:checked + .slider:before {
 </head>
 <body>
 
-<!-- Connect Cross-VLAN Mesh Modal -->
+<!-- Discover Device Modal -->
 <div id="connectModal" class="modal-backdrop hidden">
   <div class="modal-card">
     <div style="text-align: center;">
@@ -545,20 +545,88 @@ input:checked + .slider:before {
           <path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/>
         </svg>
       </div>
-      <h2 style="font-size: 18px; font-weight: 600;">Connect Cross-VLAN Mesh</h2>
+      <h2 style="font-size: 18px; font-weight: 600;">Discover Device</h2>
       <p style="color: var(--text-secondary); font-size: 13px; margin-top: 4px;">
-        Enter the IP address of any device on another VLAN. The meshes will exchange info and automatically stay connected across reboots.
+        Enter the IP address of any device on a different subnet. DroidMesh will exchange mesh information and maintain the connection across power cycles.
       </p>
     </div>
     <form id="connectForm" onsubmit="handleConnectMesh(event)" style="display: flex; flex-direction: column; gap: 14px;">
       <div class="field-group">
-        <label class="field-label" for="connectSeedIp">Remote Device IP or Host:Port</label>
+        <label class="field-label" for="connectSeedIp">Device IP or Host:Port</label>
         <input id="connectSeedIp" class="field" type="text" placeholder="192.168.50.10" required autofocus>
       </div>
       <div id="connectMsg" class="banner hidden"></div>
       <div style="display: flex; gap: 10px; justify-content: flex-end;">
         <button type="button" class="btn btn-secondary" onclick="showConnectModal(false)">Cancel</button>
-        <button type="submit" id="btnConnectSubmit" class="btn btn-primary">Connect & Discover</button>
+        <button type="submit" id="btnConnectSubmit" class="btn btn-primary">Discover Device</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Create Mesh Modal -->
+<div id="createMeshModal" class="modal-backdrop hidden">
+  <div class="modal-card">
+    <div style="text-align: center;">
+      <div class="brand-icon" style="margin: 0 auto 12px auto; width: 44px; height: 44px;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/>
+        </svg>
+      </div>
+      <h2 style="font-size: 18px; font-weight: 600;">Create Mesh</h2>
+      <p style="color: var(--text-secondary); font-size: 13px; margin-top: 4px;">
+        Define a new mesh partition for your fleet. Choose a unique name and ID.
+      </p>
+    </div>
+    <form id="createMeshForm" onsubmit="handleCreateMesh(event)" style="display: flex; flex-direction: column; gap: 14px;">
+      <div class="field-group">
+        <label class="field-label" for="createMeshName">Mesh Name</label>
+        <input id="createMeshName" class="field" type="text" placeholder="e.g., Portal Fleet, Theater Displays" required autofocus>
+      </div>
+      <div class="field-group">
+        <label class="field-label" for="createMeshId">Mesh ID</label>
+        <input id="createMeshId" class="field" type="text" placeholder="e.g., portal-fleet, theater-displays" pattern="^[a-z0-9-]+$" title="Alphanumeric and hyphens only" required>
+        <span style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">Lowercase alphanumeric and hyphens only. Cannot be changed later.</span>
+      </div>
+      <div id="createMeshMsg" class="banner hidden"></div>
+      <div style="display: flex; gap: 8px;">
+        <button type="button" class="btn btn-secondary" onclick="closeModal('createMeshModal')">Cancel</button>
+        <button type="submit" id="btnCreateMeshSubmit" class="btn btn-primary">Create Mesh</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Edit Mesh Modal -->
+<div id="editMeshModal" class="modal-backdrop hidden">
+  <div class="modal-card">
+    <div style="text-align: center;">
+      <div class="brand-icon" style="margin: 0 auto 12px auto; width: 44px; height: 44px;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+        </svg>
+      </div>
+      <h2 style="font-size: 18px; font-weight: 600;">Edit Mesh</h2>
+      <p style="color: var(--text-secondary); font-size: 13px; margin-top: 4px;">
+        Update the mesh display name. The ID cannot be changed.
+      </p>
+    </div>
+    <form id="editMeshForm" onsubmit="handleEditMesh(event)" style="display: flex; flex-direction: column; gap: 14px;">
+      <div class="field-group">
+        <label class="field-label" for="editMeshName">Mesh Name</label>
+        <input id="editMeshName" class="field" type="text" required>
+      </div>
+      <div class="field-group">
+        <label class="field-label">Mesh ID</label>
+        <div style="padding: 10px 12px; background-color: var(--bg-input); border-radius: var(--radius-sm); border: 1px solid var(--border-subtle); font-family: monospace; font-size: 13px; color: var(--text-muted);">
+          <span id="editMeshIdDisplay">--</span>
+        </div>
+        <span style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">Mesh ID is immutable and cannot be changed.</span>
+      </div>
+      <div id="editMeshMsg" class="banner hidden"></div>
+      <div style="display: flex; gap: 8px;">
+        <button type="button" class="btn btn-secondary" onclick="closeModal('editMeshModal')">Cancel</button>
+        <button type="submit" id="btnEditMeshSubmit" class="btn btn-primary">Save Changes</button>
       </div>
     </form>
   </div>
@@ -614,9 +682,14 @@ input:checked + .slider:before {
         </button>
       </div>
 
+      <button class="nav-item" onclick="showCreateMeshModal()" style="color: var(--teal); font-size: 13px; margin-bottom: 8px; border: 1px dashed var(--border-subtle);">
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        + Mesh
+      </button>
+
       <button class="nav-item" onclick="showConnectModal(true)" style="color: var(--teal); font-size: 13px; margin-bottom: 14px; border: 1px dashed var(--border-subtle);">
         <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-        Connect Cross-VLAN
+        Discover Device
       </button>
 
       <div style="font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--text-muted); padding: 4px 8px 6px 8px; letter-spacing: 0.5px;">
@@ -789,6 +862,9 @@ input:checked + .slider:before {
         <div>
           <div style="display: flex; align-items: center; gap: 10px;">
             <h1 id="meshViewTitle">Mesh Network</h1>
+            <button id="meshEditBtn" onclick="showEditMeshModal()" style="background: none; border: none; cursor: pointer; color: var(--teal); padding: 4px; display: none; opacity: 0.7; hover: opacity: 1;" title="Edit mesh name">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+            </button>
             <span id="meshViewBadge" class="badge badge-teal">Local Mesh</span>
           </div>
           <p id="meshViewSubtitle" style="color: var(--text-secondary); font-size: 13px; margin-top: 2px;">
@@ -873,35 +949,61 @@ input:checked + .slider:before {
           </p>
           <form onsubmit="handleSaveMeshIdentity(event)" style="display: flex; flex-direction: column; gap: 12px;">
             <div class="field-group">
-              <label class="field-label" for="settingMeshId">Mesh ID</label>
-              <input id="settingMeshId" class="field" type="text" placeholder="meta-portals" required>
+              <label class="field-label" for="settingMeshSelect">Mesh Partition</label>
+              <select id="settingMeshSelect" class="field" required onchange="updateMeshSelection()">
+                <option value="">-- Select a mesh --</option>
+              </select>
+              <span style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">Choose the mesh this device belongs to. Create new meshes with the "+ Mesh" button in the sidebar.</span>
             </div>
             <div class="field-group">
-              <label class="field-label" for="settingMeshName">Display Name</label>
-              <input id="settingMeshName" class="field" type="text" placeholder="Meta Portals" required>
+              <label class="field-label">Mesh ID (Read-only)</label>
+              <div style="padding: 10px 12px; background-color: var(--bg-input); border-radius: var(--radius-sm); border: 1px solid var(--border-subtle); font-family: monospace; font-size: 13px; color: var(--text-muted);">
+                <span id="settingMeshIdDisplay">unmanaged</span>
+              </div>
             </div>
             <div id="meshSettingsMsg" class="banner hidden"></div>
-            <button type="submit" class="btn btn-primary" style="align-self: flex-start;">Save Mesh Identity</button>
+            <button type="submit" class="btn btn-primary" style="align-self: flex-start;">Join Mesh</button>
           </form>
         </div>
 
-        <!-- Cross-VLAN Seeds -->
+        <!-- Persistent Discovered Devices -->
         <div class="card">
           <div class="card-header">
             <div class="card-title">
               <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
-              Persistent Cross-VLAN Seeds
+              Persistent Discovered Devices
             </div>
           </div>
           <p style="color: var(--text-secondary); font-size: 13px;">
-            Configured seed nodes across other subnets. DroidMesh automatically reconnects to these seeds after power outages.
+            Devices discovered on other subnets. DroidMesh automatically reconnects to these devices after power cycles.
           </p>
           <div id="crossVlanSeedList" style="display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px;">
-            <span style="color: var(--text-muted); font-size: 13px;">No cross-VLAN seeds configured.</span>
+            <span style="color: var(--text-muted); font-size: 13px;">No discovered devices configured.</span>
           </div>
           <button type="button" class="btn btn-secondary btn-sm" onclick="showConnectModal(true)" style="align-self: flex-start;">
-            + Add Seed IP
+            + Add Device IP
           </button>
+        </div>
+
+        <!-- Device Identity -->
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">
+              <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+              Device Name
+            </div>
+          </div>
+          <p style="color: var(--text-secondary); font-size: 13px;">
+            Set a custom name for this device that will appear in mesh peer lists and discovery. Leave blank to use default system name.
+          </p>
+          <form onsubmit="handleSaveDeviceName(event)" style="display: flex; flex-direction: column; gap: 12px;">
+            <div class="field-group">
+              <label class="field-label" for="settingDeviceName">Device Name</label>
+              <input id="settingDeviceName" class="field" type="text" placeholder="e.g., Theater Portal, Living Room TV">
+            </div>
+            <div id="deviceNameMsg" class="banner hidden"></div>
+            <button type="submit" class="btn btn-primary" style="align-self: flex-start;">Save Device Name</button>
+          </form>
         </div>
 
         <!-- General Preferences -->
@@ -1097,6 +1199,110 @@ function showConnectModal(show) {
     document.getElementById('connectSeedIp').focus();
   } else {
     modal.classList.add('hidden');
+  }
+}
+
+function showCreateMeshModal() {
+  const modal = document.getElementById('createMeshModal');
+  const msgEl = document.getElementById('createMeshMsg');
+  if (msgEl) msgEl.classList.add('hidden');
+
+  modal.classList.remove('hidden');
+  document.getElementById('createMeshName').value = '';
+  document.getElementById('createMeshId').value = '';
+  document.getElementById('createMeshName').focus();
+}
+
+function closeModal(modalId) {
+  const modal = document.getElementById(modalId);
+  if (modal) {
+    modal.classList.add('hidden');
+  }
+}
+
+async function handleCreateMesh(e) {
+  e.preventDefault();
+  const meshName = document.getElementById('createMeshName').value.trim();
+  const meshId = document.getElementById('createMeshId').value.trim().toLowerCase();
+  const msgEl = document.getElementById('createMeshMsg');
+
+  if (!meshName || !meshId) {
+    msgEl.className = 'banner banner-rust';
+    msgEl.textContent = 'Both name and ID are required';
+    msgEl.classList.remove('hidden');
+    return;
+  }
+
+  if (!/^[a-z0-9-]+$/.test(meshId)) {
+    msgEl.className = 'banner banner-rust';
+    msgEl.textContent = 'Mesh ID must contain only lowercase letters, numbers, and hyphens';
+    msgEl.classList.remove('hidden');
+    return;
+  }
+
+  try {
+    await apiCall('/api/mesh/create', {
+      method: 'POST',
+      body: JSON.stringify({ meshId, meshName })
+    });
+    msgEl.className = 'banner banner-sage';
+    msgEl.textContent = 'Mesh created!';
+    msgEl.classList.remove('hidden');
+    setTimeout(() => {
+      closeModal('createMeshModal');
+      fetchMeshInfo();
+    }, 500);
+  } catch (err) {
+    msgEl.className = 'banner banner-rust';
+    msgEl.textContent = `Failed: ${err.message}`;
+    msgEl.classList.remove('hidden');
+  }
+}
+
+function showEditMeshModal() {
+  const modal = document.getElementById('editMeshModal');
+  const msgEl = document.getElementById('editMeshMsg');
+  if (msgEl) msgEl.classList.add('hidden');
+
+  const meshId = state.selectedMeshId || state.localMeshId;
+  const meshName = state.selectedMeshName || state.localMeshName;
+
+  document.getElementById('editMeshName').value = meshName;
+  document.getElementById('editMeshIdDisplay').textContent = meshId;
+  document.getElementById('editMeshName').focus();
+
+  modal.classList.remove('hidden');
+}
+
+async function handleEditMesh(e) {
+  e.preventDefault();
+  const meshId = state.selectedMeshId || state.localMeshId;
+  const meshName = document.getElementById('editMeshName').value.trim();
+  const msgEl = document.getElementById('editMeshMsg');
+
+  if (!meshName) {
+    msgEl.className = 'banner banner-rust';
+    msgEl.textContent = 'Mesh name is required';
+    msgEl.classList.remove('hidden');
+    return;
+  }
+
+  try {
+    await apiCall('/api/mesh/update', {
+      method: 'POST',
+      body: JSON.stringify({ meshId, meshName })
+    });
+    msgEl.className = 'banner banner-sage';
+    msgEl.textContent = 'Mesh updated!';
+    msgEl.classList.remove('hidden');
+    setTimeout(() => {
+      closeModal('editMeshModal');
+      fetchMeshInfo();
+    }, 500);
+  } catch (err) {
+    msgEl.className = 'banner banner-rust';
+    msgEl.textContent = `Failed: ${err.message}`;
+    msgEl.classList.remove('hidden');
   }
 }
 
@@ -1425,16 +1631,25 @@ function renderCurrentMeshView() {
     id: state.selectedMeshId || state.localMeshId,
     name: state.selectedMeshId === state.localMeshId ? state.localMeshName : state.selectedMeshId,
     is_local: state.selectedMeshId === state.localMeshId,
-    peers: state.peers.filter(p => (p.meshId || p.mesh_id || 'meta-portals') === state.selectedMeshId),
+    peers: state.peers.filter(p => (p.meshId || p.mesh_id || 'unmanaged') === state.selectedMeshId),
     app_library: []
   };
+
+  // Store in state for edit modal
+  state.selectedMeshName = currentMesh.name;
 
   const titleEl = document.getElementById('meshViewTitle');
   const badgeEl = document.getElementById('meshViewBadge');
   const subEl = document.getElementById('meshViewSubtitle');
   const updateAllBtn = document.getElementById('btnUpdateMeshAll');
+  const meshEditBtn = document.getElementById('meshEditBtn');
 
   if (titleEl) titleEl.textContent = `${currentMesh.name} Mesh`;
+
+  // Show edit button only for local mesh
+  if (meshEditBtn) {
+    meshEditBtn.style.display = currentMesh.is_local ? 'block' : 'none';
+  }
 
   if (badgeEl) {
     if (currentMesh.is_local) {
@@ -1442,7 +1657,7 @@ function renderCurrentMeshView() {
       badgeEl.textContent = 'Local Subnet';
     } else {
       badgeEl.className = 'badge badge-sage';
-      badgeEl.textContent = 'Cross-VLAN Peered';
+      badgeEl.textContent = 'Discovered Subnet';
     }
   }
 
@@ -1778,15 +1993,38 @@ async function loadSettings() {
   try {
     const data = await apiCall('/api/settings');
     document.getElementById('settingAutoUpdate').checked = data.autoUpdateEnabled;
-    document.getElementById('settingMeshId').value = data.localMeshId || state.localMeshId;
-    document.getElementById('settingMeshName').value = data.localMeshName || state.localMeshName;
+    document.getElementById('settingDeviceName').value = data.customDeviceName || '';
 
-    // Render seeds list
+    // Populate mesh dropdown
+    const meshSelect = document.getElementById('settingMeshSelect');
+    const currentMeshId = data.localMeshId || state.localMeshId;
+    const currentMeshName = data.localMeshName || state.localMeshName;
+
+    meshSelect.innerHTML = '<option value="">-- Select a mesh --</option>';
+    const meshes = state.meshes || [];
+    meshes.forEach(m => {
+      const option = document.createElement('option');
+      option.value = m.id;
+      option.textContent = `${m.name} (${m.id})`;
+      if (m.id === currentMeshId) {
+        option.selected = true;
+      }
+      meshSelect.appendChild(option);
+    });
+
+    // Set the read-only mesh ID display
+    document.getElementById('settingMeshIdDisplay').textContent = currentMeshId;
+    updateMeshSelection();
+
+    // Add change listener to update mesh ID display when dropdown changes
+    meshSelect.addEventListener('change', updateMeshSelection);
+
+    // Render discovered devices list
     const seedsList = document.getElementById('crossVlanSeedList');
     seedsList.innerHTML = '';
-    const seeds = data.crossVlanSeeds || state.seeds || [];
+    const seeds = data.persistentConnections || data.crossVlanSeeds || state.seeds || [];
     if (seeds.length === 0) {
-      seedsList.innerHTML = '<span style="color: var(--text-muted); font-size: 13px;">No cross-VLAN seeds configured.</span>';
+      seedsList.innerHTML = '<span style="color: var(--text-muted); font-size: 13px;">No discovered devices configured.</span>';
     } else {
       seeds.forEach(seed => {
         const row = document.createElement('div');
@@ -1832,11 +2070,54 @@ async function saveWebServerPort() {
   }
 }
 
+async function handleSaveDeviceName(e) {
+  e.preventDefault();
+  const customDeviceName = document.getElementById('settingDeviceName').value.trim();
+  const msgEl = document.getElementById('deviceNameMsg');
+
+  try {
+    await apiCall('/api/settings', {
+      method: 'POST',
+      body: JSON.stringify({ customDeviceName })
+    });
+    msgEl.className = 'banner banner-sage';
+    msgEl.textContent = 'Device name saved!';
+    msgEl.classList.remove('hidden');
+    // Refresh to show updated device name in peer lists
+    setTimeout(() => fetchStatus(false), 500);
+  } catch (err) {
+    msgEl.className = 'banner banner-rust';
+    msgEl.textContent = `Failed: ${err.message}`;
+    msgEl.classList.remove('hidden');
+  }
+}
+
+function updateMeshSelection() {
+  const meshSelect = document.getElementById('settingMeshSelect');
+  const selectedMeshId = meshSelect.value;
+
+  // Find the selected mesh to get its name
+  const selectedMesh = state.meshes.find(m => m.id === selectedMeshId);
+  if (selectedMeshId && selectedMesh) {
+    document.getElementById('settingMeshIdDisplay').textContent = selectedMeshId;
+  }
+}
+
 async function handleSaveMeshIdentity(e) {
   e.preventDefault();
-  const localMeshId = document.getElementById('settingMeshId').value.trim();
-  const localMeshName = document.getElementById('settingMeshName').value.trim();
+  const localMeshId = document.getElementById('settingMeshSelect').value.trim();
   const msgEl = document.getElementById('meshSettingsMsg');
+
+  if (!localMeshId) {
+    msgEl.className = 'banner banner-rust';
+    msgEl.textContent = 'Please select a mesh';
+    msgEl.classList.remove('hidden');
+    return;
+  }
+
+  // Get the mesh name from state
+  const selectedMesh = state.meshes.find(m => m.id === localMeshId);
+  const localMeshName = selectedMesh ? selectedMesh.name : localMeshId;
 
   try {
     await apiCall('/api/settings', {
@@ -1844,7 +2125,7 @@ async function handleSaveMeshIdentity(e) {
       body: JSON.stringify({ localMeshId, localMeshName })
     });
     msgEl.className = 'banner banner-sage';
-    msgEl.textContent = 'Mesh identity saved!';
+    msgEl.textContent = `Joined mesh: ${localMeshName}`;
     msgEl.classList.remove('hidden');
     state.localMeshId = localMeshId;
     state.localMeshName = localMeshName;

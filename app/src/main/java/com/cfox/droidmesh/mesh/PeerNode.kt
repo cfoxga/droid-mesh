@@ -20,9 +20,9 @@ data class PeerNode(
     val adbEnabled: Boolean = false,
     val lastSeenTimestamp: Long = System.currentTimeMillis(),
     val isSelf: Boolean = false,
-    val meshId: String = "meta-portals",
-    val meshName: String = "Meta Portals",
-    val isCrossVlan: Boolean = false,
+    val meshId: String = "unmanaged",
+    val meshName: String = "Unmanaged",
+    val isDiscoveredPeer: Boolean = false,
     val configVersion: Long = 0L
 ) {
     /** Human-readable node label: prefers user-configured displayName over raw Build model string. */
@@ -43,7 +43,7 @@ data class PeerNode(
         put("displayName", displayName)
         put("meshId", meshId)
         put("meshName", meshName)
-        put("isCrossVlan", isCrossVlan)
+        put("isDiscoveredPeer", isDiscoveredPeer)
         put("configVersion", configVersion)
         put("targetInstalled", targetInstalled)
         put("installedVersionName", installedVersionName ?: JSONObject.NULL)
@@ -77,9 +77,9 @@ data class PeerNode(
                 val port = json.optInt("port", 2325)
                 val deviceModel = json.optString("deviceModel", "Portal")
                 val displayName = json.optString("displayName", "")
-                val meshId = json.optString("meshId", json.optString("mesh_id", "meta-portals"))
-                val meshName = json.optString("meshName", json.optString("mesh_name", "Meta Portals"))
-                val isCrossVlan = json.optBoolean("isCrossVlan", json.optBoolean("is_cross_vlan", false))
+                val meshId = json.optString("meshId", json.optString("mesh_id", "unmanaged"))
+                val meshName = json.optString("meshName", json.optString("mesh_name", "Unmanaged"))
+                val isDiscovered = json.optBoolean("isDiscoveredPeer", json.optBoolean("isCrossVlan", json.optBoolean("is_cross_vlan", false)))
                 val targetInstalled = json.optBoolean("targetInstalled", false)
                 val installedVersionName = if (json.isNull("installedVersionName")) null else json.optString("installedVersionName")
                 val installedVersionCode = if (json.isNull("installedVersionCode")) null else json.optLong("installedVersionCode")
@@ -134,7 +134,7 @@ data class PeerNode(
                     isSelf = false,
                     meshId = meshId,
                     meshName = meshName,
-                    isCrossVlan = isCrossVlan,
+                    isDiscoveredPeer = isDiscovered,
                     configVersion = configVersion
                 )
             } catch (e: Exception) {

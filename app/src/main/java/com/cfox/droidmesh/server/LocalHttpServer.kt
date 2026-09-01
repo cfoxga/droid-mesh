@@ -148,6 +148,8 @@ class LocalHttpServer(
                 uri == "/api/mesh/handshake" && method == Method.POST -> handleMeshHandshake(session)
                 uri == "/api/mesh/seeds" && method == Method.GET -> handleMeshSeedsGet()
                 (uri == "/api/mesh/seeds" || uri == "/api/mesh/seeds/remove") && (method == Method.DELETE || method == Method.POST) -> handleMeshSeedsRemove(session)
+                uri == "/api/mesh/create" && method == Method.POST -> handleMeshCreate(session)
+                uri == "/api/mesh/update" && method == Method.POST -> handleMeshUpdate(session)
                 uri == "/api/peers/update" && method == Method.POST -> handlePeerUpdate(session)
                 uri == "/api/peers/update-all" && method == Method.POST -> handlePeerUpdateAll(session)
                 uri == "/api/peers/adb/toggle" && method == Method.POST -> handlePeerAdbToggle(session)
@@ -446,6 +448,16 @@ class LocalHttpServer(
                 Logger.i("Local mesh name updated: $meshName")
                 settingsChanged = true
             }
+        }
+        if (body.has("customDeviceName")) {
+            val deviceName = body.getString("customDeviceName").trim()
+            SettingsStore.setCustomDeviceName(context, deviceName)
+            if (deviceName.isNotBlank()) {
+                Logger.i("Custom device name set: $deviceName")
+            } else {
+                Logger.i("Custom device name cleared, will use default system name")
+            }
+            settingsChanged = true
         }
 
         if (settingsChanged) {
@@ -774,6 +786,89 @@ class LocalHttpServer(
         val json = JSONObject().apply {
             put("status", "ok")
             put("message", "Mesh UDP beacon broadcast dispatched")
+        }
+        return jsonResponse(Response.Status.OK, json)
+    }
+
+    private fun handleMeshCreate(session: IHTTPSession): Response {
+        if (!isAuthorized(session)) {
+            return jsonResponse(Response.Status.UNAUTHORIZED, JSONObject().apply {
+                put("status", "error")
+                put("error", "Unauthorized")
+            })
+        }
+
+        val body = parseJsonBody(session)
+        val meshId = body.optString("meshId", "").trim().lowercase()
+        val meshName = body.optString("meshName", "").trim()
+
+        if (meshId.isBlank() || meshName.isBlank()) {
+            return jsonResponse(Response.Status.BAD_REQUEST, JSONObject().apply {
+                put("status", "error")
+                put("error", "meshId and meshName are required")
+            })
+        }
+
+        if (!meshId.matches(Regex("^[a-z0-9-]+$"))) {
+            return jsonResponse(Response.Status.BAD_REQUEST, JSONObject().apply {
+                put("status", "error")
+                put("error", "meshId must contain only lowercase letters, numbers, and hyphens")
+            })
+        }
+
+        // Create mesh in registry without auto-assigning device to it
+        // User must manually select from dropdown to join the mesh
+        Logger.i("Mesh created: $meshId ($meshName)")
+        // Mesh becomes available to all devices once at least one device joins it via settings
+
+        val json = JSONObject().apply {
+            put("status", "ok")
+            put("message", "Mesh created: $meshId")
+            put("meshId", meshId)
+            put("meshName", meshName)
+        }
+        return jsonResponse(Response.Status.OK, json)
+    }
+
+    private fun handleMeshUpdate(session: IHTTPSession): Response {
+        if (!isAuthorized(session)) {
+            return jsonResponse(Response.Status.UNAUTHORIZED, JSONObject().apply {
+                put("status", "error")
+                put("error", "Unauthorized")
+            })
+        }
+
+        val body = parseJsonBody(session)
+        val meshId = body.optString("meshId", "").trim()
+        val meshName = body.optString("meshName", "").trim()
+
+        if (meshId.isBlank() || meshName.isBlank()) {
+            return jsonResponse(Response.Status.BAD_REQUEST, JSONObject().apply {
+                put("status", "error")
+                put("error", "meshId and meshName are required")
+            })
+        }
+
+        // Only allow updating if this is the local mesh
+        if (meshId != SettingsStore.getLocalMeshId(context)) {
+            return jsonResponse(Response.Status.BAD_REQUEST, JSONObject().apply {
+                put("status", "error")
+                put("error", "Can only update the local mesh name")
+            })
+        }
+
+        SettingsStore.setLocalMeshName(context, meshName)
+        SettingsStore.updateConfigVersion(context)
+        Logger.i("Mesh updated: $meshId name -> $meshName")
+
+        // Sync to fleet
+        meshManager?.syncConfigToMesh()
+
+        val json = JSONObject().apply {
+            put("status", "ok")
+            put("message", "Mesh name updated")
+            put("meshId", meshId)
+            put("meshName", meshName)
         }
         return jsonResponse(Response.Status.OK, json)
     }

@@ -26,7 +26,8 @@ object SettingsStore {
     private const val KEY_AUTH_SECRET = "auth_secret"
     private const val KEY_LOCAL_MESH_ID = "local_mesh_id"
     private const val KEY_LOCAL_MESH_NAME = "local_mesh_name"
-    private const val KEY_CROSS_VLAN_SEEDS = "cross_vlan_seeds"
+    private const val KEY_PERSISTENT_CONNECTIONS = "persistent_connections"
+    private const val KEY_CUSTOM_DEVICE_NAME = "custom_device_name"
     private const val KEY_MESH_APP_LIBRARIES = "mesh_app_libraries"
 
     private const val DEFAULT_AUTO_UPDATE_ENABLED = true
@@ -162,27 +163,14 @@ object SettingsStore {
     }
 
 
-    fun getDefaultMeshId(context: Context): String {
-        val model = (android.os.Build.MODEL ?: "").lowercase()
-        val manufacturer = (android.os.Build.MANUFACTURER ?: "").lowercase()
-        val isTv = try {
-            context.packageManager?.hasSystemFeature(android.content.pm.PackageManager.FEATURE_LEANBACK) == true
-        } catch (_: Exception) {
-            false
-        }
-        return when {
-            isTv || model.contains("googletv") || model.contains("google tv") || model.contains("chromecast") || model.contains("onn") -> "googletv"
-            model.contains("portal") || manufacturer.contains("facebook") || manufacturer.contains("meta") -> "meta-portals"
-            else -> "meta-portals"
-        }
+    fun getDefaultMeshId(@Suppress("UNUSED_PARAMETER") context: Context): String {
+        // All devices start in "unmanaged" mesh until explicitly assigned
+        return "unmanaged"
     }
 
-    fun getDefaultMeshName(context: Context): String {
-        return when (getDefaultMeshId(context)) {
-            "googletv" -> "Google TV"
-            "meta-portals" -> "Meta Portals"
-            else -> "Meta Portals"
-        }
+    fun getDefaultMeshName(@Suppress("UNUSED_PARAMETER") context: Context): String {
+        // "Unmanaged" is the default mesh for unconfigured devices
+        return "Unmanaged"
     }
 
     fun getLocalMeshId(context: Context): String {
@@ -203,17 +191,26 @@ object SettingsStore {
         prefs(context).edit().putString(KEY_LOCAL_MESH_NAME, meshName.trim()).apply()
     }
 
-    fun getCrossVlanSeeds(context: Context): Set<String> {
-        val seeds = prefs(context).getStringSet(KEY_CROSS_VLAN_SEEDS, emptySet()) ?: emptySet()
-        return seeds.toSet()
+    fun getCustomDeviceName(context: Context): String {
+        val saved = prefs(context).getString(KEY_CUSTOM_DEVICE_NAME, null)
+        return saved ?: ""
     }
 
-    fun setCrossVlanSeeds(context: Context, seeds: Set<String>) {
-        val prev = getCrossVlanSeeds(context)
-        if (prev == seeds) return
+    fun setCustomDeviceName(context: Context, deviceName: String) {
+        prefs(context).edit().putString(KEY_CUSTOM_DEVICE_NAME, deviceName.trim()).apply()
+    }
+
+    fun getPersistentConnections(context: Context): Set<String> {
+        val connections = prefs(context).getStringSet(KEY_PERSISTENT_CONNECTIONS, emptySet()) ?: emptySet()
+        return connections.toSet()
+    }
+
+    fun setPersistentConnections(context: Context, connections: Set<String>) {
+        val prev = getPersistentConnections(context)
+        if (prev == connections) return
         val ver = maxOf(System.currentTimeMillis(), getConfigVersion(context) + 1L)
         val editor = prefs(context).edit()
-        editor.putStringSet(KEY_CROSS_VLAN_SEEDS, seeds)
+        editor.putStringSet(KEY_PERSISTENT_CONNECTIONS, connections)
         editor.putLong(KEY_CONFIG_VERSION, ver)
         editor.apply()
         notifyListeners(
@@ -226,26 +223,32 @@ object SettingsStore {
         )
     }
 
-    fun addCrossVlanSeed(context: Context, seed: String): Boolean {
-        val cleanSeed = seed.trim()
-        if (cleanSeed.isBlank()) return false
-        val current = getCrossVlanSeeds(context).toMutableSet()
-        val added = current.add(cleanSeed)
+    fun addPersistentConnection(context: Context, connection: String): Boolean {
+        val cleanConnection = connection.trim()
+        if (cleanConnection.isBlank()) return false
+        val current = getPersistentConnections(context).toMutableSet()
+        val added = current.add(cleanConnection)
         if (added) {
-            setCrossVlanSeeds(context, current)
+            setPersistentConnections(context, current)
         }
         return added
     }
 
-    fun removeCrossVlanSeed(context: Context, seed: String): Boolean {
-        val cleanSeed = seed.trim()
-        val current = getCrossVlanSeeds(context).toMutableSet()
-        val removed = current.remove(cleanSeed)
+    fun removePersistentConnection(context: Context, connection: String): Boolean {
+        val cleanConnection = connection.trim()
+        val current = getPersistentConnections(context).toMutableSet()
+        val removed = current.remove(cleanConnection)
         if (removed) {
-            setCrossVlanSeeds(context, current)
+            setPersistentConnections(context, current)
         }
         return removed
     }
+
+    // Backward compatibility: map old cross_vlan_seeds to persistent_connections
+    fun getCrossVlanSeeds(context: Context): Set<String> = getPersistentConnections(context)
+    fun setCrossVlanSeeds(context: Context, seeds: Set<String>) = setPersistentConnections(context, seeds)
+    fun addCrossVlanSeed(context: Context, seed: String): Boolean = addPersistentConnection(context, seed)
+    fun removeCrossVlanSeed(context: Context, seed: String): Boolean = removePersistentConnection(context, seed)
 
     fun isAutoUpdateEnabled(context: Context): Boolean =
         prefs(context).getBoolean(KEY_AUTO_UPDATE_ENABLED, DEFAULT_AUTO_UPDATE_ENABLED)
@@ -457,9 +460,11 @@ object SettingsStore {
         put("web_password_hash", hash ?: JSONObject.NULL)
         put("auth_secret", secret ?: JSONObject.NULL)
         put("auto_update_enabled", isAutoUpdateEnabled(context))
-        val seedsArr = JSONArray()
-        getCrossVlanSeeds(context).forEach { seedsArr.put(it) }
-        put("cross_vlan_seeds", seedsArr)
+        val connectionsArr = JSONArray()
+        getPersistentConnections(context).forEach { connectionsArr.put(it) }
+        put("persistent_connections", connectionsArr)
+        // For backward compatibility, also include under old key
+        put("cross_vlan_seeds", connectionsArr)
         put("mesh_app_libraries", getAllMeshAppLibraries(context))
     }
 
@@ -530,19 +535,20 @@ object SettingsStore {
             }
         }
 
-        // Synchronize cross-VLAN seeds
-        if (json.has("cross_vlan_seeds")) {
-            val seedsArr = json.optJSONArray("cross_vlan_seeds")
-            val newSeeds = mutableSetOf<String>()
-            if (seedsArr != null) {
-                for (i in 0 until seedsArr.length()) {
-                    val s = seedsArr.optString(i, "").trim()
-                    if (s.isNotBlank()) newSeeds.add(s)
-                }
+        // Synchronize persistent connections (handles both old "cross_vlan_seeds" and new "persistent_connections" keys)
+        var connectionsArr = json.optJSONArray("persistent_connections")
+        if (connectionsArr == null) {
+            connectionsArr = json.optJSONArray("cross_vlan_seeds")
+        }
+        if (connectionsArr != null) {
+            val newConnections = mutableSetOf<String>()
+            for (i in 0 until connectionsArr.length()) {
+                val s = connectionsArr.optString(i, "").trim()
+                if (s.isNotBlank()) newConnections.add(s)
             }
-            val currentSeeds = getCrossVlanSeeds(context)
-            if (currentSeeds != newSeeds) {
-                editor.putStringSet(KEY_CROSS_VLAN_SEEDS, newSeeds)
+            val currentConnections = getPersistentConnections(context)
+            if (currentConnections != newConnections) {
+                editor.putStringSet(KEY_PERSISTENT_CONNECTIONS, newConnections)
                 seedsChanged = true
             }
         }

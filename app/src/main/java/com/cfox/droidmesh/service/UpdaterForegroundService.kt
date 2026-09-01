@@ -49,6 +49,13 @@ class UpdaterForegroundService : Service() {
         var activeCoordinator: UpdateCoordinator? = null
             private set
 
+        // Dedicated coordinator for self-update (DroidMesh updating its own APK), kept
+        // separate from activeCoordinator so a managed-app update in progress never shares
+        // statusFlow/updateMutex with a concurrent self-update check or trigger.
+        @Volatile
+        var activeSelfUpdateCoordinator: UpdateCoordinator? = null
+            private set
+
         @Volatile
         var activeMeshManager: MeshDiscoveryManager? = null
             private set
@@ -68,6 +75,7 @@ class UpdaterForegroundService : Service() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private var httpServer: LocalHttpServer? = null
     private var updateCoordinator: UpdateCoordinator? = null
+    private var selfUpdateCoordinator: UpdateCoordinator? = null
     private var meshDiscoveryManager: MeshDiscoveryManager? = null
     private var wakeLock: PowerManager.WakeLock? = null
     private var meshAutoInstallJob: Job? = null
@@ -80,6 +88,10 @@ class UpdaterForegroundService : Service() {
         val coordinator = UpdateCoordinator(applicationContext)
         updateCoordinator = coordinator
         activeCoordinator = coordinator
+
+        val selfCoordinator = UpdateCoordinator(applicationContext)
+        selfUpdateCoordinator = selfCoordinator
+        activeSelfUpdateCoordinator = selfCoordinator
 
         val mesh = MeshDiscoveryManager(applicationContext, coordinator, serviceScope)
         meshDiscoveryManager = mesh
@@ -96,12 +108,18 @@ class UpdaterForegroundService : Service() {
                 handleWakeLockForState(status.state)
             }
         }
+        serviceScope.launch {
+            selfCoordinator.statusFlow.collect { status ->
+                updateNotification(status.message)
+                handleWakeLockForState(status.state)
+            }
+        }
     }
 
     private val configChangeListener = SettingsStore.OnConfigChangeListener { result ->
         serviceScope.launch(Dispatchers.Main) {
-            Logger.i("Config change received in UpdaterForegroundService: portChanged=${result.portChanged}, webServerToggled=${result.webServerToggled}")
-            if (result.portChanged || result.webServerToggled) {
+            Logger.i("Config change received in UpdaterForegroundService: portChanged=${result.portChanged}")
+            if (result.portChanged) {
                 manageHttpServer()
                 val currentPort = SettingsStore.getWebServerPort(applicationContext)
                 updateNotification("Listening on port $currentPort")
@@ -109,40 +127,42 @@ class UpdaterForegroundService : Service() {
         }
     }
 
+    // Always runs — the WebView shell (MainActivity) loads its entire UI from this server, so
+    // it's load-bearing app plumbing now, not an optional remote-admin feature (UI-BEHAVE-005).
     fun manageHttpServer() {
-        val enabled = SettingsStore.isWebServerEnabled(applicationContext)
         val targetPort = SettingsStore.getWebServerPort(applicationContext)
         val currentServer = httpServer
-
-        if (!enabled) {
-            if (currentServer != null) {
-                Logger.i("Stopping Local HTTP Server (disabled in settings)")
-                try { currentServer.stop() } catch (_: Exception) {}
-                httpServer = null
-            }
-            return
-        }
 
         if (currentServer != null && currentServer.isAlive && currentServer.activePort == targetPort) {
             return
         }
 
-
-        if (currentServer != null) {
-            try { currentServer.stop() } catch (_: Exception) {}
-            httpServer = null
-        }
-
         val coordinator = updateCoordinator ?: return
+        val selfCoordinator = selfUpdateCoordinator ?: return
         val mesh = meshDiscoveryManager ?: return
-        val server = LocalHttpServer(applicationContext, coordinator, mesh, targetPort)
-        httpServer = server
+        val newServer = LocalHttpServer(applicationContext, coordinator, mesh, targetPort, selfCoordinator)
         try {
-            server.start(fi.iki.elonen.NanoHTTPD.SOCKET_READ_TIMEOUT, false)
+            newServer.start(fi.iki.elonen.NanoHTTPD.SOCKET_READ_TIMEOUT, false)
             Logger.i("Local HTTP server successfully started on port $targetPort (non-daemon)")
         } catch (e: Exception) {
-            Logger.e("Failed to bind LocalHttpServer to port $targetPort", e)
+            // Do NOT touch currentServer/httpServer on failure — the WebView shell's UI is this
+            // server's response, so a bind failure on the new port must leave whatever was
+            // previously serving (if anything) untouched rather than leave the app unreachable.
+            Logger.e("Failed to bind LocalHttpServer to port $targetPort; keeping prior server (if any) running", e)
+            if (currentServer == null || !currentServer.isAlive) {
+                // Nothing was serving before either (first boot, or the old one had already died) —
+                // fall back to the last-known-good port so the persisted setting matches reality
+                // and the next reconciliation pass doesn't retry the same broken port forever.
+                SettingsStore.setWebServerPort(applicationContext, currentServer?.activePort ?: PORT)
+            }
+            return
         }
+
+        // New server is confirmed alive — safe to retire the old one now.
+        if (currentServer != null) {
+            try { currentServer.stop() } catch (_: Exception) {}
+        }
+        httpServer = newServer
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -308,6 +328,7 @@ class UpdaterForegroundService : Service() {
         Logger.i("UpdaterForegroundService onDestroy")
         isRunning = false
         activeCoordinator = null
+        activeSelfUpdateCoordinator = null
         releaseWakeLock()
 
         try {

@@ -12,8 +12,11 @@ import org.junit.Before
 import org.junit.Test
 import org.mockito.kotlin.any
 import org.mockito.kotlin.anyOrNull
+import org.mockito.kotlin.atLeastOnce
 import org.mockito.kotlin.doReturn
+import org.mockito.kotlin.eq
 import org.mockito.kotlin.mock
+import org.mockito.kotlin.verify
 import org.mockito.kotlin.whenever
 import java.io.ByteArrayInputStream
 
@@ -22,6 +25,7 @@ class LocalHttpServerTest {
     private val inMemoryPrefs = mutableMapOf<String, Any>()
     private lateinit var mockContext: Context
     private lateinit var mockCoordinator: UpdateCoordinator
+    private lateinit var mockSelfUpdateCoordinator: UpdateCoordinator
     private lateinit var server: LocalHttpServer
 
     @Before
@@ -103,13 +107,25 @@ class LocalHttpServerTest {
                 Result.failure(IllegalStateException("stubbed: no network in test"))
         }
 
-
+        // Dedicated coordinator for self-update, mirroring the production wiring in
+        // UpdaterForegroundService — never shared with mockCoordinator (the managed-app one)
+        // so API-TEST-012 can assert self-update never touches the managed-app coordinator.
+        mockSelfUpdateCoordinator = mock {
+            whenever(it.statusFlow).thenReturn(
+                kotlinx.coroutines.flow.MutableStateFlow(
+                    com.cfox.droidmesh.api.UpdateStatus(state = "IDLE", message = "Ready")
+                )
+            )
+            onBlocking { it.checkVersion(any(), any()) } doReturn
+                Result.failure(IllegalStateException("stubbed: no network in test"))
+        }
 
         server = LocalHttpServer(
             context = mockContext,
             coordinator = mockCoordinator,
             meshManager = null,
-            activePort = 2325
+            activePort = 2325,
+            selfUpdateCoordinator = mockSelfUpdateCoordinator
         )
 
     }
@@ -216,6 +232,55 @@ class LocalHttpServerTest {
         val authedResponse = server.serve(authedSession)
         assertEquals(NanoHTTPD.Response.Status.OK, authedResponse.status)
         assertEquals(2330, SettingsStore.getWebServerPort(mockContext))
+    }
+
+    // [PROGRAMMATIC] API-TEST-017: out-of-range webServerPort is rejected server-side, not just
+    // client-side — the local UI depends on this server, so an invalid value must never persist
+    @Test
+    fun testSettingsRejectsOutOfRangePort() {
+        val session = mockSession(
+            uri = "/api/settings",
+            method = NanoHTTPD.Method.POST,
+            postBody = """{"webServerPort": 80}"""
+        )
+        val before = SettingsStore.getWebServerPort(mockContext)
+        val response = server.serve(session)
+        assertEquals(NanoHTTPD.Response.Status.BAD_REQUEST, response.status)
+        assertEquals(before, SettingsStore.getWebServerPort(mockContext))
+    }
+
+    // [PROGRAMMATIC] API-TEST-018: a syntactically valid but already-bound webServerPort is
+    // rejected, not silently accepted and applied later by a foreground service that can't rebind
+    @Test
+    fun testSettingsRejectsAlreadyBoundPort() {
+        val busySocket = java.net.ServerSocket(0)
+        try {
+            val busyPort = busySocket.localPort
+            val session = mockSession(
+                uri = "/api/settings",
+                method = NanoHTTPD.Method.POST,
+                postBody = """{"webServerPort": $busyPort}"""
+            )
+            val before = SettingsStore.getWebServerPort(mockContext)
+            val response = server.serve(session)
+            assertEquals(NanoHTTPD.Response.Status.BAD_REQUEST, response.status)
+            assertEquals(before, SettingsStore.getWebServerPort(mockContext))
+        } finally {
+            busySocket.close()
+        }
+    }
+
+    // [PROGRAMMATIC] API-TEST-019: re-posting the server's own current port is never rejected as
+    // "already bound", even though this process itself effectively holds it
+    @Test
+    fun testSettingsAllowsReapplyingCurrentActivePort() {
+        val session = mockSession(
+            uri = "/api/settings",
+            method = NanoHTTPD.Method.POST,
+            postBody = """{"webServerPort": ${server.activePort}}"""
+        )
+        val response = server.serve(session)
+        assertEquals(NanoHTTPD.Response.Status.OK, response.status)
     }
 
     // [PROGRAMMATIC] API-TEST-002: Mesh endpoint response
@@ -484,5 +549,79 @@ class LocalHttpServerTest {
         )
         val response = server.serve(session)
         assertEquals(NanoHTTPD.Response.Status.NOT_FOUND, response.status)
+    }
+
+    // [PROGRAMMATIC] API-TEST-010: self-update status is advisory — a release-fetch failure
+    // is a 200 with updateAvailable=false and a checkError, never a 5xx.
+    @Test
+    fun testSelfUpdateStatusReturnsCheckErrorOnFetchFailure() {
+        val session = mockSession("/api/self-update/status")
+        val response = server.serve(session)
+        assertEquals(NanoHTTPD.Response.Status.OK, response.status)
+    }
+
+    // [PROGRAMMATIC] API-TEST-011: POST /api/self-update without auth returns 401
+    @Test
+    fun testSelfUpdateWithoutAuthReturns401() {
+        SettingsStore.setPassword(mockContext, "secret123")
+        val session = mockSession("/api/self-update", method = NanoHTTPD.Method.POST, postBody = "{}")
+        val response = server.serve(session)
+        assertEquals(NanoHTTPD.Response.Status.UNAUTHORIZED, response.status)
+    }
+
+    // [PROGRAMMATIC] API-TEST-012: POST /api/self-update invokes the dedicated self-update
+    // coordinator, never the managed-app coordinator (statusFlow/mutex isolation).
+    @Test
+    fun testSelfUpdateAuthorizedInvokesDedicatedCoordinator() {
+        val session = mockSession("/api/self-update", method = NanoHTTPD.Method.POST, postBody = "{}")
+        val response = server.serve(session)
+        assertEquals(NanoHTTPD.Response.Status.ACCEPTED, response.status)
+        verify(mockSelfUpdateCoordinator).startUpdateAsync(eq("com.cfox.droidmesh"), any(), eq(false), any())
+        verify(mockCoordinator, org.mockito.kotlin.never()).startUpdateAsync(any(), any(), any(), any())
+    }
+
+    // [PROGRAMMATIC] API-TEST-016: force=true in the request body is actually threaded through
+    // to the dedicated coordinator, not silently dropped
+    @Test
+    fun testSelfUpdateForceTrueIsPassedThrough() {
+        val session = mockSession("/api/self-update", method = NanoHTTPD.Method.POST, postBody = "{\"force\": true}")
+        val response = server.serve(session)
+        assertEquals(NanoHTTPD.Response.Status.ACCEPTED, response.status)
+        verify(mockSelfUpdateCoordinator).startUpdateAsync(eq("com.cfox.droidmesh"), any(), eq(true), any())
+    }
+
+    // [PROGRAMMATIC] API-TEST-013: system settings launch endpoints require auth
+    @Test
+    fun testSystemSettingsEndpointsRequireAuth() {
+        SettingsStore.setPassword(mockContext, "secret123")
+        val a11ySession = mockSession("/api/system/open-accessibility-settings", method = NanoHTTPD.Method.POST, postBody = "{}")
+        assertEquals(NanoHTTPD.Response.Status.UNAUTHORIZED, server.serve(a11ySession).status)
+
+        val installSession = mockSession("/api/system/open-install-settings", method = NanoHTTPD.Method.POST, postBody = "{}")
+        assertEquals(NanoHTTPD.Response.Status.UNAUTHORIZED, server.serve(installSession).status)
+    }
+
+    // [PROGRAMMATIC] API-TEST-014: system settings launch endpoints, authorized, return 200
+    // and invoke Context.startActivity
+    @Test
+    fun testSystemSettingsEndpointsAuthorizedOpenSettings() {
+        val a11ySession = mockSession("/api/system/open-accessibility-settings", method = NanoHTTPD.Method.POST, postBody = "{}")
+        assertEquals(NanoHTTPD.Response.Status.OK, server.serve(a11ySession).status)
+
+        val installSession = mockSession("/api/system/open-install-settings", method = NanoHTTPD.Method.POST, postBody = "{}")
+        assertEquals(NanoHTTPD.Response.Status.OK, server.serve(installSession).status)
+
+        verify(mockContext, atLeastOnce()).startActivity(any())
+    }
+
+    // [PROGRAMMATIC] API-TEST-015: /status includes canRequestPackageInstalls as a boolean
+    @Test
+    fun testStatusIncludesCanRequestPackageInstalls() {
+        val session = mockSession("/status")
+        val response = server.serve(session)
+        assertEquals(NanoHTTPD.Response.Status.OK, response.status)
+        val json = JSONObject(response.data?.readBytes()?.toString(Charsets.UTF_8) ?: "")
+        assertTrue(json.has("canRequestPackageInstalls"))
+        assertFalse(json.isNull("canRequestPackageInstalls"))
     }
 }

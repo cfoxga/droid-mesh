@@ -88,7 +88,6 @@ class SettingsStoreTest {
     fun testExportAndImportConfig() {
         // Configure node A
         SettingsStore.setWebServerPort(mockContext, 2329)
-        SettingsStore.setWebServerEnabled(mockContext, true)
         SettingsStore.setPassword(mockContext, "fleetPassword123")
         SettingsStore.addPersistentConnection(mockContext, "192.168.50.64:2329")
 

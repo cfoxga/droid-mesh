@@ -20,7 +20,6 @@ object SettingsStore {
      *  than duplicating the literal name. */
     const val PREFS_NAME = "droid_mesh_settings"
     private const val KEY_CONFIG_VERSION = "config_version"
-    private const val KEY_WEB_SERVER_ENABLED = "web_server_enabled"
     private const val KEY_WEB_SERVER_PORT = "web_server_port"
     private const val KEY_WEB_PASSWORD_HASH = "web_password_hash"
     private const val KEY_WEB_PASSWORD_SALT = "web_password_salt"
@@ -34,7 +33,6 @@ object SettingsStore {
     private const val KEY_DELETED_CONNECTIONS = "deleted_connections"
     private const val KEY_MESH_APP_LIBRARIES = "mesh_app_libraries"
 
-    private const val DEFAULT_WEB_SERVER_ENABLED = true
     private const val DEFAULT_WEB_SERVER_PORT = 2325
 
     data class MeshAppConfig(
@@ -88,7 +86,6 @@ object SettingsStore {
         val oldVersion: Long,
         val newVersion: Long,
         val portChanged: Boolean = false,
-        val webServerToggled: Boolean = false,
         val passwordChanged: Boolean = false,
         val seedsChanged: Boolean = false,
         val libraryChanged: Boolean = false,
@@ -125,27 +122,6 @@ object SettingsStore {
         val next = maxOf(System.currentTimeMillis(), current + 1L)
         prefs(context).edit().putLong(KEY_CONFIG_VERSION, next).apply()
         return next
-    }
-
-    fun isWebServerEnabled(context: Context): Boolean =
-        prefs(context).getBoolean(KEY_WEB_SERVER_ENABLED, DEFAULT_WEB_SERVER_ENABLED)
-
-    fun setWebServerEnabled(context: Context, enabled: Boolean) {
-        val prev = isWebServerEnabled(context)
-        if (prev == enabled) return
-        val editor = prefs(context).edit()
-        val ver = maxOf(System.currentTimeMillis(), getConfigVersion(context) + 1L)
-        editor.putBoolean(KEY_WEB_SERVER_ENABLED, enabled)
-        editor.putLong(KEY_CONFIG_VERSION, ver)
-        editor.apply()
-        notifyListeners(
-            ConfigImportResult(
-                applied = true,
-                oldVersion = ver - 1,
-                newVersion = ver,
-                webServerToggled = true
-            )
-        )
     }
 
     fun getWebServerPort(context: Context): Int =
@@ -611,7 +587,6 @@ object SettingsStore {
 
     fun exportConfigJson(context: Context, knownPeersJson: JSONArray? = null): JSONObject = JSONObject().apply {
         put("config_version", getConfigVersion(context))
-        put("web_server_enabled", isWebServerEnabled(context))
         put("web_server_port", getWebServerPort(context))
         val salt = prefs(context).getString(KEY_WEB_PASSWORD_SALT, null)
         val hash = prefs(context).getString(KEY_WEB_PASSWORD_HASH, null)
@@ -673,19 +648,10 @@ object SettingsStore {
 
         val editor = prefs(context).edit()
         var portChanged = false
-        var webServerToggled = false
         var passwordChanged = false
         var seedsChanged = false
         var libraryChanged = false
         var meshesChanged = false
-
-        if (json.has("web_server_enabled")) {
-            val enabled = json.getBoolean("web_server_enabled")
-            if (isWebServerEnabled(context) != enabled) {
-                editor.putBoolean(KEY_WEB_SERVER_ENABLED, enabled)
-                webServerToggled = true
-            }
-        }
 
         if (json.has("web_server_port")) {
             val port = json.getInt("web_server_port")
@@ -894,7 +860,6 @@ object SettingsStore {
             oldVersion = currentVersion,
             newVersion = incomingVersion,
             portChanged = portChanged,
-            webServerToggled = webServerToggled,
             passwordChanged = passwordChanged,
             seedsChanged = seedsChanged,
             libraryChanged = libraryChanged,

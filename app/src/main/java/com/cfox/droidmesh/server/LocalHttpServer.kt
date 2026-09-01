@@ -1,6 +1,8 @@
 package com.cfox.droidmesh.server
 
 import android.content.Context
+import android.content.Intent
+import android.provider.Settings
 import com.cfox.droidmesh.BuildConfig
 import com.cfox.droidmesh.api.ReleaseInfo
 import com.cfox.droidmesh.installer.AppVersionHelper
@@ -29,8 +31,17 @@ class LocalHttpServer(
     private val context: Context,
     private val coordinator: UpdateCoordinator,
     private val meshManager: MeshDiscoveryManager? = null,
-    val activePort: Int = 2325
+    val activePort: Int = 2325,
+    // Dedicated coordinator for DroidMesh's own self-update — never the same instance as
+    // `coordinator` in production, so a managed-app update never shares statusFlow/mutex with
+    // a self-update check or trigger (see API-BEHAVE-016). Defaults to `coordinator` only for
+    // call sites (tests, historical callers) that don't care about this isolation.
+    private val selfUpdateCoordinator: UpdateCoordinator = coordinator
 ) : NanoHTTPD("0.0.0.0", activePort) {
+
+    companion object {
+        const val SELF_UPDATE_RELEASES_URL = "https://api.github.com/repos/cfoxga/droid-mesh/releases"
+    }
 
 
     init {
@@ -137,6 +148,14 @@ class LocalHttpServer(
                 // Network ADB
                 (uri == "/adb/toggle" || uri == "/api/adb/toggle") && (method == Method.POST || method == Method.GET) -> handleAdbToggle(session)
 
+                // Self-Update (DroidMesh updating its own APK)
+                uri == "/api/self-update/status" && method == Method.GET -> handleSelfUpdateStatus(session)
+                uri == "/api/self-update" && method == Method.POST -> handleSelfUpdate(session)
+
+                // System Settings Launch
+                uri == "/api/system/open-accessibility-settings" && method == Method.POST -> handleOpenAccessibilitySettings(session)
+                uri == "/api/system/open-install-settings" && method == Method.POST -> handleOpenInstallSettings(session)
+
                 // Peer Mesh Fleet
                 (uri == "/mesh" || uri == "/peers" || uri == "/api/mesh") && method == Method.GET -> handleMesh()
                 (uri == "/api/mesh/library" || uri == "/mesh/library") && method == Method.GET -> handleMeshLibraryGet(session)
@@ -209,6 +228,19 @@ class LocalHttpServer(
         if (!SettingsStore.isPasswordSet(context)) return true
         val token = extractToken(session)
         return SettingsStore.validateToken(context, token)
+    }
+
+    // Best-effort bind probe — briefly opens and immediately closes a socket on the candidate
+    // port to check nothing else on-device already holds it. Racy in theory (TOCTOU against a
+    // process binding between probe and actual rebind), but that race exists on the read side of
+    // any bind check; it converts the common case (a stale/wrong port) from a silent brick into
+    // an explicit 400 up front.
+    private fun isPortAvailable(port: Int): Boolean {
+        return try {
+            java.net.ServerSocket(port).use { true }
+        } catch (e: Exception) {
+            false
+        }
     }
 
     private fun parseJsonBody(session: IHTTPSession): JSONObject {
@@ -406,9 +438,9 @@ class LocalHttpServer(
             put("installedApps", appsArray)
 
             put("accessibilityServiceActive", AutoInstallService.isServiceRunning)
-            put("webServerEnabled", SettingsStore.isWebServerEnabled(context))
             put("webServerPort", SettingsStore.getWebServerPort(context))
             put("adbEnabled", AdbHelper.isAdbEnabled(context))
+            put("canRequestPackageInstalls", context.packageManager.canRequestPackageInstalls())
             put("updaterState", currentStatus.state)
             put("updaterMessage", currentStatus.message)
             put("progressPercent", currentStatus.progressPercent)
@@ -428,7 +460,6 @@ class LocalHttpServer(
 
         val json = JSONObject().apply {
             put("status", "ok")
-            put("webServerEnabled", SettingsStore.isWebServerEnabled(context))
             put("webServerPort", SettingsStore.getWebServerPort(context))
             put("hasPassword", SettingsStore.isPasswordSet(context))
             put("adbEnabled", AdbHelper.isAdbEnabled(context))
@@ -452,14 +483,24 @@ class LocalHttpServer(
 
         val body = parseJsonBody(session)
         var settingsChanged = false
-        if (body.has("webServerEnabled")) {
-            val enabled = body.getBoolean("webServerEnabled")
-            SettingsStore.setWebServerEnabled(context, enabled)
-            Logger.i("Web server toggled via HTTP API: $enabled")
-            settingsChanged = true
-        }
         if (body.has("webServerPort")) {
             val port = body.getInt("webServerPort")
+            // The WebView shell's entire UI is served by this port now (UI-BEHAVE-005) — accepting
+            // an out-of-range or already-bound port here would strand the app with no in-app way to
+            // recover, the same failure mode the webServerEnabled removal was meant to close off.
+            // Client-side JS validation is not a substitute: this endpoint is reachable directly.
+            if (port !in 1024..65535) {
+                return jsonResponse(Response.Status.BAD_REQUEST, JSONObject().apply {
+                    put("status", "error")
+                    put("error", "webServerPort must be between 1024 and 65535")
+                })
+            }
+            if (port != activePort && !isPortAvailable(port)) {
+                return jsonResponse(Response.Status.BAD_REQUEST, JSONObject().apply {
+                    put("status", "error")
+                    put("error", "Port $port is already in use on this device; refusing to apply a change that would make the local UI unreachable")
+                })
+            }
             SettingsStore.setWebServerPort(context, port)
             Logger.i("Web server port updated via HTTP API: $port")
             settingsChanged = true
@@ -649,6 +690,101 @@ class LocalHttpServer(
         return jsonResponse(Response.Status.OK, json)
     }
 
+    // --- Self-Update (DroidMesh updating its own APK) ---
+    // Advisory endpoint — never fails closed on a release-fetch error, since polling status
+    // should never surface a 5xx just because GitHub is briefly unreachable (API-BEHAVE-016).
+    private fun handleSelfUpdateStatus(session: IHTTPSession): Response {
+        val checkResult = runBlocking {
+            selfUpdateCoordinator.checkVersion(context.packageName, SELF_UPDATE_RELEASES_URL)
+        }
+        val currentStatus = selfUpdateCoordinator.statusFlow.value
+
+        val json = JSONObject().apply {
+            put("status", "ok")
+            put("currentVersion", BuildConfig.VERSION_NAME)
+            put("updaterState", currentStatus.state)
+            put("updaterMessage", currentStatus.message)
+            put("progressPercent", currentStatus.progressPercent)
+            if (checkResult.isSuccess) {
+                val comp = checkResult.getOrThrow()
+                put("latestVersionTag", comp.latestVersionTag)
+                put("updateAvailable", comp.isUpdateAvailable)
+            } else {
+                put("latestVersionTag", JSONObject.NULL)
+                put("updateAvailable", false)
+                put("checkError", checkResult.exceptionOrNull()?.message ?: "Self-update check failed")
+            }
+        }
+        return jsonResponse(Response.Status.OK, json)
+    }
+
+    private fun handleSelfUpdate(session: IHTTPSession): Response {
+        if (!isAuthorized(session)) {
+            return jsonResponse(Response.Status.UNAUTHORIZED, JSONObject().apply {
+                put("status", "error")
+                put("error", "Unauthorized")
+            })
+        }
+
+        val body = parseJsonBody(session)
+        val force = body.optBoolean("force", session.parms["force"]?.toBoolean() ?: false)
+        selfUpdateCoordinator.startUpdateAsync(context.packageName, SELF_UPDATE_RELEASES_URL, force = force)
+
+        val json = JSONObject().apply {
+            put("status", "accepted")
+            put("message", "Self-update sequence initiated (force=$force)")
+        }
+        return jsonResponse(Response.Status.ACCEPTED, json)
+    }
+
+    // --- System Settings Launch ---
+    // Both use FLAG_ACTIVITY_NEW_TASK because they're invoked from the foreground service's
+    // Context, not an Activity — same pattern AdbHelper.toggleAdb already uses.
+
+    private fun handleOpenAccessibilitySettings(session: IHTTPSession): Response {
+        if (!isAuthorized(session)) {
+            return jsonResponse(Response.Status.UNAUTHORIZED, JSONObject().apply {
+                put("status", "error")
+                put("error", "Unauthorized")
+            })
+        }
+        return try {
+            val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            context.startActivity(intent)
+            jsonResponse(Response.Status.OK, JSONObject().apply { put("status", "ok") })
+        } catch (e: Exception) {
+            Logger.e("Cannot open accessibility settings", e)
+            jsonResponse(Response.Status.INTERNAL_ERROR, JSONObject().apply {
+                put("status", "error")
+                put("error", e.message ?: "Failed to open accessibility settings")
+            })
+        }
+    }
+
+    private fun handleOpenInstallSettings(session: IHTTPSession): Response {
+        if (!isAuthorized(session)) {
+            return jsonResponse(Response.Status.UNAUTHORIZED, JSONObject().apply {
+                put("status", "error")
+                put("error", "Unauthorized")
+            })
+        }
+        return try {
+            val intent = Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            context.startActivity(intent)
+            jsonResponse(Response.Status.OK, JSONObject().apply { put("status", "ok") })
+        } catch (e: Exception) {
+            Logger.e("Cannot open unknown app sources settings", e)
+            jsonResponse(Response.Status.INTERNAL_ERROR, JSONObject().apply {
+                put("status", "error")
+                put("error", e.message ?: "Failed to open install settings")
+            })
+        }
+    }
+
     private fun handleMesh(): Response {
         val grouped = meshManager?.getMeshesGrouped()
         if (grouped != null) {
@@ -808,7 +944,6 @@ class LocalHttpServer(
             put("old_version", result.oldVersion)
             put("new_version", result.newVersion)
             put("port_changed", result.portChanged)
-            put("web_server_toggled", result.webServerToggled)
             put("password_changed", result.passwordChanged)
             put("seeds_changed", result.seedsChanged)
             put("config_version", SettingsStore.getConfigVersion(context))

@@ -713,6 +713,9 @@ input:checked + .slider:before {
 
     <div class="sidebar-foot">
       <div class="device-badge" id="sidebarVersion">Loading version...</div>
+      <button id="btnSelfUpdate" class="btn btn-secondary btn-sm" onclick="triggerSelfUpdate()" style="width: 100%; margin-bottom: 8px;">
+        Checking for DroidMesh updates...
+      </button>
       <button id="authBtn" class="btn btn-secondary btn-sm" onclick="handleAuthAction()" style="width: 100%;">
         Log Out
       </button>
@@ -777,7 +780,11 @@ input:checked + .slider:before {
           <div class="kv-list">
             <div class="kv-row">
               <span class="kv-key">Accessibility</span>
-              <span class="kv-val" id="valA11y">--</span>
+              <span class="kv-val" id="valA11y" style="cursor: pointer; text-decoration: underline;" onclick="openAccessibilitySettings()" title="Open Accessibility settings">--</span>
+            </div>
+            <div class="kv-row">
+              <span class="kv-key">Install Unknown Apps</span>
+              <span class="kv-val" id="valInstallPerm" style="cursor: pointer; text-decoration: underline;" onclick="openInstallSettings()" title="Open Install Unknown Apps settings">--</span>
             </div>
             <div class="kv-row">
               <span class="kv-key">Network ADB (:5555)</span>
@@ -1019,19 +1026,11 @@ input:checked + .slider:before {
               <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
               Remote Management
             </div>
-            <span id="remoteManagementStatusBadge" class="badge badge-ochre">Not Configured</span>
           </div>
           <p style="color: var(--text-secondary); font-size: 13px;">
-            Enable remote web administration UI and REST API access. Protects with optional password.
+            The management UI and REST API are always reachable on the local network — this page
+            is served by the same listener. Protect access with an optional password below.
           </p>
-
-          <label class="switch-label">
-            <span style="font-weight: 500;">Enable Remote Management</span>
-            <div class="switch">
-              <input type="checkbox" id="settingRemoteEnabled" onchange="updateRemoteManagementStatus()">
-              <span class="slider"></span>
-            </div>
-          </label>
 
           <div class="field-group" style="margin-top: 14px; border-top: 1px solid var(--border-subtle); padding-top: 12px;">
             <label class="field-label" for="settingRemotePort">Management Server Port</label>
@@ -1487,6 +1486,7 @@ async function refreshStatus(forceReleases = false) {
     // Service & Vitals
     document.getElementById('updaterStateBadge').textContent = status.updaterState || 'IDLE';
     document.getElementById('valA11y').textContent = status.accessibilityServiceActive ? 'Active (Auto-Click Ready)' : 'Disabled';
+    document.getElementById('valInstallPerm').textContent = status.canRequestPackageInstalls ? 'Allowed' : 'Blocked';
     document.getElementById('valAdb').textContent = status.adbEnabled ? 'Enabled' : 'Disabled';
     document.getElementById('btnToggleAdb').textContent = status.adbEnabled ? 'Disable Network ADB' : 'Enable Network ADB';
 
@@ -1586,6 +1586,55 @@ async function toggleAdb() {
     refreshStatus(false);
   } catch (err) {
     alert(`Failed to toggle ADB: ${err.message}`);
+  }
+}
+
+async function openAccessibilitySettings() {
+  try {
+    await apiCall('/api/system/open-accessibility-settings', { method: 'POST' });
+  } catch (err) {
+    alert(`Failed to open Accessibility settings: ${err.message}`);
+  }
+}
+
+async function openInstallSettings() {
+  try {
+    await apiCall('/api/system/open-install-settings', { method: 'POST' });
+  } catch (err) {
+    alert(`Failed to open Install Unknown Apps settings: ${err.message}`);
+  }
+}
+
+// Self-Update (DroidMesh updating its own APK, distinct from managed-app updates above)
+async function refreshSelfUpdateStatus() {
+  try {
+    const data = await apiCall('/api/self-update/status');
+    const btn = document.getElementById('btnSelfUpdate');
+    if (!btn) return;
+    if (data.updaterState && data.updaterState !== 'IDLE') {
+      btn.disabled = true;
+      btn.textContent = data.updaterMessage || data.updaterState;
+    } else if (data.updateAvailable) {
+      btn.disabled = false;
+      btn.textContent = `Update DroidMesh to ${data.latestVersionTag}`;
+    } else {
+      btn.disabled = false;
+      btn.textContent = `DroidMesh is up to date (${data.currentVersion})`;
+    }
+  } catch (err) {
+    console.error('Failed to refresh self-update status:', err);
+  }
+}
+
+async function triggerSelfUpdate() {
+  const btn = document.getElementById('btnSelfUpdate');
+  if (btn) { btn.disabled = true; btn.textContent = 'Starting self-update...'; }
+  try {
+    await apiCall('/api/self-update', { method: 'POST', body: JSON.stringify({}) });
+    setTimeout(refreshSelfUpdateStatus, 2000);
+  } catch (err) {
+    alert(`Failed to start self-update: ${err.message}`);
+    refreshSelfUpdateStatus();
   }
 }
 
@@ -2120,25 +2169,11 @@ async function loadSettings() {
       const remotePortEl = document.getElementById('settingRemotePort');
       if (remotePortEl) remotePortEl.value = data.webServerPort;
     }
-    const remoteEnabledEl = document.getElementById('settingRemoteEnabled');
-    if (remoteEnabledEl) {
-      remoteEnabledEl.checked = data.webServerEnabled !== false;
-    }
     // Update password status badge
     const passwordStatusText = document.getElementById('passwordStatusText');
     if (passwordStatusText) {
       passwordStatusText.textContent = data.hasPassword ? 'Password is set' : 'Not set';
       passwordStatusText.style.color = data.hasPassword ? 'var(--sage)' : 'var(--text-muted)';
-    }
-    const passwordStatusBadge = document.getElementById('remoteManagementStatusBadge');
-    if (passwordStatusBadge) {
-      if (data.webServerEnabled) {
-        passwordStatusBadge.className = 'badge badge-sage';
-        passwordStatusBadge.textContent = 'Enabled';
-      } else {
-        passwordStatusBadge.className = 'badge badge-ochre';
-        passwordStatusBadge.textContent = 'Disabled';
-      }
     }
   } catch (e) {
     console.warn('Failed to load settings:', e);
@@ -2275,19 +2310,6 @@ function showPasswordChangeModal() {
   document.getElementById('pwdMsg').classList.add('hidden');
 }
 
-async function updateRemoteManagementStatus() {
-  const enabled = document.getElementById('settingRemoteEnabled').checked;
-  try {
-    await apiCall('/api/settings', {
-      method: 'POST',
-      body: JSON.stringify({ webServerEnabled: enabled })
-    });
-  } catch (e) {
-    document.getElementById('settingRemoteEnabled').checked = !enabled;
-    alert('Failed to update remote management: ' + e.message);
-  }
-}
-
 async function saveRemoteManagementPort() {
   const port = parseInt(document.getElementById('settingRemotePort').value, 10);
   if (!port || port < 1024 || port > 65535) {
@@ -2357,6 +2379,7 @@ window.addEventListener('DOMContentLoaded', () => {
   checkAuthStatus();
   refreshStatus();
   fetchMeshInfo();
+  refreshSelfUpdateStatus();
 
   // Background polling loop every 4s
   setInterval(() => {
@@ -2368,6 +2391,10 @@ window.addEventListener('DOMContentLoaded', () => {
       fetchLogs();
     }
   }, 4000);
+
+  // Self-update polling — sidebar-foot button is visible on every tab, and checking hits
+  // GitHub's releases API, so this runs on its own slower cadence rather than the 4s loop above.
+  setInterval(refreshSelfUpdateStatus, 60000);
 });
 </script>
 </body>

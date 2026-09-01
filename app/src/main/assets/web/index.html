@@ -955,12 +955,6 @@ input:checked + .slider:before {
               </select>
               <span style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">Choose the mesh this device belongs to. Create new meshes with the "+ Mesh" button in the sidebar.</span>
             </div>
-            <div class="field-group">
-              <label class="field-label">Mesh ID (Read-only)</label>
-              <div style="padding: 10px 12px; background-color: var(--bg-input); border-radius: var(--radius-sm); border: 1px solid var(--border-subtle); font-family: monospace; font-size: 13px; color: var(--text-muted);">
-                <span id="settingMeshIdDisplay">unmanaged</span>
-              </div>
-            </div>
             <div id="meshSettingsMsg" class="banner hidden"></div>
             <button type="submit" class="btn btn-primary" style="align-self: flex-start;">Join Mesh</button>
           </form>
@@ -1035,34 +1029,75 @@ input:checked + .slider:before {
         </div>
 
 
-        <!-- Web Admin Password -->
+        <!-- Remote Management -->
         <div class="card">
           <div class="card-header">
             <div class="card-title">
-              <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-              Web Admin Password
+              <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+              Remote Management
             </div>
-            <span id="passwordStatusBadge" class="badge badge-ochre">Not Configured</span>
+            <span id="remoteManagementStatusBadge" class="badge badge-ochre">Not Configured</span>
           </div>
           <p style="color: var(--text-secondary); font-size: 13px;">
-            Protects the web administration UI on port 2325 and all mutating REST APIs.
+            Enable remote web administration UI and REST API access. Protects with optional password.
           </p>
-          <form onsubmit="handlePasswordChange(event)" style="display: flex; flex-direction: column; gap: 12px;">
-            <div class="field-group" id="groupCurrentPassword">
-              <label class="field-label" for="pwdCurrent">Current Password</label>
-              <input id="pwdCurrent" class="field" type="password" placeholder="Current Admin Password" autocomplete="current-password">
+
+          <label class="switch-label">
+            <span style="font-weight: 500;">Enable Remote Management</span>
+            <div class="switch">
+              <input type="checkbox" id="settingRemoteEnabled" onchange="updateRemoteManagementStatus()">
+              <span class="slider"></span>
             </div>
-            <div class="field-group">
-              <label class="field-label" for="pwdNew">New Password</label>
-              <input id="pwdNew" class="field" type="password" placeholder="Enter New Password (leave blank to remove)" autocomplete="new-password">
+          </label>
+
+          <div class="field-group" style="margin-top: 14px; border-top: 1px solid var(--border-subtle); padding-top: 12px;">
+            <label class="field-label" for="settingRemotePort">Management Server Port</label>
+            <div style="display: flex; gap: 8px;">
+              <input id="settingRemotePort" class="field" type="number" value="2325" min="1024" max="65535" style="width: 110px;">
+              <button type="button" class="btn btn-secondary btn-sm" onclick="saveRemoteManagementPort()">Update Port</button>
             </div>
-            <div class="field-group">
-              <label class="field-label" for="pwdConfirm">Confirm New Password</label>
-              <input id="pwdConfirm" class="field" type="password" placeholder="Confirm New Password" autocomplete="new-password">
+            <span style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">Default port is 2325.</span>
+          </div>
+
+          <div style="margin-top: 14px; border-top: 1px solid var(--border-subtle); padding-top: 12px;">
+            <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px;">
+              <div>
+                <label style="display: block; font-weight: 500; margin-bottom: 4px;">Access Password</label>
+                <span id="passwordStatusText" style="font-size: 12px; color: var(--text-muted);">Not set</span>
+              </div>
+              <button type="button" class="btn btn-secondary btn-sm" onclick="showPasswordChangeModal()">Change Password</button>
             </div>
-            <div id="pwdMsg" class="banner hidden"></div>
-            <button type="submit" class="btn btn-primary" style="align-self: flex-start;">Save Password</button>
-          </form>
+          </div>
+          <div id="remoteManagementMsg" class="banner hidden" style="margin-top: 12px;"></div>
+        </div>
+
+        <!-- Password Change Modal -->
+        <div id="passwordChangeModal" class="modal hidden">
+          <div class="modal-content">
+            <div class="modal-header">
+              <h2>Change Access Password</h2>
+              <button type="button" class="btn-close" onclick="closeModal('passwordChangeModal')">×</button>
+            </div>
+            <form onsubmit="handlePasswordChange(event)" style="display: flex; flex-direction: column; gap: 12px;">
+              <div class="field-group" id="groupCurrentPassword">
+                <label class="field-label" for="pwdCurrent">Current Password</label>
+                <input id="pwdCurrent" class="field" type="password" placeholder="Current Password (if set)" autocomplete="current-password">
+              </div>
+              <div class="field-group">
+                <label class="field-label" for="pwdNew">New Password</label>
+                <input id="pwdNew" class="field" type="password" placeholder="New Password (leave blank to remove)" autocomplete="new-password">
+              </div>
+              <div class="field-group">
+                <label class="field-label" for="pwdConfirm">Confirm Password</label>
+                <input id="pwdConfirm" class="field" type="password" placeholder="Confirm New Password" autocomplete="new-password">
+              </div>
+              <div id="pwdMsg" class="banner hidden"></div>
+              <div style="display: flex; gap: 8px; justify-content: flex-end;">
+                <button type="button" class="btn btn-secondary" onclick="closeModal('passwordChangeModal')">Cancel</button>
+                <button type="submit" class="btn btn-primary">Save Password</button>
+              </div>
+            </form>
+          </div>
         </div>
       </div>
     </section>
@@ -1993,7 +2028,10 @@ async function loadSettings() {
   try {
     const data = await apiCall('/api/settings');
     document.getElementById('settingAutoUpdate').checked = data.autoUpdateEnabled;
-    document.getElementById('settingDeviceName').value = data.customDeviceName || '';
+    // Set device name field - show custom name if set, otherwise placeholder with effective name
+    const deviceNameInput = document.getElementById('settingDeviceName');
+    deviceNameInput.value = data.customDeviceName || '';
+    deviceNameInput.placeholder = data.effectiveDeviceName || 'e.g., Theater Portal, Living Room TV';
 
     // Populate mesh dropdown
     const meshSelect = document.getElementById('settingMeshSelect');
@@ -2093,14 +2131,8 @@ async function handleSaveDeviceName(e) {
 }
 
 function updateMeshSelection() {
-  const meshSelect = document.getElementById('settingMeshSelect');
-  const selectedMeshId = meshSelect.value;
-
-  // Find the selected mesh to get its name
-  const selectedMesh = state.meshes.find(m => m.id === selectedMeshId);
-  if (selectedMeshId && selectedMesh) {
-    document.getElementById('settingMeshIdDisplay').textContent = selectedMeshId;
-  }
+  // Placeholder for any future selection-change logic
+  // Currently just syncs the dropdown to internal state on loadSettings
 }
 
 async function handleSaveMeshIdentity(e) {

@@ -146,8 +146,8 @@ class LocalHttpServer(
                 uri == "/api/mesh/beacon" && (method == Method.POST || method == Method.GET) -> handleMeshBeacon(session)
                 uri == "/api/mesh/connect" && method == Method.POST -> handleMeshConnect(session)
                 uri == "/api/mesh/handshake" && method == Method.POST -> handleMeshHandshake(session)
-                uri == "/api/mesh/seeds" && method == Method.GET -> handleMeshSeedsGet()
-                (uri == "/api/mesh/seeds" || uri == "/api/mesh/seeds/remove") && (method == Method.DELETE || method == Method.POST) -> handleMeshSeedsRemove(session)
+                (uri == "/api/mesh/seeds" || uri == "/api/mesh/persistent-connections") && method == Method.GET -> handleMeshPersistentConnectionsGet()
+                (uri == "/api/mesh/seeds" || uri == "/api/mesh/seeds/remove" || uri == "/api/mesh/persistent-connections" || uri == "/api/mesh/persistent-connections/remove") && (method == Method.DELETE || method == Method.POST) -> handleMeshPersistentConnectionsModify(session)
                 uri == "/api/mesh/create" && method == Method.POST -> handleMeshCreate(session)
                 uri == "/api/mesh/update" && method == Method.POST -> handleMeshUpdate(session)
                 uri == "/api/peers/update" && method == Method.POST -> handlePeerUpdate(session)
@@ -399,6 +399,8 @@ class LocalHttpServer(
             put("adbEnabled", AdbHelper.isAdbEnabled(context))
             put("localMeshId", SettingsStore.getLocalMeshId(context))
             put("localMeshName", SettingsStore.getLocalMeshName(context))
+            put("customDeviceName", SettingsStore.getCustomDeviceName(context))
+            put("effectiveDeviceName", CpuStatsHelper.getDeviceName(context))
             put("crossVlanSeeds", seedsJson)
             put("configVersion", SettingsStore.getConfigVersion(context))
         }
@@ -737,18 +739,20 @@ class LocalHttpServer(
         return jsonResponse(Response.Status.OK, json)
     }
 
-    private fun handleMeshSeedsGet(): Response {
-        val seeds = SettingsStore.getPersistentConnections(context)
+    private fun handleMeshPersistentConnectionsGet(): Response {
+        val connections = SettingsStore.getPersistentConnections(context)
         val arr = JSONArray()
-        seeds.forEach { arr.put(it) }
+        connections.forEach { arr.put(it) }
         val json = JSONObject().apply {
             put("status", "ok")
-            put("seeds", arr)
+            // Dual-emit: new key + old key for backward compatibility (1 cycle)
+            put("persistent_connections", arr)
+            put("seeds", arr)  // Deprecated: use persistent_connections
         }
         return jsonResponse(Response.Status.OK, json)
     }
 
-    private fun handleMeshSeedsRemove(session: IHTTPSession): Response {
+    private fun handleMeshPersistentConnectionsModify(session: IHTTPSession): Response {
         if (!isAuthorized(session)) {
             return jsonResponse(Response.Status.UNAUTHORIZED, JSONObject().apply {
                 put("status", "error")
@@ -757,21 +761,37 @@ class LocalHttpServer(
         }
 
         val body = parseJsonBody(session)
-        val ip = body.optString("ip", body.optString("seed", session.parms["ip"] ?: session.parms["seed"] ?: ""))
+        val ip = body.optString("ip", body.optString("seed", body.optString("connection", session.parms["ip"] ?: session.parms["seed"] ?: session.parms["connection"] ?: "")))
         if (ip.isBlank()) {
             return jsonResponse(Response.Status.BAD_REQUEST, JSONObject().apply {
                 put("status", "error")
-                put("error", "Missing seed IP to remove")
+                put("error", "Missing persistent connection IP")
             })
         }
 
-        val removed = meshManager?.removePersistentConnection(ip) ?: SettingsStore.removePersistentConnection(context, ip)
-        val json = JSONObject().apply {
-            put("status", "ok")
-            put("removed", removed)
-            put("message", "Removed seed $ip")
+        // Determine operation: DELETE or /remove path = remove; POST = add
+        val isRemove = session.method == NanoHTTPD.Method.DELETE || session.uri.endsWith("/remove")
+
+        return if (isRemove) {
+            val removed = meshManager?.removePersistentConnection(ip) ?: SettingsStore.removePersistentConnection(context, ip)
+            val json = JSONObject().apply {
+                put("status", "ok")
+                put("removed", removed)
+                put("message", "Removed persistent connection $ip")
+            }
+            jsonResponse(Response.Status.OK, json)
+        } else {
+            // POST = add
+            val result = meshManager?.addPersistentConnection(ip, reciprocal = true)
+            val normalized = result?.getOrNull() ?: ip
+            meshManager?.syncConfigToMesh()
+            val json = JSONObject().apply {
+                put("status", "ok")
+                put("message", "Added persistent connection $normalized")
+                put("connection", normalized)
+            }
+            jsonResponse(Response.Status.OK, json)
         }
-        return jsonResponse(Response.Status.OK, json)
     }
 
     private fun handleMeshBeacon(session: IHTTPSession): Response {

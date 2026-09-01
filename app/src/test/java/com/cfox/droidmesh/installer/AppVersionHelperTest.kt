@@ -154,4 +154,20 @@ class AppVersionHelperTest {
         assertTrue(AppVersionHelper.isVersionMismatch("2026.8.106", "2026.8.107"))
         assertTrue(AppVersionHelper.isVersionMismatch(null, "2026.8.107"))
     }
+
+    // [PROGRAMMATIC] UPD-TEST-001 / UPD-TEST-004: Self-update semver comparison against
+    // DroidMesh's own build-number-suffixed versionName ("0.1.0 (150)")
+    @Test
+    fun testIsUpdateAvailable() {
+        // Newer release published -> update available
+        assertTrue(AppVersionHelper.isUpdateAvailable("0.0.1 (120)", "v0.1.0"))
+        // Already on the latest release, build-number suffix must not cause a false positive
+        assertFalse(AppVersionHelper.isUpdateAvailable("0.1.0 (150)", "v0.1.0"))
+        // Plain (non-suffixed) versions, exact match
+        assertFalse(AppVersionHelper.isUpdateAvailable("2026.8.107", "2026.8.107"))
+        // Installed is newer than the fetched tag (no downgrade offer)
+        assertFalse(AppVersionHelper.isUpdateAvailable("0.2.0 (200)", "v0.1.0"))
+        // Not installed / unknown version -> treat as update available
+        assertTrue(AppVersionHelper.isUpdateAvailable(null, "v0.1.0"))
+    }
 }

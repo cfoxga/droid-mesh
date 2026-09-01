@@ -24,13 +24,17 @@ import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.lifecycleScope
+import com.cfox.droidmesh.api.GitHubReleaseFetcher
 import com.cfox.droidmesh.api.ReleaseInfo
 import com.cfox.droidmesh.databinding.ActivityMainBinding
 import com.cfox.droidmesh.databinding.DialogConnectVlanBinding
 import com.cfox.droidmesh.databinding.ItemMeshPeerBinding
 import com.cfox.droidmesh.databinding.ItemSeedRowBinding
 import com.cfox.droidmesh.databinding.ItemSidebarMeshBinding
+import com.cfox.droidmesh.downloader.ApkDownloader
+import com.cfox.droidmesh.installer.AdbLoopbackInstaller
 import com.cfox.droidmesh.installer.AppVersionHelper
+import com.cfox.droidmesh.installer.PackageInstallerDispatcher
 import com.cfox.droidmesh.mesh.MeshDiscoveryManager
 import com.cfox.droidmesh.mesh.PeerNode
 import com.cfox.droidmesh.server.UpdateCoordinator
@@ -72,6 +76,15 @@ class MainActivity : AppCompatActivity() {
         .readTimeout(8, TimeUnit.SECONDS)
         .build()
 
+    // Self-update: DroidMesh checking its own GitHub releases (UPD-BEHAVE-007)
+    private val selfUpdateFetcher = GitHubReleaseFetcher()
+    private val selfApkDownloader by lazy { ApkDownloader(this) }
+    private var selfUpdateRelease: ReleaseInfo? = null
+
+    companion object {
+        private const val SELF_UPDATE_RELEASES_URL = "https://api.github.com/repos/cfoxga/droid-mesh/releases"
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivityMainBinding.inflate(layoutInflater)
@@ -102,6 +115,7 @@ class MainActivity : AppCompatActivity() {
         refreshStatus()
         refreshSettingsUI()
         loadAvailableReleases(forceRefresh = false)
+        checkForSelfUpdate()
     }
 
     override fun onResume() {
@@ -110,6 +124,7 @@ class MainActivity : AppCompatActivity() {
         refreshStatus()
         refreshSettingsUI()
         loadAvailableReleases(forceRefresh = false)
+        checkForSelfUpdate()
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
@@ -142,6 +157,10 @@ class MainActivity : AppCompatActivity() {
     private fun setupNavigation() {
         binding.tvSidebarDeviceSubtitle.text = CpuStatsHelper.getDeviceName(this)
         binding.tvSidebarVersion.text = "v${BuildConfig.VERSION_NAME}"
+
+        binding.btnSidebarUpdate.setOnClickListener {
+            selfUpdateRelease?.let { performSelfUpdate(it) }
+        }
 
         binding.btnSidebarConnectVlan.setOnClickListener {
             showConnectVlanDialog()
@@ -851,6 +870,47 @@ class MainActivity : AppCompatActivity() {
                 populateVersionSpinner()
                 val latest = availableReleases.firstOrNull()?.tagName
                 binding.tvOverviewLatestVer.text = "Latest: ${latest ?: "None"}"
+            }
+        }
+    }
+
+    // UPD-BEHAVE-007: check DroidMesh's own GitHub releases and toggle the sidebar Update button.
+    private fun checkForSelfUpdate() {
+        lifecycleScope.launch {
+            val result = withContext(Dispatchers.IO) {
+                selfUpdateFetcher.fetchLatestRelease(SELF_UPDATE_RELEASES_URL)
+            }
+            result.onSuccess { release ->
+                val available = AppVersionHelper.isUpdateAvailable(BuildConfig.VERSION_NAME, release.tagName)
+                selfUpdateRelease = if (available) release else null
+                binding.btnSidebarUpdate.visibility = if (available) View.VISIBLE else View.GONE
+            }.onFailure {
+                Logger.w("Self-update check failed: ${it.message}")
+            }
+        }
+    }
+
+    private fun performSelfUpdate(release: ReleaseInfo) {
+        binding.btnSidebarUpdate.isEnabled = false
+        binding.btnSidebarUpdate.text = "Updating…"
+        lifecycleScope.launch {
+            val downloadResult = withContext(Dispatchers.IO) {
+                selfApkDownloader.downloadApk(release.apkAssetUrl, release.apkFileName)
+            }
+            downloadResult.onSuccess { apkFile ->
+                Logger.i("Self-update: downloaded ${release.tagName}, dispatching install")
+                val adbResult = AdbLoopbackInstaller.installWithAdbLoopback(apkFile)
+                if (adbResult.isFailure) {
+                    PackageInstallerDispatcher.dispatchInstall(this@MainActivity, apkFile)
+                }
+                // Leave the button disabled/"Updating…" through the install handoff; the app
+                // process is about to be replaced (loopback) or backgrounded for the system
+                // installer dialog (dispatch), so there is no further UI state to restore here.
+            }.onFailure {
+                Logger.e("Self-update download failed", it)
+                Toast.makeText(this@MainActivity, "Update failed: ${it.message}", Toast.LENGTH_LONG).show()
+                binding.btnSidebarUpdate.isEnabled = true
+                binding.btnSidebarUpdate.text = "Update"
             }
         }
     }

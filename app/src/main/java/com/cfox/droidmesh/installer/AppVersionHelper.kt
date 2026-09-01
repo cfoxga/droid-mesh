@@ -163,8 +163,17 @@ object AppVersionHelper {
             return true
         }
 
-        val cleanInstalled = installedVersionName.trim().removePrefix("v").substringBefore("-").substringBefore("+")
-        val cleanLatest = latestTag.trim().removePrefix("v").substringBefore("-").substringBefore("+")
+        // Strip build metadata the same way isVersionMismatch does, including the
+        // " (buildNum)" suffix DroidMesh appends to its own versionName (e.g. "0.1.0 (150)") -
+        // without this, a build-number-suffixed installed version never string-equals a
+        // clean release tag and falls through to the string-inequality fallback below,
+        // which reports "update available" forever even right after updating.
+        val cleanInstalled = installedVersionName.trim()
+            .removePrefix("v").removePrefix("V")
+            .substringBefore("-").substringBefore("+").substringBefore(" ").substringBefore("(")
+        val cleanLatest = latestTag.trim()
+            .removePrefix("v").removePrefix("V")
+            .substringBefore("-").substringBefore("+").substringBefore(" ").substringBefore("(")
 
         if (cleanInstalled == cleanLatest) {
             return false
@@ -181,8 +190,8 @@ object AppVersionHelper {
             if (vLate < vInst) return false
         }
 
-        // If semver prefix is identical, fallback to tag string inequality
-        return latestTag.trim().removePrefix("v") != installedVersionName.trim().removePrefix("v")
+        // Numeric parts are identical after cleaning -> no update, never nag forever.
+        return false
     }
 
     /**

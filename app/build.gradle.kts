@@ -39,7 +39,7 @@ val buildNum: Int = System.getenv("BUILD_NUMBER")?.toIntOrNull()
     ?: System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull()
     ?: getGitCommitCount()
 
-val baseVersion = "0.0.1"
+val baseVersion = "0.1.0"
 
 android {
     namespace = "com.cfox.droidmesh"

@@ -749,10 +749,10 @@ input:checked + .slider:before {
     </div>
 
     <div class="sidebar-foot">
-      <div class="device-badge" id="sidebarVersion">Loading version...</div>
-      <button id="btnSelfUpdate" class="btn btn-secondary btn-sm" onclick="triggerSelfUpdate()" style="width: 100%; margin-bottom: 8px;">
-        Checking for DroidMesh updates...
-      </button>
+      <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 4px; margin-bottom: 8px;">
+        <span class="device-badge" id="sidebarVersion" style="padding: 0;">Loading version...</span>
+        <span id="badgeSelfUpdate" class="badge badge-sage" style="font-size: 10px; padding: 2px 7px; cursor: default;">Up-to-date</span>
+      </div>
       <button id="authBtn" class="btn btn-secondary btn-sm" onclick="handleAuthAction()" style="width: 100%;">
         Log Out
       </button>
@@ -1720,17 +1720,26 @@ async function repairProvisioningAutomatically() {
 async function refreshSelfUpdateStatus() {
   try {
     const data = await apiCall('/api/self-update/status');
-    const btn = document.getElementById('btnSelfUpdate');
-    if (!btn) return;
+    const badge = document.getElementById('badgeSelfUpdate');
+    if (!badge) return;
     if (data.updaterState && data.updaterState !== 'IDLE') {
-      btn.disabled = true;
-      btn.textContent = data.updaterMessage || data.updaterState;
+      badge.className = 'badge badge-teal';
+      badge.textContent = data.updaterState;
+      badge.style.cursor = 'default';
+      badge.title = data.updaterMessage || data.updaterState;
+      badge.onclick = null;
     } else if (data.updateAvailable) {
-      btn.disabled = false;
-      btn.textContent = `Update DroidMesh to ${data.latestVersionTag}`;
+      badge.className = 'badge badge-rust';
+      badge.textContent = 'Update';
+      badge.style.cursor = 'pointer';
+      badge.title = `Update DroidMesh to ${data.latestVersionTag || 'latest'}`;
+      badge.onclick = () => triggerSelfUpdate();
     } else {
-      btn.disabled = false;
-      btn.textContent = `DroidMesh is up to date (${data.currentVersion})`;
+      badge.className = 'badge badge-sage';
+      badge.textContent = 'Up-to-date';
+      badge.style.cursor = 'default';
+      badge.title = 'DroidMesh is up to date';
+      badge.onclick = null;
     }
   } catch (err) {
     console.error('Failed to refresh self-update status:', err);
@@ -1738,8 +1747,18 @@ async function refreshSelfUpdateStatus() {
 }
 
 async function triggerSelfUpdate() {
-  const btn = document.getElementById('btnSelfUpdate');
-  if (btn) { btn.disabled = true; btn.textContent = 'Starting self-update...'; }
+  const badge = document.getElementById('badgeSelfUpdate');
+  const btnGlobal = document.getElementById('btnGlobalSelfUpdate');
+  if (badge) {
+    badge.className = 'badge badge-teal';
+    badge.textContent = 'Updating...';
+    badge.style.cursor = 'default';
+    badge.onclick = null;
+  }
+  if (btnGlobal) {
+    btnGlobal.disabled = true;
+    btnGlobal.textContent = 'Starting self-update...';
+  }
   try {
     await apiCall('/api/self-update', { method: 'POST', body: JSON.stringify({}) });
     setTimeout(refreshSelfUpdateStatus, 2000);

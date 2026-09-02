@@ -1160,4 +1160,27 @@ class LocalHttpServerTest {
                 fnBody.contains("state.peerAppsExpanded[peer.id] = managedApps.length < 5")
         )
     }
+
+    // [PROGRAMMATIC] UI-TEST-013: index.html has #sidebarVersion and #badgeSelfUpdate in sidebar-foot,
+    // formats status as Up-to-date (badge-sage) or Update (badge-rust), and no longer has #btnSelfUpdate.
+    @Test
+    fun testSidebarVersionBadgeStructure() {
+        val assetFile = java.io.File("src/main/assets/web/index.html")
+        assertTrue("index.html asset must exist", assetFile.exists())
+        val html = assetFile.readText()
+
+        assertTrue("Must have sidebarVersion element", html.contains("id=\"sidebarVersion\""))
+        assertTrue("Must have badgeSelfUpdate badge element", html.contains("id=\"badgeSelfUpdate\""))
+        assertFalse("Must not have old btnSelfUpdate button element", html.contains("id=\"btnSelfUpdate\""))
+
+        val fnStart = html.indexOf("async function refreshSelfUpdateStatus")
+        val fnEnd = html.indexOf("\nasync function ", fnStart + 1)
+        assertTrue("refreshSelfUpdateStatus function must exist", fnStart in 0 until fnEnd)
+        val fnBody = html.substring(fnStart, fnEnd)
+
+        assertTrue("Must check badgeSelfUpdate element", fnBody.contains("document.getElementById('badgeSelfUpdate')"))
+        assertTrue("Must format up-to-date state as Up-to-date with badge-sage", fnBody.contains("badge-sage") && fnBody.contains("'Up-to-date'"))
+        assertTrue("Must format update available state as Update with badge-rust", fnBody.contains("badge-rust") && fnBody.contains("'Update'"))
+    }
 }
+

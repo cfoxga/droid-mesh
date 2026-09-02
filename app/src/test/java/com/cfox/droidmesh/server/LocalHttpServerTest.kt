@@ -870,6 +870,50 @@ class LocalHttpServerTest {
         verify(mockContext, atLeastOnce()).startActivity(any())
     }
 
+    // [PROGRAMMATIC] PROV-TEST-004: GET /api/system/provisioning requires auth when a password
+    // is configured, matching the other /api/system/* endpoints.
+    @Test
+    fun testProvisioningAuditRequiresAuthWhenPasswordSet() {
+        SettingsStore.setPassword(mockContext, "secret123")
+        val session = mockSession("/api/system/provisioning")
+        assertEquals(NanoHTTPD.Response.Status.UNAUTHORIZED, server.serve(session).status)
+    }
+
+    // [PROGRAMMATIC] PROV-TEST-004 (positive): authorized (no password configured), the audit
+    // endpoint returns the expected 3-item shape.
+    @Test
+    fun testProvisioningAuditReturnsThreeItems() {
+        val session = mockSession("/api/system/provisioning")
+        val response = server.serve(session)
+        assertEquals(NanoHTTPD.Response.Status.OK, response.status)
+        val json = JSONObject(response.data?.readBytes()?.toString(Charsets.UTF_8) ?: "")
+        assertTrue(json.has("repairNeeded"))
+        assertEquals(3, json.getJSONArray("items").length())
+    }
+
+    // [PROGRAMMATIC] PROV-TEST-005: POST /api/system/provisioning/repair returns 409 and never
+    // attempts a socket connection when ADB is disabled (Settings.Global.ADB_ENABLED defaults to
+    // 0 under this project's unit-test stubbing, so AdbHelper.isAdbEnabled is always false here —
+    // exercising exactly the fail-fast path PROV-BEHAVE-006 describes).
+    @Test
+    fun testProvisioningRepairFailsFastWhenAdbDisabled() {
+        val session = mockSession("/api/system/provisioning/repair", method = NanoHTTPD.Method.POST, postBody = "{}")
+        val response = server.serve(session)
+        assertEquals(NanoHTTPD.Response.Status.CONFLICT, response.status)
+        val json = JSONObject(response.data?.readBytes()?.toString(Charsets.UTF_8) ?: "")
+        assertEquals("error", json.getString("status"))
+        assertTrue(json.getString("error").contains("ADB"))
+    }
+
+    // [PROGRAMMATIC] PROV-TEST-005 (auth): POST /api/system/provisioning/repair requires auth
+    // when a password is configured, before it ever reaches the ADB-disabled check.
+    @Test
+    fun testProvisioningRepairRequiresAuthWhenPasswordSet() {
+        SettingsStore.setPassword(mockContext, "secret123")
+        val session = mockSession("/api/system/provisioning/repair", method = NanoHTTPD.Method.POST, postBody = "{}")
+        assertEquals(NanoHTTPD.Response.Status.UNAUTHORIZED, server.serve(session).status)
+    }
+
     // [PROGRAMMATIC] API-TEST-015: /status includes canRequestPackageInstalls as a boolean
     @Test
     fun testStatusIncludesCanRequestPackageInstalls() {
@@ -879,6 +923,22 @@ class LocalHttpServerTest {
         val json = JSONObject(response.data?.readBytes()?.toString(Charsets.UTF_8) ?: "")
         assertTrue(json.has("canRequestPackageInstalls"))
         assertFalse(json.isNull("canRequestPackageInstalls"))
+    }
+
+    // [PROGRAMMATIC] PROV-TEST-006: index.html carries the Repair Needed banner (PROV-BEHAVE-007)
+    // and its wiring — summary/items targets, the Repair Automatically button, and the JS
+    // functions that populate and drive it.
+    @Test
+    fun testProvisioningRepairBannerAssetStructure() {
+        val assetFile = java.io.File("src/main/assets/web/index.html")
+        assertTrue("index.html asset must exist", assetFile.exists())
+        val html = assetFile.readText()
+        assertTrue("Must have provisioningRepairBanner", html.contains("id=\"provisioningRepairBanner\""))
+        assertTrue("Must have provisioningRepairSummary", html.contains("id=\"provisioningRepairSummary\""))
+        assertTrue("Must have provisioningRepairItems", html.contains("id=\"provisioningRepairItems\""))
+        assertTrue("Must have provisioningRepairBtn", html.contains("id=\"provisioningRepairBtn\""))
+        assertTrue("Must call refreshProvisioning on load", html.contains("refreshProvisioning()"))
+        assertTrue("Must define repairProvisioningAutomatically", html.contains("async function repairProvisioningAutomatically()"))
     }
 
     // [PROGRAMMATIC] UI-TEST-005: index.html has single nav-item-device-settings and tab-device-settings
@@ -993,5 +1053,89 @@ class LocalHttpServerTest {
         assertFalse("Store Apps card must not have a Target Version column", storeCardHeader.contains("Target Version"))
         assertFalse("Store Apps card must not have an Auto Update column", storeCardHeader.contains("Auto Update"))
         assertFalse("Store Apps card must not have a Release Download URL column", storeCardHeader.contains("Release Download URL"))
+    }
+
+    // [PROGRAMMATIC] UI-TEST-011 (UI-BEHAVE-012): the Sideloaded Apps card must not have a
+    // standalone Managed checkbox/column any more — a non-blank Release Download URL already
+    // implies Managed (SET-BEHAVE-005), so the URL field itself now patches `managed`, and the
+    // dependent controls grey out on `hasReleaseSource(app)` rather than `app.managed`.
+    @Test
+    fun testSideloadedAppsCardHasNoManagedColumnAndCorrectOrder() {
+        val assetFile = java.io.File("src/main/assets/web/index.html")
+        assertTrue("index.html asset must exist", assetFile.exists())
+        val html = assetFile.readText()
+
+        val cardStart = html.indexOf("id=\"meshSideloadedLibraryBody\"")
+        val tableBodyStart = html.indexOf("id=\"meshSideloadedLibraryTableBody\"")
+        assertTrue("Sideloaded Apps card body must exist before its table body", cardStart in 0 until tableBodyStart)
+        val theadStart = html.indexOf("<thead>", cardStart)
+        val theadEnd = html.indexOf("</thead>", cardStart)
+        assertTrue("Sideloaded Apps card must have a <thead> before its table body", theadStart in cardStart until tableBodyStart)
+        val header = html.substring(theadStart, theadEnd)
+
+        assertFalse("Sideloaded Apps card must no longer have a Managed column", header.contains("Managed"))
+        val nameIdx = header.indexOf("App Name")
+        val urlIdx = header.indexOf("Release Download URL")
+        val versionIdx = header.indexOf("Target Version")
+        val installIdx = header.indexOf("Auto Install")
+        val updateIdx = header.indexOf("Auto Update")
+        assertTrue("All five Sideloaded Apps columns must be present", listOf(nameIdx, urlIdx, versionIdx, installIdx, updateIdx).all { it >= 0 })
+        assertTrue("Column order must be Name < URL < Target Version < Auto Install < Auto Update",
+            nameIdx < urlIdx && urlIdx < versionIdx && versionIdx < installIdx && installIdx < updateIdx)
+
+        val bodyFnStart = html.indexOf("function renderSideloadedLibraryRows")
+        val bodyFnEnd = html.indexOf("\nfunction ", bodyFnStart + 1)
+        assertTrue("renderSideloadedLibraryRows function must exist", bodyFnStart in 0 until bodyFnEnd)
+        val fnBody = html.substring(bodyFnStart, bodyFnEnd)
+
+        assertFalse(
+            "Stale Managed-clearing hint text must be removed",
+            html.contains("Clearing this un-checks Managed")
+        )
+        assertTrue(
+            "The Release Download URL field must patch both downloadUrl and managed on change",
+            fnBody.contains("{ downloadUrl: this.value, managed: !!this.value.trim() }")
+        )
+        assertFalse(
+            "Sideloaded row rendering must no longer gate on app.managed for Auto Install/Target Version/Auto Update",
+            fnBody.contains("!app.managed")
+        )
+        assertTrue(
+            "Sideloaded row rendering must derive its gate from hasReleaseSource(app)",
+            fnBody.contains("hasReleaseSource(app)")
+        )
+        assertTrue(
+            "Sideloaded row rendering must gate Auto Install/Target Version/Auto Update on that derived value",
+            Regex(Regex.escape("!isManaged")).findAll(fnBody).count() >= 3
+        )
+    }
+
+    // [PROGRAMMATIC] UI-TEST-012 (UI-BEHAVE-013): the Sideloaded Apps card defaults to expanded,
+    // Store Apps still defaults collapsed, and a peer's Installed Apps panel is seeded expanded
+    // when its "N Installed" count is under 5 — but only when the user hasn't already toggled it.
+    @Test
+    fun testDefaultExpandStateForLibraryAndPeerCards() {
+        val assetFile = java.io.File("src/main/assets/web/index.html")
+        assertTrue("index.html asset must exist", assetFile.exists())
+        val html = assetFile.readText()
+
+        assertTrue(
+            "meshSideloadedLibraryExpanded must default to true",
+            html.contains("meshSideloadedLibraryExpanded: true")
+        )
+        assertTrue(
+            "meshStoreLibraryExpanded must still default to false",
+            html.contains("meshStoreLibraryExpanded: false")
+        )
+
+        val fnStart = html.indexOf("function renderMeshPeers")
+        val fnEnd = html.indexOf("\nfunction ", fnStart + 1)
+        assertTrue("renderMeshPeers function must exist", fnStart in 0 until fnEnd)
+        val fnBody = html.substring(fnStart, fnEnd)
+        assertTrue(
+            "renderMeshPeers must seed peerAppsExpanded[peer.id] from the managed-apps count only when unset",
+            fnBody.contains("state.peerAppsExpanded[peer.id] === undefined") &&
+                fnBody.contains("state.peerAppsExpanded[peer.id] = managedApps.length < 5")
+        )
     }
 }

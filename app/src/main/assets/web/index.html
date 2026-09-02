@@ -770,6 +770,22 @@ input:checked + .slider:before {
       <button class="btn btn-primary btn-sm" onclick="switchTab('global-settings')">Set Password</button>
     </div>
 
+    <!-- Repair Needed Banner (PROV-BEHAVE-007) — shown when GET /api/system/provisioning reports
+         repairNeeded: true. Names exactly what's missing, offers the external command for each
+         item, and a one-click in-app repair over loopback ADB. -->
+    <div id="provisioningRepairBanner" class="banner banner-rust hidden" style="flex-direction: column; align-items: stretch; gap: 8px;">
+      <div style="display: flex; justify-content: space-between; align-items: center; gap: 12px;">
+        <div>
+          <strong>Repair Needed:</strong> <span id="provisioningRepairSummary">--</span>
+        </div>
+        <button id="provisioningRepairBtn" class="btn btn-primary btn-sm" onclick="repairProvisioningAutomatically()">Repair Automatically</button>
+      </div>
+      <div id="provisioningRepairItems" style="font-size: 12px; opacity: 0.9;"></div>
+      <div style="font-size: 12px; opacity: 0.75;">
+        Repair Automatically runs the missing commands over local ADB. The first time it runs, tap "Allow debugging from this computer?" on the device screen. Alternatively, run each command above from a workstation with ADB access.
+      </div>
+    </div>
+
     <!-- TAB: GLOBAL SETTINGS (UI-BEHAVE-008) — mesh-synced & fleet-wide configuration -->
     <section id="tab-global-settings" class="tab-pane">
       <div class="header-bar">
@@ -1131,15 +1147,14 @@ input:checked + .slider:before {
               <tr style="border-bottom: 1px solid var(--border-subtle); color: var(--text-muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px;">
                 <th style="padding: 10px 12px;">App Name</th>
                 <th style="padding: 10px 12px;">Release Download URL</th>
-                <th style="padding: 10px 12px; text-align: center;">Managed</th>
-                <th style="padding: 10px 12px; text-align: center;">Auto Install</th>
                 <th style="padding: 10px 12px;">Target Version</th>
+                <th style="padding: 10px 12px; text-align: center;">Auto Install</th>
                 <th style="padding: 10px 12px; text-align: center;">Auto Update</th>
               </tr>
             </thead>
             <tbody id="meshSideloadedLibraryTableBody">
               <tr>
-                <td colspan="6" style="text-align: center; color: var(--text-muted); padding: 24px;">Loading Sideloaded Apps...</td>
+                <td colspan="5" style="text-align: center; color: var(--text-muted); padding: 24px;">Loading Sideloaded Apps...</td>
               </tr>
             </tbody>
           </table>
@@ -1199,6 +1214,7 @@ let state = {
   token: localStorage.getItem('dm_token') || '',
   authRequired: false,
   status: null,
+  provisioning: null,
   releases: [],
   peers: [],
   meshes: [],
@@ -1210,7 +1226,7 @@ let state = {
   logs: [],
   initialLoaded: false,
   peerAppsExpanded: {},
-  meshSideloadedLibraryExpanded: false,
+  meshSideloadedLibraryExpanded: true,
   meshStoreLibraryExpanded: false,
   releasesByPackage: {},
   releasesLoadingByPackage: {}
@@ -1657,6 +1673,49 @@ async function openInstallSettings() {
   }
 }
 
+// Self-Provisioning Audit & Repair (PROV-BEHAVE-003/007)
+function renderProvisioningBanner(audit) {
+  const banner = document.getElementById('provisioningRepairBanner');
+  if (!banner) return;
+  if (!audit || !audit.repairNeeded) {
+    banner.classList.add('hidden');
+    return;
+  }
+  const missing = (audit.items || []).filter(item => !item.satisfied);
+  document.getElementById('provisioningRepairSummary').textContent =
+    `${missing.map(item => item.label).join(', ')} — required for full functionality.`;
+  document.getElementById('provisioningRepairItems').innerHTML = missing
+    .map(item => `<div><code>${item.externalCommand}</code></div>`)
+    .join('');
+  banner.classList.remove('hidden');
+}
+
+async function refreshProvisioning() {
+  try {
+    const audit = await apiCall('/api/system/provisioning');
+    state.provisioning = audit;
+    renderProvisioningBanner(audit);
+  } catch (err) {
+    console.error('Failed to refresh provisioning audit:', err);
+  }
+}
+
+async function repairProvisioningAutomatically() {
+  const btn = document.getElementById('provisioningRepairBtn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Repairing…'; }
+  try {
+    const result = await apiCall('/api/system/provisioning/repair', { method: 'POST' });
+    renderProvisioningBanner(result);
+    if (result.repairNeeded) {
+      alert('Some items could not be repaired automatically. See the remaining commands in the banner.');
+    }
+  } catch (err) {
+    alert(`Repair failed: ${err.message}`);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Repair Automatically'; }
+  }
+}
+
 // Self-Update (DroidMesh updating its own APK, distinct from managed-app updates above)
 async function refreshSelfUpdateStatus() {
   try {
@@ -1896,12 +1955,13 @@ function renderSideloadedLibraryRows(currentMesh, library) {
   if (!tbody) return;
 
   if (library.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: var(--text-muted); padding: 24px;">No sideloaded apps discovered on this mesh yet.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="5" style="text-align: center; color: var(--text-muted); padding: 24px;">No sideloaded apps discovered on this mesh yet.</td></tr>`;
     return;
   }
 
   tbody.innerHTML = library.map(app => {
     const targetVer = app.targetVersion || 'latest';
+    const isManaged = hasReleaseSource(app);
 
     // Releases options for target version selector — scoped per package (API-BEHAVE-014), not
     // a single global list, so two Managed apps in the same mesh don't collide on one dropdown.
@@ -1915,8 +1975,8 @@ function renderSideloadedLibraryRows(currentMesh, library) {
       versionOptions += `<option value="${escapeHtml(targetVer)}" selected>${escapeHtml(targetVer)}</option>`;
     }
     // Lazily fetch this row's release list once, on first render, rather than eagerly for
-    // every row regardless of whether it's Managed.
-    if (app.managed && pkgReleases === undefined && !state.releasesLoadingByPackage[app.packageName]) {
+    // every row regardless of whether it has a release source.
+    if (isManaged && pkgReleases === undefined && !state.releasesLoadingByPackage[app.packageName]) {
       loadReleasesForPackage(app.packageName, currentMesh.id);
     }
     const isLoadingReleases = !!state.releasesLoadingByPackage[app.packageName];
@@ -1928,28 +1988,16 @@ function renderSideloadedLibraryRows(currentMesh, library) {
           <input type="text" class="field" style="padding: 4px 8px; font-size: 12px; min-width: 220px;"
             placeholder="Release download URL (required for Managed)"
             value="${escapeHtml(app.downloadUrl || '')}"
-            onchange="updateLibraryApp('${currentMesh.id}', '${app.packageName}', { downloadUrl: this.value })">
-          <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">Clearing this un-checks Managed (APP-BEHAVE-007) — the app stays listed here.</div>
-        </td>
-        <td style="padding: 10px 12px; text-align: center;">
-          <input type="checkbox" style="width: 16px; height: 16px; accent-color: var(--teal); cursor: pointer;"
-            ${app.managed ? 'checked' : ''}
-            onchange="updateLibraryApp('${currentMesh.id}', '${app.packageName}', { managed: this.checked })">
-        </td>
-        <td style="padding: 10px 12px; text-align: center;">
-          <input type="checkbox" style="width: 16px; height: 16px; accent-color: var(--teal); cursor: pointer;"
-            ${app.autoInstall ? 'checked' : ''}
-            ${!app.managed ? 'disabled style="opacity: 0.3; cursor: not-allowed;"' : ''}
-            onchange="updateLibraryApp('${currentMesh.id}', '${app.packageName}', { autoInstall: this.checked })">
+            onchange="updateLibraryApp('${currentMesh.id}', '${app.packageName}', { downloadUrl: this.value, managed: !!this.value.trim() })">
         </td>
         <td style="padding: 10px 12px;">
           <div style="display: flex; align-items: center; gap: 4px;">
             <select class="field" style="padding: 4px 8px; font-size: 12px; max-width: 160px;"
-              ${!app.managed ? 'disabled style="opacity: 0.4; cursor: not-allowed;"' : ''}
+              ${!isManaged ? 'disabled style="opacity: 0.4; cursor: not-allowed;"' : ''}
               onchange="updateLibraryApp('${currentMesh.id}', '${app.packageName}', { targetVersion: this.value })">
               ${versionOptions}
             </select>
-            ${app.managed ? `
+            ${isManaged ? `
               <button type="button" title="Refresh versions from ${escapeHtml(app.downloadUrl)}"
                 style="background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 12px; padding: 2px 4px;"
                 ${isLoadingReleases ? 'disabled' : ''}
@@ -1959,8 +2007,14 @@ function renderSideloadedLibraryRows(currentMesh, library) {
         </td>
         <td style="padding: 10px 12px; text-align: center;">
           <input type="checkbox" style="width: 16px; height: 16px; accent-color: var(--teal); cursor: pointer;"
+            ${app.autoInstall ? 'checked' : ''}
+            ${!isManaged ? 'disabled style="opacity: 0.3; cursor: not-allowed;"' : ''}
+            onchange="updateLibraryApp('${currentMesh.id}', '${app.packageName}', { autoInstall: this.checked })">
+        </td>
+        <td style="padding: 10px 12px; text-align: center;">
+          <input type="checkbox" style="width: 16px; height: 16px; accent-color: var(--teal); cursor: pointer;"
             ${app.autoUpdate ? 'checked' : ''}
-            ${!app.managed ? 'disabled style="opacity: 0.3; cursor: not-allowed;"' : ''}
+            ${!isManaged ? 'disabled style="opacity: 0.3; cursor: not-allowed;"' : ''}
             onchange="updateLibraryApp('${currentMesh.id}', '${app.packageName}', { autoUpdate: this.checked })">
         </td>
       </tr>
@@ -2069,6 +2123,12 @@ function renderMeshPeers(peers, library) {
     const installedPkgSet = new Set(rawApps.map(a => a.packageName));
     const missingApps = (library || []).filter(libApp => !isExcludedApp(libApp.packageName) && libApp.managed && libApp.autoInstall && !installedPkgSet.has(libApp.packageName));
 
+    // UI-BEHAVE-013: default a small node's Installed Apps panel to expanded (fewer than 5
+    // managed apps installed) and a large one to collapsed, but only the first time this peer
+    // renders — once the user toggles it, that choice is never overwritten by a later re-render.
+    if (state.peerAppsExpanded[peer.id] === undefined) {
+      state.peerAppsExpanded[peer.id] = managedApps.length < 5;
+    }
     const isExpanded = !!state.peerAppsExpanded[peer.id];
 
     let appsListHtml = '';
@@ -2626,6 +2686,7 @@ window.addEventListener('DOMContentLoaded', () => {
   refreshStatus();
   fetchMeshInfo();
   refreshSelfUpdateStatus();
+  refreshProvisioning();
 
   // Background polling loop every 4s
   setInterval(() => {
@@ -2644,6 +2705,10 @@ window.addEventListener('DOMContentLoaded', () => {
   // Self-update polling — sidebar-foot button is visible on every tab, and checking hits
   // GitHub's releases API, so this runs on its own slower cadence rather than the 4s loop above.
   setInterval(refreshSelfUpdateStatus, 60000);
+
+  // Provisioning repair banner is visible on every tab; the three grants it audits don't churn
+  // within a session, so it shares self-update's slower 60s cadence rather than the 4s loop.
+  setInterval(refreshProvisioning, 60000);
 });
 </script>
 </body>

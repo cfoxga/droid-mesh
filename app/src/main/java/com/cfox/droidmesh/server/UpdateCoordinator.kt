@@ -53,6 +53,15 @@ class UpdateCoordinator(
     )
     val statusFlow: StateFlow<UpdateStatus> = _statusFlow.asStateFlow()
 
+    // FLT-BEHAVE-009: which package the current statusFlow value describes. _statusFlow is a
+    // single slot shared across every app the hourly mesh auto-action loop manages (there is no
+    // per-package status), so reconcileIfStale() needs this to avoid clearing one package's
+    // genuinely-still-stuck AWAITING_CONFIRMATION just because a different package's Skip pass
+    // in the same loop iteration happened to already be on target. Set at the top of
+    // executeUpdateForSpecificRelease, the sole path that writes package-specific status.
+    @Volatile
+    private var pendingPackage: String? = null
+
     private val releaseCache = ReleaseCache()
 
     /**
@@ -126,6 +135,36 @@ class UpdateCoordinator(
         }
     }
 
+    /**
+     * FLT-BEHAVE-009: called from the hourly mesh auto-update loop's `Skip` pass — I/O glue
+     * around the pure `InstallVerification.reconcileStale()`. Clears a stale
+     * `AWAITING_CONFIRMATION`/`ERROR` status back to `IDLE` once the package the *current*
+     * status actually describes ([pendingPackage]) matches [packageName] and its installed
+     * version now matches [targetTag].
+     */
+    fun reconcileIfStale(
+        packageName: String,
+        installedVersionName: String?,
+        targetTag: String,
+        accessibilityServiceActive: Boolean
+    ) {
+        val current = _statusFlow.value
+        val verified = InstallVerification.reconcileStale(
+            currentState = current.state,
+            statusPackage = pendingPackage,
+            packageName = packageName,
+            installedVersionName = installedVersionName,
+            targetTag = targetTag,
+            accessibilityServiceActive = accessibilityServiceActive
+        ) ?: return
+
+        val msg = "Mesh auto-update confirmed $packageName is on ${verified.installedVersion}; " +
+            "clearing stale ${current.state}."
+        Logger.i(msg)
+        _statusFlow.value = UpdateStatus(state = "IDLE", message = msg)
+        pendingPackage = null
+    }
+
     fun startUpdateAsync(
         packageName: String,
         downloadUrl: String,
@@ -181,6 +220,8 @@ class UpdateCoordinator(
         }
 
         try {
+            pendingPackage = packageName
+
             val installed = AppVersionHelper.getInstalledVersion(context, packageName)
             val updateAvailable = AppVersionHelper.isUpdateAvailable(
                 installed.versionName,

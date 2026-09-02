@@ -305,8 +305,26 @@ class UpdaterForegroundService : Service() {
                                     Logger.i("Mesh auto-update: $pkg (${cfg.appName}) ${installed.versionName} -> ${action.release.tagName} — starting")
                                     updateCoordinator?.startUpdateForRelease(pkg, action.release, force = false)
                                 }
-                                is MeshAutoActionPlanner.UpdateAction.Skip ->
+                                is MeshAutoActionPlanner.UpdateAction.Skip -> {
                                     Logger.i("Mesh auto-update: skipping $pkg — ${action.reason}")
+                                    // FLT-BEHAVE-009: a Skip here doesn't only mean "nothing to
+                                    // do" — it can mean a previously-dispatched install (which
+                                    // timed out INST-BEHAVE-007's 25s confirm poll and left the
+                                    // status stuck at AWAITING_CONFIRMATION/ERROR) has since
+                                    // caught up out-of-band. Reconcile it so /status and mesh
+                                    // beacons stop reporting a stale stuck state forever.
+                                    val target = com.cfox.droidmesh.api.ReleaseSelector.selectRelease(
+                                        releasesResult.getOrThrow(), cfg.targetVersion
+                                    )
+                                    if (target != null) {
+                                        updateCoordinator?.reconcileIfStale(
+                                            pkg,
+                                            installed.versionName,
+                                            target.tagName,
+                                            com.cfox.droidmesh.service.AutoInstallService.isServiceRunning
+                                        )
+                                    }
+                                }
                             }
                         } catch (e: Exception) {
                             Logger.e("Mesh auto-update error for $pkg", e)

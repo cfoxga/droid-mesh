@@ -15,6 +15,7 @@ package com.cfox.droidmesh.installer
 object InstallVerification {
 
     const val STATE_AWAITING_CONFIRMATION = "AWAITING_CONFIRMATION"
+    private val STALE_STATES = setOf(STATE_AWAITING_CONFIRMATION, "ERROR")
 
     sealed class Outcome {
         data class Verified(val installedVersion: String) : Outcome()
@@ -41,5 +42,29 @@ object InstallVerification {
                 "the system install dialog."
         }
         return Outcome.NotConfirmed(STATE_AWAITING_CONFIRMATION, message)
+    }
+
+    /**
+     * FLT-BEHAVE-009: decides whether the hourly mesh auto-update loop's `Skip` pass ("already on
+     * target") should reconcile a stale [STATE_AWAITING_CONFIRMATION]/`ERROR` status back to
+     * verified/idle. Only [classify]'s existing evidence is trusted — the caller supplies
+     * [statusPackage], the package the *live* status value currently describes, so this never
+     * clears a different, genuinely-still-stuck package's status just because an unrelated
+     * managed app in the same pass happened to already be on target.
+     *
+     * Returns `null` when there is nothing to reconcile: the state isn't stale, the status
+     * belongs to a different package, or the version still doesn't match target.
+     */
+    fun reconcileStale(
+        currentState: String,
+        statusPackage: String?,
+        packageName: String,
+        installedVersionName: String?,
+        targetTag: String,
+        accessibilityServiceActive: Boolean
+    ): Outcome.Verified? {
+        if (currentState !in STALE_STATES) return null
+        if (statusPackage != packageName) return null
+        return classify(installedVersionName, targetTag, accessibilityServiceActive) as? Outcome.Verified
     }
 }

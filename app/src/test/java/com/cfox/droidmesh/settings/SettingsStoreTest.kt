@@ -227,17 +227,57 @@ class SettingsStoreTest {
     }
 
     // [PROGRAMMATIC] SET-TEST-006: MeshAppConfig.fromJson self-heals managed=true with a blank
-    // downloadUrl (legacy/synced data) to managed=false on read, mirroring the write-path coercion.
+    // downloadUrl (legacy/synced sideloaded-origin data) to managed=false on read, mirroring the
+    // write-path coercion. Explicit isSideloaded=true so this stays a sideloaded-scoped assertion
+    // regardless of AppVersionHelper's prefix guess (APP-BEHAVE-007 narrows the gate to origin).
     @Test
     fun testMeshAppConfigFromJsonCoercesManagedFalseWhenDownloadUrlBlank() {
         val json = JSONObject().apply {
             put("packageName", "com.example.legacyapp")
             put("appName", "Legacy App")
             put("managed", true)
+            put("isSideloaded", true)
             put("downloadUrl", "")
         }
         val decoded = SettingsStore.MeshAppConfig.fromJson(json)
-        assertFalse("fromJson must coerce managed=false with no downloadUrl", decoded.managed)
+        assertFalse("fromJson must coerce managed=false with no downloadUrl for a sideloaded entry", decoded.managed)
+    }
+
+    // [PROGRAMMATIC] SET-TEST-007 (APP-BEHAVE-007 negative): a store-origin entry (isSideloaded
+    // = false) is never gated on downloadUrl — it will never have one, since DroidMesh doesn't
+    // download/install Play Store APKs directly. Managed there is a plain admin toggle.
+    @Test
+    fun testSetMeshAppConfigAllowsManagedTrueForStoreAppWithBlankDownloadUrl() {
+        val appConfig = SettingsStore.MeshAppConfig(
+            packageName = "com.netflix.mediaclient",
+            appName = "Netflix",
+            managed = true,
+            autoInstall = false,
+            targetVersion = "latest",
+            autoUpdate = false,
+            isSideloaded = false,
+            downloadUrl = ""
+        )
+        SettingsStore.setMeshAppConfig(mockContext, "googletv", appConfig)
+
+        val stored = SettingsStore.getMeshAppLibrary(mockContext, "googletv")["com.netflix.mediaclient"]
+        assertNotNull(stored)
+        assertTrue("managed must NOT coerce to false for a store-origin entry with no downloadUrl", stored!!.managed)
+    }
+
+    // [PROGRAMMATIC] SET-TEST-008 (APP-BEHAVE-007 negative): same rule on the read/sync path —
+    // fromJson must not coerce a store-origin entry's managed flag for lacking a downloadUrl.
+    @Test
+    fun testMeshAppConfigFromJsonAllowsManagedTrueForStoreAppWithBlankDownloadUrl() {
+        val json = JSONObject().apply {
+            put("packageName", "com.netflix.mediaclient")
+            put("appName", "Netflix")
+            put("managed", true)
+            put("isSideloaded", false)
+            put("downloadUrl", "")
+        }
+        val decoded = SettingsStore.MeshAppConfig.fromJson(json)
+        assertTrue("fromJson must NOT coerce managed=false for a store-origin entry with no downloadUrl", decoded.managed)
     }
 
     // [PROGRAMMATIC] APP-TEST-007: App library sorting by type (sideloaded first), then alphabetically

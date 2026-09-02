@@ -937,22 +937,23 @@ class LocalHttpServerTest {
         )
     }
 
-    // [PROGRAMMATIC] UI-TEST-008: the App Library renders as two separate cards — Managed Apps
-    // (full control set) and Unmanaged Apps (inventory + promote-by-URL) — not one mixed table.
+    // [PROGRAMMATIC] UI-TEST-008: the App Library renders as two separate cards split by ORIGIN
+    // — Sideloaded Apps (full control set) and Store Apps (Managed + Auto Install only) — not by
+    // managed-state, and not one mixed table.
     @Test
-    fun testAppLibrarySplitIntoManagedAndUnmanagedCards() {
+    fun testAppLibrarySplitIntoSideloadedAndStoreCards() {
         val assetFile = java.io.File("src/main/assets/web/index.html")
         assertTrue("index.html asset must exist", assetFile.exists())
         val html = assetFile.readText()
         for (id in listOf(
-            "meshManagedLibraryBody",
-            "meshManagedLibraryBadge",
-            "meshManagedLibraryTableBody",
-            "meshManagedLibraryChevron",
-            "meshUnmanagedLibraryBody",
-            "meshUnmanagedLibraryBadge",
-            "meshUnmanagedLibraryTableBody",
-            "meshUnmanagedLibraryChevron"
+            "meshSideloadedLibraryBody",
+            "meshSideloadedLibraryBadge",
+            "meshSideloadedLibraryTableBody",
+            "meshSideloadedLibraryChevron",
+            "meshStoreLibraryBody",
+            "meshStoreLibraryBadge",
+            "meshStoreLibraryTableBody",
+            "meshStoreLibraryChevron"
         )) {
             assertTrue("Must have id=\"$id\"", html.contains("id=\"$id\""))
         }
@@ -961,8 +962,36 @@ class LocalHttpServerTest {
             html.contains("id=\"meshLibraryTableBody\"")
         )
         assertFalse(
+            "Prior managed-state-split card ids must be gone — the split is by origin now",
+            html.contains("id=\"meshManagedLibraryTableBody\"") || html.contains("id=\"meshUnmanagedLibraryTableBody\"")
+        )
+        assertFalse(
             "Store-app rows must no longer render a dead \"N/A (Store App)\" target-version cell",
             html.contains("N/A (Store App)")
         )
+    }
+
+    // [PROGRAMMATIC] UI-TEST-010 (APP-BEHAVE-007 negative): the Store Apps card table must not
+    // expose the Release Download URL, Target Version, or Auto Update columns — they never
+    // apply to a Play Store app, and rendering them would recreate the dead-cell bug UI-BEHAVE-009
+    // already fixed once for the old single table.
+    @Test
+    fun testStoreAppsCardHasNoUrlOrVersionColumns() {
+        val assetFile = java.io.File("src/main/assets/web/index.html")
+        assertTrue("index.html asset must exist", assetFile.exists())
+        val html = assetFile.readText()
+        val storeCardStart = html.indexOf("id=\"meshStoreLibraryBody\"")
+        val storeCardEnd = html.indexOf("id=\"meshStoreLibraryTableBody\"")
+        assertTrue("Store Apps card body must exist before its table body", storeCardStart in 0 until storeCardEnd)
+        val theadStart = html.indexOf("<thead>", storeCardStart)
+        val theadEnd = html.indexOf("</thead>", storeCardStart)
+        assertTrue("Store Apps card must have a <thead> before its table body", theadStart in storeCardStart until storeCardEnd)
+        assertTrue("Store Apps card's </thead> must close before its table body", theadEnd in theadStart until storeCardEnd)
+        // Scoped to the column headers only — the card's own descriptive paragraph legitimately
+        // says these column names don't apply, which would otherwise false-positive this check.
+        val storeCardHeader = html.substring(theadStart, theadEnd)
+        assertFalse("Store Apps card must not have a Target Version column", storeCardHeader.contains("Target Version"))
+        assertFalse("Store Apps card must not have an Auto Update column", storeCardHeader.contains("Auto Update"))
+        assertFalse("Store Apps card must not have a Release Download URL column", storeCardHeader.contains("Release Download URL"))
     }
 }

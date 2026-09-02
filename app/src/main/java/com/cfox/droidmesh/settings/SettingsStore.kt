@@ -63,10 +63,12 @@ object SettingsStore {
                 val name = json.optString("appName", json.optString("name", pkg))
                 val isSideload = if (json.has("isSideloaded")) json.optBoolean("isSideloaded") else com.cfox.droidmesh.installer.AppVersionHelper.isSideloadedApp(pkg)
                 val downloadUrl = json.optString("downloadUrl", "")
-                // SET-BEHAVE-005: an entry can never be Managed without a downloadUrl. Legacy/synced
-                // data carrying managed=true with a blank downloadUrl self-heals to managed=false here
-                // rather than surfacing as managed-but-unusable.
-                val managed = json.optBoolean("managed", false) && downloadUrl.isNotBlank()
+                // SET-BEHAVE-005 / APP-BEHAVE-007: a SIDELOADED entry can never be Managed without
+                // a downloadUrl. Legacy/synced sideloaded data carrying managed=true with a blank
+                // downloadUrl self-heals to managed=false here rather than surfacing as
+                // managed-but-unusable. A store-origin entry never has a downloadUrl to give
+                // (DroidMesh doesn't download/install Play Store APKs directly) and is never gated.
+                val managed = json.optBoolean("managed", false) && (!isSideload || downloadUrl.isNotBlank())
                 return MeshAppConfig(
                     packageName = pkg,
                     appName = if (name.isNotBlank()) name else pkg,
@@ -531,9 +533,11 @@ object SettingsStore {
     }
 
     fun setMeshAppConfig(context: Context, meshId: String, appConfig: MeshAppConfig): Long {
-        // SET-BEHAVE-005: an entry can never be persisted as Managed without a downloadUrl.
-        // Coerce (never throw) rather than reject the write outright.
-        val safeConfig = if (appConfig.managed && appConfig.downloadUrl.trim().isBlank()) {
+        // SET-BEHAVE-005 / APP-BEHAVE-007: a SIDELOADED entry can never be persisted as Managed
+        // without a downloadUrl. Coerce (never throw) rather than reject the write outright. A
+        // store-origin entry is exempt — it will never have a downloadUrl, and Managed there is
+        // a plain admin-curated toggle, not a release-source gate.
+        val safeConfig = if (appConfig.managed && appConfig.isSideloaded && appConfig.downloadUrl.trim().isBlank()) {
             appConfig.copy(managed = false)
         } else {
             appConfig

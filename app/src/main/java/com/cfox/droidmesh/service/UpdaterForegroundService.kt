@@ -24,7 +24,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
@@ -80,6 +79,11 @@ class UpdaterForegroundService : Service() {
     private var wakeLock: PowerManager.WakeLock? = null
     private var meshAutoInstallJob: Job? = null
 
+    // FLT-BEHAVE-008: lets a libraryChanged config event (a new pinned targetVersion,
+    // autoUpdate/autoInstall flipped) wake the hourly mesh auto-action loop immediately instead
+    // of leaving it asleep for the rest of AUTO_INSTALL_CHECK_MS.
+    private val meshAutoActionTicker = WakeableTicker(AUTO_INSTALL_CHECK_MS)
+
     override fun onCreate() {
         super.onCreate()
         Logger.i("UpdaterForegroundService onCreate")
@@ -118,11 +122,21 @@ class UpdaterForegroundService : Service() {
 
     private val configChangeListener = SettingsStore.OnConfigChangeListener { result ->
         serviceScope.launch(Dispatchers.Main) {
-            Logger.i("Config change received in UpdaterForegroundService: portChanged=${result.portChanged}")
+            Logger.i(
+                "Config change received in UpdaterForegroundService: " +
+                    "portChanged=${result.portChanged} libraryChanged=${result.libraryChanged}"
+            )
             if (result.portChanged) {
                 manageHttpServer()
                 val currentPort = SettingsStore.getWebServerPort(applicationContext)
                 updateNotification("Listening on port $currentPort")
+            }
+            if (result.libraryChanged) {
+                // FLT-BEHAVE-008: an App Library edit (pin a new targetVersion, flip
+                // autoUpdate/autoInstall) should not have to wait out the rest of the current
+                // hour before the loop re-reads it — wake it now.
+                Logger.i("Mesh App Library changed — waking auto-action loop early")
+                meshAutoActionTicker.wake()
             }
         }
     }
@@ -193,7 +207,8 @@ class UpdaterForegroundService : Service() {
      * autoUpdate app), checks the coordinator for a newer release and triggers the same
      * download/install pipeline a manual `/update?package=` call would use. There is no
      * singleton "one managed app" constraint — any number of entries can be acted on in the
-     * same pass. Runs once on startup then every AUTO_INSTALL_CHECK_MS.
+     * same pass. Runs once on startup then every AUTO_INSTALL_CHECK_MS — or immediately whenever
+     * meshAutoActionTicker.wake() fires early on a libraryChanged config event (FLT-BEHAVE-008).
      */
     private fun manageMeshAutoActionLoop() {
         if (meshAutoInstallJob?.isActive == true) return
@@ -287,7 +302,7 @@ class UpdaterForegroundService : Service() {
                 } catch (e: Exception) {
                     Logger.e("Mesh auto-action loop error", e)
                 }
-                delay(AUTO_INSTALL_CHECK_MS)
+                meshAutoActionTicker.awaitNextTick()
             }
         }
     }

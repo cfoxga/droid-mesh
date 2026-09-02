@@ -1,5 +1,8 @@
 package com.cfox.droidmesh.service
 
+import com.cfox.droidmesh.api.ReleaseInfo
+import com.cfox.droidmesh.api.ReleaseSelector
+import com.cfox.droidmesh.installer.AppVersionHelper
 import com.cfox.droidmesh.settings.SettingsStore.MeshAppConfig
 
 /**
@@ -39,5 +42,51 @@ object MeshAutoActionPlanner {
                 cfg.packageName in installedPackages
         }
         return Plan(installs = installs, updateChecks = updateChecks)
+    }
+
+    /** What auto-update should do with one App Library entry on this pass. */
+    sealed class UpdateAction {
+        data class Install(val release: ReleaseInfo) : UpdateAction()
+        data class Skip(val reason: String) : UpdateAction()
+    }
+
+    /**
+     * FLT-BEHAVE-007: decide which release auto-update should install for one App Library entry.
+     *
+     * The pin has to be resolved *before* the up-to-date comparison, not after. Comparing against
+     * `releases.first()` and then installing `releases.first()` ignored `targetVersion` on both
+     * legs, so an entry pinned to an older-than-newest release silently got the newest build.
+     */
+    fun decideUpdate(
+        cfg: MeshAppConfig,
+        installedVersionName: String?,
+        releases: List<ReleaseInfo>
+    ): UpdateAction {
+        if (releases.isEmpty()) {
+            return UpdateAction.Skip("no releases available for ${cfg.packageName}")
+        }
+        val pin = cfg.targetVersion.trim()
+        val target = ReleaseSelector.selectRelease(releases, pin)
+            ?: return UpdateAction.Skip(
+                "pinned target '$pin' matches no published release for ${cfg.packageName}"
+            )
+
+        if (AppVersionHelper.isUpdateAvailable(installedVersionName, target.tagName)) {
+            return UpdateAction.Install(target)
+        }
+        // Not an upgrade. Distinguish "already there" from "the pin is behind what is installed" —
+        // the latter is a real misconfiguration worth naming, and Android rejects downgrades
+        // outright, so attempting one every hour would fail forever instead of converging.
+        val installed = installedVersionName?.trim().orEmpty()
+        val isPinBehindInstalled = installed.isNotEmpty() &&
+            !AppVersionHelper.isUpdateAvailable(installedVersionName, target.tagName) &&
+            AppVersionHelper.isVersionMismatch(installedVersionName, target.tagName)
+        return if (isPinBehindInstalled) {
+            UpdateAction.Skip(
+                "refusing to downgrade ${cfg.packageName} from '$installed' to pinned '${target.tagName}'"
+            )
+        } else {
+            UpdateAction.Skip("${cfg.packageName} is already on '${target.tagName}'")
+        }
     }
 }

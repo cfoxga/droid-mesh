@@ -177,4 +177,81 @@ class MeshAutoActionPlannerTest {
             plan.updateChecks.map { it.packageName }.toSet()
         )
     }
+
+    // ---- FLT-BEHAVE-007: auto-update must honor the pinned targetVersion ----
+
+    private fun rel(tag: String) = com.cfox.droidmesh.api.ReleaseInfo(
+        tagName = tag, name = tag, publishedAt = "",
+        apkAssetUrl = "https://example.com/$tag.apk",
+        apkFileName = "$tag.apk", apkSize = 1L
+    )
+
+    private val kioskReleases = listOf(rel("2026.9.3"), rel("2026.9.2"), rel("2026.8.108"), rel("2026.8.107"))
+
+    private fun pinned(target: String) = MeshAppConfig(
+        packageName = "me.jxl.kiosk_satellite",
+        appName = "Kiosk Satellite",
+        managed = true,
+        autoUpdate = true,
+        targetVersion = target,
+        downloadUrl = "https://github.com/jxlarrea/kiosk-satellite/releases"
+    )
+
+    // [PROGRAMMATIC] FLT-TEST-006: a pinned targetVersion installs THAT release, not the newest.
+    @Test
+    fun testAutoUpdateInstallsThePinnedReleaseNotTheNewest() {
+        val action = MeshAutoActionPlanner.decideUpdate(pinned("2026.9.2"), "2026.8.107", kioskReleases)
+        assertTrue("expected an Install, got $action", action is MeshAutoActionPlanner.UpdateAction.Install)
+        assertEquals(
+            "auto-update must install the pinned tag, not the newest release",
+            "2026.9.2",
+            (action as MeshAutoActionPlanner.UpdateAction.Install).release.tagName
+        )
+    }
+
+    // [PROGRAMMATIC] FLT-TEST-006 (negative): already on the pinned version -> no action, so the
+    // hourly loop does not reinstall the same build forever.
+    @Test
+    fun testAutoUpdateSkipsWhenAlreadyOnThePinnedRelease() {
+        val action = MeshAutoActionPlanner.decideUpdate(pinned("2026.9.2"), "2026.9.2", kioskReleases)
+        assertTrue("expected a Skip, got $action", action is MeshAutoActionPlanner.UpdateAction.Skip)
+    }
+
+    // [PROGRAMMATIC] FLT-TEST-006 (negative): a pin OLDER than what is installed is never an
+    // install attempt — Android rejects downgrades, so retrying hourly would just fail forever.
+    @Test
+    fun testAutoUpdateRefusesToDowngradeToAnOlderPin() {
+        val action = MeshAutoActionPlanner.decideUpdate(pinned("2026.8.108"), "2026.9.3", kioskReleases)
+        assertTrue("expected a Skip, got $action", action is MeshAutoActionPlanner.UpdateAction.Skip)
+        assertTrue(
+            "the skip reason must name the downgrade, got: $action",
+            (action as MeshAutoActionPlanner.UpdateAction.Skip).reason.contains("downgrade", ignoreCase = true)
+        )
+    }
+
+    // [PROGRAMMATIC] FLT-TEST-006 (negative): a pin matching no published release is a skip whose
+    // reason names the tag — never a silent fall-back to installing the newest build.
+    @Test
+    fun testAutoUpdateSkipsWhenPinMatchesNoRelease() {
+        val action = MeshAutoActionPlanner.decideUpdate(pinned("2026.9.99"), "2026.8.107", kioskReleases)
+        assertTrue("expected a Skip, got $action", action is MeshAutoActionPlanner.UpdateAction.Skip)
+        assertTrue(
+            "the skip reason must name the unmatched tag, got: $action",
+            (action as MeshAutoActionPlanner.UpdateAction.Skip).reason.contains("2026.9.99")
+        )
+    }
+
+    // [PROGRAMMATIC] FLT-TEST-006: "latest" (and blank) still mean newest published release.
+    @Test
+    fun testAutoUpdateStillTracksNewestWhenTargetIsLatest() {
+        listOf("latest", "").forEach { target ->
+            val action = MeshAutoActionPlanner.decideUpdate(pinned(target), "2026.8.107", kioskReleases)
+            assertTrue("expected an Install for target='$target', got $action",
+                action is MeshAutoActionPlanner.UpdateAction.Install)
+            assertEquals(
+                "2026.9.3",
+                (action as MeshAutoActionPlanner.UpdateAction.Install).release.tagName
+            )
+        }
+    }
 }

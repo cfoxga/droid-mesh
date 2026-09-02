@@ -16,6 +16,7 @@ import com.cfox.droidmesh.R
 import com.cfox.droidmesh.mesh.MeshDiscoveryManager
 import com.cfox.droidmesh.server.LocalHttpServer
 import com.cfox.droidmesh.server.UpdateCoordinator
+import com.cfox.droidmesh.installer.AppVersionHelper
 import com.cfox.droidmesh.settings.SettingsStore
 import com.cfox.droidmesh.utils.Logger
 import kotlinx.coroutines.CoroutineScope
@@ -255,13 +256,29 @@ class UpdaterForegroundService : Service() {
                         val pkg = cfg.packageName
                         val downloadUrl = cfg.downloadUrl.trim()
                         try {
-                            val checkResult = updateCoordinator?.checkVersion(pkg, downloadUrl)
-                            val comparison = checkResult?.getOrNull()
-                            if (comparison?.isUpdateAvailable == true) {
-                                Logger.i("Mesh auto-update: $pkg (${cfg.appName}) has an update available — starting")
-                                updateCoordinator?.startUpdateAsync(pkg, downloadUrl, force = false)
-                            } else if (checkResult?.isFailure == true) {
-                                Logger.w("Mesh auto-update: version check failed for $pkg: ${checkResult.exceptionOrNull()?.message}")
+                            // FLT-BEHAVE-007: resolve the entry's pinned targetVersion before
+                            // deciding *and* before installing. This previously compared against
+                            // releases.first() and then called startUpdateAsync(pkg, downloadUrl),
+                            // which also installs releases.first() — so a pinned older release was
+                            // ignored on both legs and the node silently got the newest build.
+                            val releasesResult = updateCoordinator?.fetchAvailableReleases(downloadUrl)
+                                ?: Result.failure(IllegalStateException("Update coordinator unavailable"))
+                            if (releasesResult.isFailure) {
+                                Logger.w("Mesh auto-update: release fetch failed for $pkg: ${releasesResult.exceptionOrNull()?.message}")
+                                continue
+                            }
+                            val installed = AppVersionHelper.getInstalledVersion(applicationContext, pkg)
+                            when (
+                                val action = MeshAutoActionPlanner.decideUpdate(
+                                    cfg, installed.versionName, releasesResult.getOrThrow()
+                                )
+                            ) {
+                                is MeshAutoActionPlanner.UpdateAction.Install -> {
+                                    Logger.i("Mesh auto-update: $pkg (${cfg.appName}) ${installed.versionName} -> ${action.release.tagName} — starting")
+                                    updateCoordinator?.startUpdateForRelease(pkg, action.release, force = false)
+                                }
+                                is MeshAutoActionPlanner.UpdateAction.Skip ->
+                                    Logger.i("Mesh auto-update: skipping $pkg — ${action.reason}")
                             }
                         } catch (e: Exception) {
                             Logger.e("Mesh auto-update error for $pkg", e)

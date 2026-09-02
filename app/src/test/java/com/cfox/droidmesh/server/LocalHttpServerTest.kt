@@ -914,6 +914,28 @@ class LocalHttpServerTest {
         assertEquals(NanoHTTPD.Response.Status.UNAUTHORIZED, server.serve(session).status)
     }
 
+    // [PROGRAMMATIC] API-TEST-031: the peer-relay outbound /update request carries a valid
+    // Authorization bearer token when this device has a password configured, so a
+    // password-protected target peer (including self-dispatch) doesn't 401 it silently.
+    @Test
+    fun testPeerUpdateRelayAttachesValidAuthTokenWhenPasswordSet() {
+        SettingsStore.setPassword(mockContext, "secret123")
+        val req = server.buildPeerUpdateRequest("192.168.1.5", 2325, "", "", "me.jxl.kiosk_satellite", true)
+        val authHeader = req.header("Authorization")
+        assertNotNull(authHeader)
+        assertTrue(authHeader!!.startsWith("Bearer "))
+        val token = authHeader.removePrefix("Bearer ")
+        assertTrue(SettingsStore.validateToken(mockContext, token))
+    }
+
+    // [PROGRAMMATIC] API-TEST-032 (negative): no password configured means no token exists to
+    // mint, and the target peer's own isAuthorized fails open too, so no header is attached.
+    @Test
+    fun testPeerUpdateRelayOmitsAuthHeaderWhenNoPasswordSet() {
+        val req = server.buildPeerUpdateRequest("192.168.1.5", 2325, "", "", "me.jxl.kiosk_satellite", true)
+        assertNull(req.header("Authorization"))
+    }
+
     // [PROGRAMMATIC] API-TEST-015: /status includes canRequestPackageInstalls as a boolean
     @Test
     fun testStatusIncludesCanRequestPackageInstalls() {

@@ -1239,16 +1239,7 @@ class LocalHttpServer(
 
         scope.launch {
             try {
-                val queryParams = mutableListOf("force=$force")
-                if (tag.isNotBlank()) queryParams.add("tag=${URLEncoder.encode(tag, "UTF-8")}")
-                if (url.isNotBlank()) queryParams.add("url=${URLEncoder.encode(url, "UTF-8")}")
-                if (pkg.isNotBlank()) queryParams.add("package=${URLEncoder.encode(pkg, "UTF-8")}")
-                val updateUrl = "http://$ip:$port/update?${queryParams.joinToString("&")}"
-
-                val req = Request.Builder()
-                    .url(updateUrl)
-                    .post(ByteArray(0).toRequestBody(null, 0, 0))
-                    .build()
+                val req = buildPeerUpdateRequest(ip, port, tag, url, pkg, force)
                 httpClient.newCall(req).execute().close()
                 Logger.i("Dispatched remote peer update to $ip:$port (package=$pkg)")
             } catch (e: Exception) {
@@ -1261,6 +1252,36 @@ class LocalHttpServer(
             put("message", "Dispatched update sequence to peer $ip:$port")
         }
         return jsonResponse(Response.Status.ACCEPTED, json)
+    }
+
+    // [API-BEHAVE-022] Builds the outbound relay request for a peer-directed update. Attaches a
+    // freshly minted, short-lived bearer token whenever this device has a password configured, so
+    // a password-protected target peer's own isAuthorized check (API-BEHAVE-003) doesn't reject the
+    // relay with a 401 that the fire-and-forget caller (handlePeerUpdate) never sees. KEY_AUTH_SECRET
+    // already syncs mesh-wide alongside the password hash via SettingsStore.exportConfigJson /
+    // importConfigJson, so a token minted here validates on any peer that has completed a config
+    // sync with this device -- no new synced credential is needed, only this header.
+    internal fun buildPeerUpdateRequest(
+        ip: String,
+        port: Int,
+        tag: String,
+        url: String,
+        pkg: String,
+        force: Boolean
+    ): Request {
+        val queryParams = mutableListOf("force=$force")
+        if (tag.isNotBlank()) queryParams.add("tag=${URLEncoder.encode(tag, "UTF-8")}")
+        if (url.isNotBlank()) queryParams.add("url=${URLEncoder.encode(url, "UTF-8")}")
+        if (pkg.isNotBlank()) queryParams.add("package=${URLEncoder.encode(pkg, "UTF-8")}")
+        val updateUrl = "http://$ip:$port/update?${queryParams.joinToString("&")}"
+
+        val builder = Request.Builder()
+            .url(updateUrl)
+            .post(ByteArray(0).toRequestBody(null, 0, 0))
+        if (SettingsStore.isPasswordSet(context)) {
+            builder.header("Authorization", "Bearer ${SettingsStore.generateToken(context, ttlSeconds = 60)}")
+        }
+        return builder.build()
     }
 
     private fun handlePeerAdbToggle(session: IHTTPSession): Response {

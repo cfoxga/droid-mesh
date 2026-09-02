@@ -555,6 +555,17 @@ class MeshDiscoveryManager(
             val id = peerJson.optString("id")
             if (id.isBlank() || id == deviceId) continue
 
+            // MESH-BEHAVE-013: a relayed peer report is second-hand — the relaying node may not
+            // have synced with `id` itself in a while. Without this guard, an unconditional
+            // last-write-wins-by-receipt-order merge lets a stale relay clobber a fresher entry
+            // already held locally (observed live: Kiosk Satellite Mesh bouncing a node from IDLE
+            // back to a stale AWAITING_CONFIRMATION). Trust the newer timestamp, not the newer receipt.
+            val incomingLastSeen = peerJson.optLong("lastSeenTimestamp", now)
+            val existingPeer = peersMap[id]
+            if (existingPeer != null && existingPeer.lastSeenTimestamp >= incomingLastSeen) {
+                continue
+            }
+
             val ip = peerJson.optString("ip", seed.substringBefore(":"))
             val port = peerJson.optInt("port", 2325)
             val model = peerJson.optString("deviceModel", "Remote Node")
@@ -603,7 +614,7 @@ class MeshDiscoveryManager(
                 updaterState = updaterState,
                 updaterMessage = updaterMessage,
                 adbEnabled = adbEnabled,
-                lastSeenTimestamp = now,
+                lastSeenTimestamp = incomingLastSeen,
                 isSelf = false,
                 meshId = meshId,
                 meshName = meshName,

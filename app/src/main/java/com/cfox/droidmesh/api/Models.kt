@@ -18,7 +18,7 @@ data class VersionComparison(
 )
 
 data class UpdateStatus(
-    val state: String, // IDLE, CHECKING, DOWNLOADING, INSTALLING, COMPLETED, ERROR
+    val state: String, // IDLE, CHECKING, DOWNLOADING, INSTALLING, AWAITING_CONFIRMATION, COMPLETED, ERROR
     val message: String,
     val progressPercent: Int = 0,
     val downloadedBytes: Long = 0L,

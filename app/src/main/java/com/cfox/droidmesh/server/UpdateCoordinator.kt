@@ -10,6 +10,7 @@ import com.cfox.droidmesh.api.UpdateStatus
 import com.cfox.droidmesh.api.VersionComparison
 import com.cfox.droidmesh.downloader.ApkDownloader
 import com.cfox.droidmesh.installer.AdbLoopbackInstaller
+import com.cfox.droidmesh.installer.InstallVerification
 import com.cfox.droidmesh.installer.AppVersionHelper
 import com.cfox.droidmesh.installer.PackageInstallerDispatcher
 import com.cfox.droidmesh.utils.Logger
@@ -38,6 +39,12 @@ class UpdateCoordinator(
     private val githubFetcher: GitHubReleaseFetcher = GitHubReleaseFetcher(),
     private val downloader: ApkDownloader = ApkDownloader(context)
 ) {
+    private companion object {
+        // Matches the 25s budget the downgrade path already uses for uninstall confirmation.
+        const val INSTALL_CONFIRM_POLLS = 50
+        const val INSTALL_CONFIRM_POLL_MS = 500L
+    }
+
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val updateMutex = Mutex()
 
@@ -293,15 +300,55 @@ class UpdateCoordinator(
                 return Result.failure(installResult.exceptionOrNull() ?: Exception(err))
             }
 
-            val successMsg = "Installer dispatched for ${release.tagName}. Accessibility service will handle installation dialogs."
-            Logger.i(successMsg)
+            Logger.i("Installer dispatched for ${release.tagName}; waiting for the package manager to confirm.")
             _statusFlow.value = UpdateStatus(
-                state = "COMPLETED",
-                message = successMsg,
+                state = "INSTALLING",
+                message = "Installer dispatched for ${release.tagName}; awaiting confirmation...",
                 progressPercent = 100
             )
 
-            return Result.success(release)
+            // INST-BEHAVE-007: dispatching the installer Intent is not installing. Poll the package
+            // manager the same way the downgrade path above does, and only report COMPLETED once it
+            // actually reports the new version. Reporting COMPLETED at dispatch made a node whose
+            // install dialog was never tapped look updated while still running the old build.
+            var installedNow: String? = null
+            for (i in 0 until INSTALL_CONFIRM_POLLS) {
+                kotlinx.coroutines.delay(INSTALL_CONFIRM_POLL_MS)
+                installedNow = AppVersionHelper.getInstalledVersion(context, packageName).versionName
+                if (InstallVerification.classify(installedNow, release.tagName, true)
+                    is InstallVerification.Outcome.Verified
+                ) {
+                    break
+                }
+            }
+
+            return when (
+                val outcome = InstallVerification.classify(
+                    installedNow,
+                    release.tagName,
+                    com.cfox.droidmesh.service.AutoInstallService.isServiceRunning
+                )
+            ) {
+                is InstallVerification.Outcome.Verified -> {
+                    val msg = "Installed ${release.tagName} (confirmed by package manager)."
+                    Logger.i(msg)
+                    _statusFlow.value = UpdateStatus(
+                        state = "COMPLETED",
+                        message = msg,
+                        progressPercent = 100
+                    )
+                    Result.success(release)
+                }
+                is InstallVerification.Outcome.NotConfirmed -> {
+                    Logger.w("Install not confirmed for $packageName: ${outcome.message}")
+                    _statusFlow.value = UpdateStatus(
+                        state = outcome.state,
+                        message = outcome.message,
+                        progressPercent = 100
+                    )
+                    Result.failure(IllegalStateException(outcome.message))
+                }
+            }
         } finally {
             updateMutex.unlock()
         }

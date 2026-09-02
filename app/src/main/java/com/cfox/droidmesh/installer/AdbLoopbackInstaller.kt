@@ -23,17 +23,52 @@ object AdbLoopbackInstaller {
 
     private const val ADB_VERSION = 0x01000000
     private const val MAX_DATA = 4096
+    private const val DEFAULT_HOST = "127.0.0.1"
+    private const val DEFAULT_PORT = 5555
 
-    suspend fun installWithAdbLoopback(apkFile: File): Result<String> = withContext(Dispatchers.IO) {
+    suspend fun installWithAdbLoopback(
+        apkFile: File,
+        host: String = DEFAULT_HOST,
+        port: Int = DEFAULT_PORT
+    ): Result<String> = withContext(Dispatchers.IO) {
         if (!apkFile.exists() || apkFile.length() == 0L) {
             return@withContext Result.failure(IllegalArgumentException("APK file invalid"))
         }
 
-        try {
-            Logger.i("Attempting local loopback ADB install (-r -d) for ${apkFile.name} on 127.0.0.1:5555")
+        Logger.i("Attempting local loopback ADB install (-r -d) for ${apkFile.name} on $host:$port")
+        val cmd = "cat \"${apkFile.absolutePath}\" | pm install -r -d -S ${apkFile.length()}"
+        runAdbSession(host, port, cmd, earlyStopOnSubstring = "Success")
+    }
+
+    // INST-BEHAVE-008: generic shell command execution over the same loopback ADB session
+    // installWithAdbLoopback already used, for callers other than the APK installer (e.g.
+    // PROV-BEHAVE-004's provisioning repair). Waits for the remote to close the exec stream
+    // (A_CLSE) rather than early-exiting on any particular substring, since arbitrary command
+    // output has no fixed "done" marker the way `pm install` does.
+    suspend fun runShellCommand(
+        command: String,
+        host: String = DEFAULT_HOST,
+        port: Int = DEFAULT_PORT
+    ): Result<String> = withContext(Dispatchers.IO) {
+        Logger.i("Running loopback ADB shell command on $host:$port: $command")
+        runAdbSession(host, port, command, earlyStopOnSubstring = null)
+    }
+
+    // Shared CNXN/AUTH/OPEN/WRTE/CLSE session: connects, authenticates if challenged, opens an
+    // `exec:<command>` stream, and captures its output. `earlyStopOnSubstring` preserves
+    // installWithAdbLoopback's original behavior of closing the stream the moment the output
+    // contains that substring (case-insensitive) instead of waiting for the remote to close it —
+    // left null for runShellCommand, which has no such fixed marker to watch for.
+    private fun runAdbSession(
+        host: String,
+        port: Int,
+        command: String,
+        earlyStopOnSubstring: String?
+    ): Result<String> {
+        return try {
             Socket().use { socket ->
-                socket.connect(InetSocketAddress("127.0.0.1", 5555), 2000)
-                socket.soTimeout = 60000 // 60s timeout for streaming install
+                socket.connect(InetSocketAddress(host, port), 2000)
+                socket.soTimeout = 60000 // 60s timeout for streaming exec
 
                 val input = socket.getInputStream()
                 val output = socket.getOutputStream()
@@ -44,21 +79,21 @@ object AdbLoopbackInstaller {
 
                 // 2. Read CNXN or AUTH response
                 var header = readHeader(input) ?: throw IllegalStateException("No response from ADB daemon")
-                
+
                 if (header.command == A_AUTH) {
                     Logger.i("ADB daemon requested authentication, handling auth challenge")
                     val tokenData = if (header.dataLength > 0) readFully(input, header.dataLength) ?: ByteArray(0) else ByteArray(0)
-                    
+
                     // Generate or get local RSA keypair
                     val keyPair = getOrCreateKeyPair()
-                    
+
                     // Sign token and send SIGNATURE
                     try {
                         val cipher = javax.crypto.Cipher.getInstance("RSA/ECB/PKCS1Padding")
                         cipher.init(javax.crypto.Cipher.ENCRYPT_MODE, keyPair.private)
                         val signature = cipher.doFinal(tokenData)
                         writeMessage(output, A_AUTH, 2 /* AUTH_SIGNATURE */, 0, signature)
-                        
+
                         header = readHeader(input) ?: throw IllegalStateException("No response after ADB signature")
                     } catch (e: Exception) {
                         Logger.w("Could not sign ADB token: ${e.message}")
@@ -67,10 +102,15 @@ object AdbLoopbackInstaller {
                     // If still AUTH, send RSAPUBLICKEY
                     if (header.command == A_AUTH) {
                         readFully(input, header.dataLength)
-                        val pubKeyBytes = android.util.Base64.encode(keyPair.public.encoded, android.util.Base64.NO_WRAP)
+                        // java.util.Base64 (not android.util.Base64): available since API 26, well
+                        // under this app's Min SDK 28, and — unlike the android.* copy — usable
+                        // from plain JUnit tests, which is what caught this path having zero real
+                        // coverage before INST-TEST-006 (android.util.Base64 silently returns null
+                        // under the default unit-test stub, turning this into an NPE two lines down).
+                        val pubKeyBytes = java.util.Base64.getEncoder().encode(keyPair.public.encoded)
                         val pubKeyPayload = (String(pubKeyBytes, Charsets.UTF_8) + " ksu@localhost\u0000").toByteArray(Charsets.UTF_8)
                         writeMessage(output, A_AUTH, 3 /* AUTH_RSAPUBLICKEY */, 0, pubKeyPayload)
-                        
+
                         header = readHeader(input) ?: throw IllegalStateException("No response after ADB public key")
                     }
                 }
@@ -80,10 +120,10 @@ object AdbLoopbackInstaller {
                 }
                 readFully(input, header.dataLength)
 
-                // 3. Open exec stream for: cat "<path>" | pm install -r -d -S <size>
+                // 3. Open exec stream for the requested command
                 val localId = 1
-                val cmd = "exec:cat \"${apkFile.absolutePath}\" | pm install -r -d -S ${apkFile.length()}\u0000".toByteArray(Charsets.UTF_8)
-                writeMessage(output, A_OPEN, localId, 0, cmd)
+                val cmdBytes = "exec:$command\u0000".toByteArray(Charsets.UTF_8)
+                writeMessage(output, A_OPEN, localId, 0, cmdBytes)
 
                 val responseBuffer = ByteArrayOutputStream()
                 var remoteId = 0
@@ -100,8 +140,10 @@ object AdbLoopbackInstaller {
                             responseBuffer.write(data)
                             // Ack with A_OKAY
                             writeMessage(output, A_OKAY, localId, remoteId, ByteArray(0))
-                            if (responseBuffer.toString("UTF-8").contains("Success", ignoreCase = true)) {
-                                Logger.i("Received Success from ADB daemon")
+                            if (earlyStopOnSubstring != null &&
+                                responseBuffer.toString("UTF-8").contains(earlyStopOnSubstring, ignoreCase = true)
+                            ) {
+                                Logger.i("Received '$earlyStopOnSubstring' from ADB daemon, closing stream")
                                 writeMessage(output, A_CLSE, localId, remoteId, ByteArray(0))
                                 break
                             }
@@ -114,16 +156,20 @@ object AdbLoopbackInstaller {
                 }
 
                 val resultOutput = responseBuffer.toString("UTF-8").trim()
-                Logger.i("ADB loopback install response: $resultOutput")
+                Logger.i("ADB loopback session response: $resultOutput")
 
-                if (resultOutput.contains("Success", ignoreCase = true)) {
-                    Result.success(resultOutput)
+                if (earlyStopOnSubstring != null) {
+                    if (resultOutput.contains(earlyStopOnSubstring, ignoreCase = true)) {
+                        Result.success(resultOutput)
+                    } else {
+                        Result.failure(IllegalStateException("ADB command failed: $resultOutput"))
+                    }
                 } else {
-                    Result.failure(IllegalStateException("ADB install failed: $resultOutput"))
+                    Result.success(resultOutput)
                 }
             }
         } catch (e: Exception) {
-            Logger.w("ADB loopback install failed (${e.message})")
+            Logger.w("ADB loopback session failed (${e.message})")
             Result.failure(e)
         }
     }

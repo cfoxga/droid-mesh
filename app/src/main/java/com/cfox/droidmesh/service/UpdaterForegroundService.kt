@@ -19,6 +19,7 @@ import com.cfox.droidmesh.server.UpdateCoordinator
 import com.cfox.droidmesh.installer.AppVersionHelper
 import com.cfox.droidmesh.settings.SettingsStore
 import com.cfox.droidmesh.utils.Logger
+import com.cfox.droidmesh.utils.ProvisioningAuditor
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -101,6 +102,18 @@ class UpdaterForegroundService : Service() {
         meshDiscoveryManager = mesh
         activeMeshManager = mesh
         mesh.start()
+
+        // PROV-BEHAVE-001: audit the three OS-level grants DroidMesh depends on outside its own
+        // package on every service start (covers real boot via BootReceiver and manual app
+        // launch alike). GET /api/system/provisioning re-audits live on every call — this pass
+        // only logs, so a cleared grant is visible in /logs without waiting for a poll.
+        val provisioningAudit = ProvisioningAuditor.audit(applicationContext)
+        if (provisioningAudit.repairNeeded) {
+            val missing = provisioningAudit.items.filter { !it.satisfied }.joinToString(", ") { it.label }
+            Logger.w("Provisioning audit: repair needed — missing: $missing")
+        } else {
+            Logger.i("Provisioning audit: all grants satisfied")
+        }
 
         manageHttpServer()
         SettingsStore.addConfigChangeListener(configChangeListener)

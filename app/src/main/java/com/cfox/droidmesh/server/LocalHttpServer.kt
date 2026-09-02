@@ -13,6 +13,7 @@ import com.cfox.droidmesh.settings.SettingsStore
 import com.cfox.droidmesh.utils.AdbHelper
 import com.cfox.droidmesh.utils.CpuStatsHelper
 import com.cfox.droidmesh.utils.Logger
+import com.cfox.droidmesh.utils.ProvisioningAuditor
 import fi.iki.elonen.NanoHTTPD
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -160,6 +161,8 @@ class LocalHttpServer(
                 // System Settings Launch
                 uri == "/api/system/open-accessibility-settings" && method == Method.POST -> handleOpenAccessibilitySettings(session)
                 uri == "/api/system/open-install-settings" && method == Method.POST -> handleOpenInstallSettings(session)
+                uri == "/api/system/provisioning" && method == Method.GET -> handleProvisioningAudit(session)
+                uri == "/api/system/provisioning/repair" && method == Method.POST -> handleProvisioningRepair(session)
 
                 // Peer Mesh Fleet
                 (uri == "/mesh" || uri == "/peers" || uri == "/api/mesh") && method == Method.GET -> handleMesh()
@@ -775,6 +778,59 @@ class LocalHttpServer(
                 put("error", e.message ?: "Failed to open install settings")
             })
         }
+    }
+
+    // --- Self-Provisioning Audit & Repair (PROV-API-001/002) ---
+
+    private fun provisioningAuditJson(audit: ProvisioningAuditor.ProvisioningAuditResult): JSONObject {
+        val json = JSONObject()
+        json.put("status", "ok")
+        json.put("repairNeeded", audit.repairNeeded)
+        val items = JSONArray()
+        audit.items.forEach { item ->
+            items.put(JSONObject().apply {
+                put("key", item.key)
+                put("label", item.label)
+                put("satisfied", item.satisfied)
+                put("externalCommand", item.externalCommand)
+            })
+        }
+        json.put("items", items)
+        return json
+    }
+
+    private fun handleProvisioningAudit(session: IHTTPSession): Response {
+        if (!isAuthorized(session)) {
+            return jsonResponse(Response.Status.UNAUTHORIZED, JSONObject().apply {
+                put("status", "error")
+                put("error", "Unauthorized")
+            })
+        }
+        val audit = ProvisioningAuditor.audit(context)
+        return jsonResponse(Response.Status.OK, provisioningAuditJson(audit))
+    }
+
+    private fun handleProvisioningRepair(session: IHTTPSession): Response {
+        if (!isAuthorized(session)) {
+            return jsonResponse(Response.Status.UNAUTHORIZED, JSONObject().apply {
+                put("status", "error")
+                put("error", "Unauthorized")
+            })
+        }
+        val result = runBlocking { ProvisioningAuditor.repair(context) }
+        if (result.isFailure) {
+            // PROV-BEHAVE-006: only failure path today is "ADB is not enabled" (fails fast,
+            // before any socket is opened) — 409 Conflict, matching the "current state precludes
+            // this action" semantics rather than a validation (400) or server (500) error.
+            return jsonResponse(Response.Status.CONFLICT, JSONObject().apply {
+                put("status", "error")
+                put("error", result.exceptionOrNull()?.message ?: "Provisioning repair failed")
+            })
+        }
+        val repairResult = result.getOrThrow()
+        val json = provisioningAuditJson(repairResult.audit)
+        json.put("repairedKeys", JSONArray(repairResult.repairedKeys))
+        return jsonResponse(Response.Status.OK, json)
     }
 
     private fun handleMesh(): Response {

@@ -7,6 +7,7 @@ import org.json.JSONObject
 import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
+import java.security.MessageDigest
 import org.mockito.kotlin.any
 import org.mockito.kotlin.anyOrNull
 import org.mockito.kotlin.mock
@@ -550,6 +551,71 @@ class SettingsStoreTest {
         assertFalse(
             "re-adding a connection must clear its stale tombstone",
             SettingsStore.getDeletedConnections(mockContext).any { it.connection == "192.168.50.124:2325" }
+        )
+    }
+
+    // [PROGRAMMATIC] SET-TEST-009: setPassword writes a PBKDF2-tagged hash, not a bare
+    // single-round SHA-256 digest.
+    @Test
+    fun testSetPasswordWritesPbkdf2TaggedHash() {
+        SettingsStore.setPassword(mockContext, "myPassword1")
+
+        val storedHash = inMemoryPrefs["web_password_hash"] as? String
+        assertNotNull("setPassword must write a hash", storedHash)
+        assertTrue(
+            "new hashes must be PBKDF2-tagged, not a bare legacy hex digest: $storedHash",
+            storedHash!!.startsWith("pbkdf2$")
+        )
+        val iterations = storedHash.split("$")[1].toIntOrNull()
+        assertNotNull("tagged hash must carry a numeric iteration count", iterations)
+        assertTrue(
+            "iteration count must be a real work factor (OWASP floor), not a token value: $iterations",
+            iterations!! >= 100_000
+        )
+        assertTrue(SettingsStore.verifyPassword(mockContext, "myPassword1"))
+        assertFalse(SettingsStore.verifyPassword(mockContext, "wrongPassword"))
+    }
+
+    // [PROGRAMMATIC] SET-TEST-010: a pre-existing untagged legacy SHA-256(salt||password) hash
+    // (as written by the superseded SET-BEHAVE-001 mechanism, or synced in from a peer still on
+    // the old build) still verifies correctly, and a successful verification migrates it in
+    // place to a pbkdf2$-tagged hash -- no forced reset.
+    @Test
+    fun testVerifyPasswordMigratesLegacyShaHashToPbkdf2() {
+        val salt = ByteArray(16) { it.toByte() }
+        val legacyDigest = MessageDigest.getInstance("SHA-256").apply {
+            update(salt)
+        }.digest("hunter2".toByteArray(Charsets.UTF_8))
+        val legacyHashHex = legacyDigest.joinToString("") { "%02x".format(it) }
+        val saltHex = salt.joinToString("") { "%02x".format(it) }
+
+        inMemoryPrefs["web_password_salt"] = saltHex
+        inMemoryPrefs["web_password_hash"] = legacyHashHex
+
+        assertFalse(
+            "wrong password against a legacy hash must still be rejected",
+            SettingsStore.verifyPassword(mockContext, "wrongPassword")
+        )
+        assertEquals(
+            "a failed attempt must not touch the stored legacy hash",
+            legacyHashHex,
+            inMemoryPrefs["web_password_hash"]
+        )
+
+        assertTrue(
+            "correct password against a legacy hash must still verify",
+            SettingsStore.verifyPassword(mockContext, "hunter2")
+        )
+
+        val migratedHash = inMemoryPrefs["web_password_hash"] as? String
+        assertNotNull(migratedHash)
+        assertTrue(
+            "successful legacy verification must migrate the stored hash to pbkdf2$: $migratedHash",
+            migratedHash!!.startsWith("pbkdf2$")
+        )
+        assertTrue(
+            "the migrated hash must still verify the same password",
+            SettingsStore.verifyPassword(mockContext, "hunter2")
         )
     }
 }

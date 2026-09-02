@@ -8,6 +8,8 @@ import java.security.MessageDigest
 import java.security.SecureRandom
 import java.util.concurrent.CopyOnWriteArraySet
 import javax.crypto.Mac
+import javax.crypto.SecretKeyFactory
+import javax.crypto.spec.PBEKeySpec
 import javax.crypto.spec.SecretKeySpec
 
 /**
@@ -23,6 +25,12 @@ object SettingsStore {
     private const val KEY_WEB_SERVER_PORT = "web_server_port"
     private const val KEY_WEB_PASSWORD_HASH = "web_password_hash"
     private const val KEY_WEB_PASSWORD_SALT = "web_password_salt"
+    // SET-BEHAVE-006: PBKDF2WithHmacSHA256 params for admin password hashing. Iteration count
+    // travels with each hash (encodePbkdf2Hash) so raising this later doesn't invalidate
+    // existing hashes.
+    private const val PBKDF2_HASH_PREFIX = "pbkdf2$"
+    private const val PBKDF2_ITERATIONS = 210_000
+    private const val PBKDF2_KEY_LENGTH_BITS = 256
     private const val KEY_AUTH_SECRET = "auth_secret"
     private const val KEY_LOCAL_MESH_ID = "local_mesh_id"
     private const val KEY_LOCAL_MESH_NAME = "local_mesh_name"
@@ -439,10 +447,10 @@ object SettingsStore {
 
         val salt = ByteArray(16)
         SecureRandom().nextBytes(salt)
-        val hash = hashPassword(password, salt)
+        val hash = hashPasswordPbkdf2(password, salt)
 
         editor.putString(KEY_WEB_PASSWORD_SALT, bytesToHex(salt))
-        editor.putString(KEY_WEB_PASSWORD_HASH, bytesToHex(hash))
+        editor.putString(KEY_WEB_PASSWORD_HASH, encodePbkdf2Hash(PBKDF2_ITERATIONS, hash))
         // Invalidate previous auth tokens on password change by cycling auth secret
         val newSecret = ByteArray(32)
         SecureRandom().nextBytes(newSecret)
@@ -465,12 +473,29 @@ object SettingsStore {
         val p = prefs(context)
         val saltHex = p.getString(KEY_WEB_PASSWORD_SALT, null) ?: return false
         val hashHex = p.getString(KEY_WEB_PASSWORD_HASH, null) ?: return false
-
         val salt = hexToBytes(saltHex)
-        val expectedHash = hexToBytes(hashHex)
-        val actualHash = hashPassword(password, salt)
 
-        return MessageDigest.isEqual(expectedHash, actualHash)
+        if (hashHex.startsWith(PBKDF2_HASH_PREFIX)) {
+            val parts = hashHex.split("$")
+            if (parts.size != 3) return false
+            val iterations = parts[1].toIntOrNull() ?: return false
+            val expectedHash = hexToBytes(parts[2])
+            val actualHash = hashPasswordPbkdf2(password, salt, iterations)
+            return MessageDigest.isEqual(expectedHash, actualHash)
+        }
+
+        // Legacy single-round SHA-256(salt||password) hash (SET-BEHAVE-001, superseded) --
+        // still verified as written, but migrated to PBKDF2 in place on a successful match
+        // (SET-BEHAVE-006) so the admin never has to reset a password just to get the
+        // stronger hash.
+        val expectedLegacyHash = hexToBytes(hashHex)
+        val actualLegacyHash = hashPasswordLegacySha256(password, salt)
+        val matches = MessageDigest.isEqual(expectedLegacyHash, actualLegacyHash)
+        if (matches) {
+            val migratedHash = hashPasswordPbkdf2(password, salt)
+            p.edit().putString(KEY_WEB_PASSWORD_HASH, encodePbkdf2Hash(PBKDF2_ITERATIONS, migratedHash)).apply()
+        }
+        return matches
     }
 
     fun clearPassword(context: Context) {
@@ -909,11 +934,23 @@ object SettingsStore {
         return hexToBytes(secretHex)
     }
 
-    private fun hashPassword(password: String, salt: ByteArray): ByteArray {
+    // Superseded by hashPasswordPbkdf2 (SET-BEHAVE-006) -- kept only to verify (and migrate)
+    // hashes written by the old mechanism, either locally-persisted before the upgrade or
+    // synced in from a peer still on the old build.
+    private fun hashPasswordLegacySha256(password: String, salt: ByteArray): ByteArray {
         val md = MessageDigest.getInstance("SHA-256")
         md.update(salt)
         return md.digest(password.toByteArray(Charsets.UTF_8))
     }
+
+    private fun hashPasswordPbkdf2(password: String, salt: ByteArray, iterations: Int = PBKDF2_ITERATIONS): ByteArray {
+        val spec = PBEKeySpec(password.toCharArray(), salt, iterations, PBKDF2_KEY_LENGTH_BITS)
+        val factory = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256")
+        return factory.generateSecret(spec).encoded
+    }
+
+    private fun encodePbkdf2Hash(iterations: Int, hash: ByteArray): String =
+        "$PBKDF2_HASH_PREFIX$iterations$${bytesToHex(hash)}"
 
     private fun hmacSha256(key: ByteArray, data: String): String {
         val mac = Mac.getInstance("HmacSHA256")

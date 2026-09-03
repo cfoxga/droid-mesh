@@ -658,6 +658,18 @@ class LocalHttpServer(
                 put("message", "$packageName not found in App Library")
             })
 
+        if (url.isNotBlank()) {
+            val configuredHost = entry.downloadUrl.takeIf { it.isNotBlank() }?.let {
+                try { java.net.URI(it).host } catch (_: Exception) { null }
+            }
+            if (!com.cfox.droidmesh.security.TrustedReleaseHosts.isTrustedReleaseUrl(url, configuredHost)) {
+                return jsonResponse(Response.Status.BAD_REQUEST, JSONObject().apply {
+                    put("status", "error")
+                    put("message", "Insecure or untrusted download URL: $url")
+                })
+            }
+        }
+
         if (url.isNotBlank() && tag.isNotBlank()) {
             val specificRelease = ReleaseInfo(
                 tagName = tag,

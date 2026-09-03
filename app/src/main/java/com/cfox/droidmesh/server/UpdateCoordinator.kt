@@ -263,6 +263,15 @@ class UpdateCoordinator(
 
             val apkFile = downloadResult.getOrThrow()
 
+            // Verify package integrity and signing certificate before attempting any installation (INST-BEHAVE-011)
+            val verifyResult = com.cfox.droidmesh.installer.ApkSignatureVerifier.verifyApk(context, apkFile, packageName)
+            if (verifyResult.isFailure) {
+                val err = verifyResult.exceptionOrNull()?.message ?: "APK signature verification failed"
+                Logger.e("Update aborted: $err")
+                _statusFlow.value = UpdateStatus(state = "ERROR", message = err, error = err)
+                return Result.failure(verifyResult.exceptionOrNull() ?: SecurityException(err))
+            }
+
             // 1. Try local loopback ADB installer first (works seamlessly for upgrades and downgrades with -r -d)
             _statusFlow.value = UpdateStatus(
                 state = "INSTALLING",

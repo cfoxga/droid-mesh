@@ -267,10 +267,15 @@ class UpdaterForegroundService : Service() {
                             val apkResult = downloader.downloadApk(release.apkAssetUrl, fileName)
                             if (apkResult.isSuccess) {
                                 val apkFile = apkResult.getOrThrow()
-                                com.cfox.droidmesh.service.AutoInstallService.pendingInstallPackage = pkg
-                                com.cfox.droidmesh.installer.PackageInstallerDispatcher
-                                    .dispatchInstall(applicationContext, apkFile)
-                                Logger.i("Mesh auto-install: dispatched installer for ${cfg.appName}")
+                                val verifyResult = com.cfox.droidmesh.installer.ApkSignatureVerifier.verifyApk(applicationContext, apkFile, pkg)
+                                if (verifyResult.isSuccess) {
+                                    com.cfox.droidmesh.service.AutoInstallService.pendingInstallPackage = pkg
+                                    com.cfox.droidmesh.installer.PackageInstallerDispatcher
+                                        .dispatchInstall(applicationContext, apkFile)
+                                    Logger.i("Mesh auto-install: dispatched installer for ${cfg.appName}")
+                                } else {
+                                    Logger.e("Mesh auto-install: APK verification failed for $pkg: ${verifyResult.exceptionOrNull()?.message}")
+                                }
                             } else {
                                 Logger.w("Mesh auto-install: download failed for $pkg: ${apkResult.exceptionOrNull()?.message}")
                             }

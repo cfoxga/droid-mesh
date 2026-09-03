@@ -34,6 +34,12 @@ class ApkDownloader(
         onProgress: (DownloadProgress) -> Unit = {}
     ): Result<File> = withContext(Dispatchers.IO) {
         try {
+            if (!com.cfox.droidmesh.security.TrustedReleaseHosts.isTrustedReleaseUrl(downloadUrl)) {
+                val err = "Insecure or untrusted APK download URL: $downloadUrl (HTTPS and trusted release host required)"
+                Logger.e(err)
+                return@withContext Result.failure(SecurityException(err))
+            }
+
             val downloadDir = context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
                 ?: File(context.filesDir, "downloads")
 

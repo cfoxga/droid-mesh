@@ -1217,6 +1217,7 @@ class LocalHttpServerTest {
         assertTrue("Must format update available state as Update with badge-rust", fnBody.contains("badge-rust") && fnBody.contains("'Update'"))
     }
 
+<<<<<<< HEAD
     // [PROGRAMMATIC] API-TEST-040: GET /status, /logs, /mesh, /api/settings, /check, /api/mesh/library,
     // and /api/mesh/persistent-connections all return 401 when password is set and unauthenticated.
     @Test
@@ -1330,6 +1331,70 @@ class LocalHttpServerTest {
         ))
         val authedRes = server.serve(authedSession)
         assertEquals(NanoHTTPD.Response.Status.NOT_FOUND, authedRes.status)
+    }
+
+    // [PROGRAMMATIC] API-TEST-044: /update with untrusted or cleartext URL is rejected with 400
+    @Test
+    fun testUpdateWithUntrustedUrlReturns400() {
+        SettingsStore.setMeshAppConfig(
+            mockContext, "unmanaged",
+            SettingsStore.MeshAppConfig(
+                packageName = "com.example.app",
+                appName = "App",
+                managed = true,
+                downloadUrl = "https://github.com/owner/repo/releases"
+            )
+        )
+
+        // 1. Cleartext HTTP
+        val cleartextSession = mockSession(
+            uri = "/api/update",
+            method = NanoHTTPD.Method.POST,
+            postBody = """{"package": "com.example.app", "tag": "v1.0.0", "url": "http://attacker.com/malicious.apk"}"""
+        )
+        val cleartextResponse = server.serve(cleartextSession)
+        assertEquals(NanoHTTPD.Response.Status.BAD_REQUEST, cleartextResponse.status)
+        val cleartextJson = JSONObject(cleartextResponse.data?.readBytes()?.toString(Charsets.UTF_8) ?: "")
+        assertTrue(cleartextJson.getString("message").contains("untrusted") || cleartextJson.getString("message").contains("Insecure"))
+        verify(mockCoordinator, never()).startUpdateForRelease(any(), any(), any(), any())
+
+        // 2. Untrusted HTTPS domain
+        val untrustedSession = mockSession(
+            uri = "/api/update",
+            method = NanoHTTPD.Method.POST,
+            postBody = """{"package": "com.example.app", "tag": "v1.0.0", "url": "https://attacker.evil/malicious.apk"}"""
+        )
+        val untrustedResponse = server.serve(untrustedSession)
+        assertEquals(NanoHTTPD.Response.Status.BAD_REQUEST, untrustedResponse.status)
+        verify(mockCoordinator, never()).startUpdateForRelease(any(), any(), any(), any())
+    }
+
+    // [PROGRAMMATIC] API-TEST-045: /update with valid HTTPS on trusted host is accepted
+    @Test
+    fun testUpdateWithTrustedHttpsUrlAccepted() {
+        SettingsStore.setMeshAppConfig(
+            mockContext, "unmanaged",
+            SettingsStore.MeshAppConfig(
+                packageName = "com.example.trusted",
+                appName = "Trusted App",
+                managed = true,
+                downloadUrl = "https://github.com/owner/trusted/releases"
+            )
+        )
+
+        val trustedSession = mockSession(
+            uri = "/api/update",
+            method = NanoHTTPD.Method.POST,
+            postBody = """{"package": "com.example.trusted", "tag": "v1.0.0", "url": "https://github.com/owner/trusted/releases/download/v1.0.0/trusted.apk"}"""
+        )
+        val response = server.serve(trustedSession)
+        assertEquals(NanoHTTPD.Response.Status.ACCEPTED, response.status)
+        verify(mockCoordinator).startUpdateForRelease(
+            eq("com.example.trusted"),
+            any(),
+            eq(false),
+            any()
+        )
     }
 }
 

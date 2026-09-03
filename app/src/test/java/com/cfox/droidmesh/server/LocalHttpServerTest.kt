@@ -1217,7 +1217,6 @@ class LocalHttpServerTest {
         assertTrue("Must format update available state as Update with badge-rust", fnBody.contains("badge-rust") && fnBody.contains("'Update'"))
     }
 
-<<<<<<< HEAD
     // [PROGRAMMATIC] API-TEST-040: GET /status, /logs, /mesh, /api/settings, /check, /api/mesh/library,
     // and /api/mesh/persistent-connections all return 401 when password is set and unauthenticated.
     @Test
@@ -1396,5 +1395,31 @@ class LocalHttpServerTest {
             any()
         )
     }
+
+    // [PROGRAMMATIC] API-TEST-046: Responses do not contain wildcard CORS or Access-Control headers
+    @Test
+    fun testResponsesDoNotContainAccessControlHeaders() {
+        val session = mockSession("/api/auth/status")
+        val response = server.serve(session)
+        assertNull("Access-Control-Allow-Origin must not be present", response.getHeader("access-control-allow-origin"))
+        assertNull("Access-Control-Allow-Methods must not be present", response.getHeader("access-control-allow-methods"))
+        assertNull("Access-Control-Allow-Headers must not be present", response.getHeader("access-control-allow-headers"))
+    }
+
+    // [PROGRAMMATIC] API-TEST-047: OPTIONS requests do not bypass auth and do not return CORS headers
+    @Test
+    fun testOptionsRequestsDoNotBypassAuthAndDoNotReturnCorsHeaders() {
+        SettingsStore.setPassword(mockContext, "secret123")
+        val optionsProtectedSession = mockSession("/api/settings", method = NanoHTTPD.Method.OPTIONS)
+        val protectedResponse = server.serve(optionsProtectedSession)
+        assertEquals(NanoHTTPD.Response.Status.UNAUTHORIZED, protectedResponse.status)
+        assertNull(protectedResponse.getHeader("access-control-allow-origin"))
+
+        val optionsPublicSession = mockSession("/api/auth/status", method = NanoHTTPD.Method.OPTIONS)
+        val publicResponse = server.serve(optionsPublicSession)
+        assertNotEquals(NanoHTTPD.Response.Status.OK, publicResponse.status)
+        assertNull(publicResponse.getHeader("access-control-allow-origin"))
+    }
 }
+
 

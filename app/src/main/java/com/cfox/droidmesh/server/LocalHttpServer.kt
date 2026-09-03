@@ -109,14 +109,6 @@ class LocalHttpServer(
         val method = session.method
         Logger.i("LocalHttpServer.serve: $method $uri from ${session.remoteIpAddress}")
 
-        // Handle CORS Preflight
-
-        if (method == Method.OPTIONS) {
-            val res = newFixedLengthResponse(Response.Status.OK, "text/plain", "")
-            addCorsHeaders(res)
-            return res
-        }
-
         // Deny-by-default endpoint authorization (API-BEHAVE-028 / gitea#36)
         if (!isPublicEndpoint(session) && !isAuthorized(session)) {
             return jsonResponse(
@@ -318,11 +310,13 @@ class LocalHttpServer(
     private fun handleServeWeb(): Response {
         val bytes = webHtmlBytes
         if (bytes.isEmpty()) {
-            return newFixedLengthResponse(
+            val res = newFixedLengthResponse(
                 Response.Status.INTERNAL_ERROR,
                 "text/plain",
                 "Web administration UI asset not found."
             )
+            addStandardHeaders(res)
+            return res
         }
         val html = String(bytes, Charsets.UTF_8)
         val res = newFixedLengthResponse(
@@ -330,7 +324,7 @@ class LocalHttpServer(
             "text/html; charset=utf-8",
             html
         )
-        addCorsHeaders(res)
+        addStandardHeaders(res)
         return res
     }
 
@@ -1398,11 +1392,8 @@ class LocalHttpServer(
         return jsonResponse(Response.Status.OK, json)
     }
 
-    private fun addCorsHeaders(response: Response) {
+    private fun addStandardHeaders(response: Response) {
         response.addHeader("Connection", "close")
-        response.addHeader("Access-Control-Allow-Origin", "*")
-        response.addHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS, PATCH")
-        response.addHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Auth-Token")
     }
 
 
@@ -1412,7 +1403,7 @@ class LocalHttpServer(
         cookies: Map<String, String>? = null
     ): Response {
         val res = newFixedLengthResponse(status, "application/json; charset=utf-8", obj.toString(2))
-        addCorsHeaders(res)
+        addStandardHeaders(res)
         cookies?.forEach { (k, v) ->
             if (v.isBlank()) {
                 res.addHeader("Set-Cookie", "$k=; Path=/; Max-Age=0; SameSite=Lax")

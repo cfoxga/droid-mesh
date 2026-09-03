@@ -87,11 +87,18 @@ class LocalHttpServerTest {
             whenever(it.edit()).thenAnswer { editor }
         }
 
+        val mockAssetManager: android.content.res.AssetManager = mock {
+            whenever(it.open("web/index.html")).thenAnswer {
+                ByteArrayInputStream("<!DOCTYPE html><html><body>Test UI</body></html>".toByteArray(Charsets.UTF_8))
+            }
+        }
+
         mockContext = mock {
             whenever(it.getSharedPreferences(any(), any())).thenAnswer { sharedPrefs }
             whenever(it.packageName).thenReturn("com.cfox.droidmesh")
             whenever(it.packageManager).thenReturn(mock())
             whenever(it.contentResolver).thenReturn(mock())
+            whenever(it.assets).thenReturn(mockAssetManager)
         }
 
         mockCoordinator = mock {
@@ -1208,6 +1215,121 @@ class LocalHttpServerTest {
         assertTrue("Must check badgeSelfUpdate element", fnBody.contains("document.getElementById('badgeSelfUpdate')"))
         assertTrue("Must format up-to-date state as Up-to-date with badge-sage", fnBody.contains("badge-sage") && fnBody.contains("'Up-to-date'"))
         assertTrue("Must format update available state as Update with badge-rust", fnBody.contains("badge-rust") && fnBody.contains("'Update'"))
+    }
+
+    // [PROGRAMMATIC] API-TEST-040: GET /status, /logs, /mesh, /api/settings, /check, /api/mesh/library,
+    // and /api/mesh/persistent-connections all return 401 when password is set and unauthenticated.
+    @Test
+    fun testSensitiveEndpointsRequireAuthWhenPasswordSet() {
+        SettingsStore.setPassword(mockContext, "secret123")
+
+        val sensitiveEndpoints = listOf(
+            "/status",
+            "/api/status",
+            "/api/health",
+            "/logs",
+            "/api/logs",
+            "/mesh",
+            "/peers",
+            "/api/mesh",
+            "/api/settings",
+            "/check",
+            "/api/check",
+            "/api/releases",
+            "/api/mesh/library",
+            "/mesh/library",
+            "/api/mesh/seeds",
+            "/api/mesh/persistent-connections"
+        )
+
+        for (endpoint in sensitiveEndpoints) {
+            val session = mockSession(endpoint)
+            val response = server.serve(session)
+            assertEquals("Endpoint $endpoint must return 401 when password is set and unauthenticated",
+                NanoHTTPD.Response.Status.UNAUTHORIZED, response.status)
+        }
+    }
+
+    // [PROGRAMMATIC] API-TEST-041: Public allowlist endpoints (HTML shell, auth status, login, logout,
+    // and mesh gossip sync) succeed without auth even when password is set.
+    @Test
+    fun testPublicAllowlistEndpointsSucceedWithoutAuthWhenPasswordSet() {
+        SettingsStore.setPassword(mockContext, "secret123")
+
+        // 1. GET / (HTML shell)
+        val rootSession = mockSession("/", headers = mapOf("accept" to "text/html"))
+        val rootRes = server.serve(rootSession)
+        assertEquals(NanoHTTPD.Response.Status.OK, rootRes.status)
+
+        // 2. GET /index.html
+        val indexSession = mockSession("/index.html")
+        val indexRes = server.serve(indexSession)
+        assertEquals(NanoHTTPD.Response.Status.OK, indexRes.status)
+
+        // 3. GET /api/auth/status
+        val authStatusSession = mockSession("/api/auth/status")
+        val authStatusRes = server.serve(authStatusSession)
+        assertEquals(NanoHTTPD.Response.Status.OK, authStatusRes.status)
+
+        // 4. POST /api/login
+        val loginSession = mockSession("/api/login", method = NanoHTTPD.Method.POST, postBody = """{"password":"secret123"}""")
+        val loginRes = server.serve(loginSession)
+        assertEquals(NanoHTTPD.Response.Status.OK, loginRes.status)
+
+        // 5. POST /api/logout
+        val logoutSession = mockSession("/api/logout", method = NanoHTTPD.Method.POST)
+        val logoutRes = server.serve(logoutSession)
+        assertEquals(NanoHTTPD.Response.Status.OK, logoutRes.status)
+
+        // 6. GET /api/mesh/config (mesh pull)
+        val meshConfigSession = mockSession("/api/mesh/config")
+        val meshConfigRes = server.serve(meshConfigSession)
+        assertEquals(NanoHTTPD.Response.Status.OK, meshConfigRes.status)
+
+        // 7. POST /api/mesh/sync-config (mesh push)
+        val syncConfigSession = mockSession("/api/mesh/sync-config", method = NanoHTTPD.Method.POST, postBody = """{"config_version":1}""")
+        val syncConfigRes = server.serve(syncConfigSession)
+        assertEquals(NanoHTTPD.Response.Status.OK, syncConfigRes.status)
+
+        // 8. POST /api/mesh/handshake (mesh handshake)
+        val handshakeSession = mockSession("/api/mesh/handshake", method = NanoHTTPD.Method.POST, postBody = """{"sender_ip":"192.168.1.100"}""")
+        val handshakeRes = server.serve(handshakeSession)
+        assertEquals(NanoHTTPD.Response.Status.OK, handshakeRes.status)
+    }
+
+    // [PROGRAMMATIC] API-TEST-042: GET / with Accept: application/json returns 401 when unauthenticated.
+    @Test
+    fun testRootWithJsonAcceptRequiresAuthWhenPasswordSet() {
+        SettingsStore.setPassword(mockContext, "secret123")
+
+        val unauthSession = mockSession("/", headers = mapOf("accept" to "application/json"))
+        val unauthRes = server.serve(unauthSession)
+        assertEquals(NanoHTTPD.Response.Status.UNAUTHORIZED, unauthRes.status)
+
+        val validToken = SettingsStore.generateToken(mockContext)
+        val authedSession = mockSession("/", headers = mapOf(
+            "accept" to "application/json",
+            "authorization" to "Bearer $validToken"
+        ))
+        val authedRes = server.serve(authedSession)
+        assertEquals(NanoHTTPD.Response.Status.OK, authedRes.status)
+    }
+
+    // [PROGRAMMATIC] API-TEST-043: Unknown/unrouted endpoints return 401 deny-by-default when password is set.
+    @Test
+    fun testUnknownEndpointReturns401WhenPasswordSet() {
+        SettingsStore.setPassword(mockContext, "secret123")
+
+        val unauthSession = mockSession("/nonexistent/endpoint")
+        val unauthRes = server.serve(unauthSession)
+        assertEquals(NanoHTTPD.Response.Status.UNAUTHORIZED, unauthRes.status)
+
+        val validToken = SettingsStore.generateToken(mockContext)
+        val authedSession = mockSession("/nonexistent/endpoint", headers = mapOf(
+            "authorization" to "Bearer $validToken"
+        ))
+        val authedRes = server.serve(authedSession)
+        assertEquals(NanoHTTPD.Response.Status.NOT_FOUND, authedRes.status)
     }
 }
 

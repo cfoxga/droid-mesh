@@ -117,6 +117,17 @@ class LocalHttpServer(
             return res
         }
 
+        // Deny-by-default endpoint authorization (API-BEHAVE-028 / gitea#36)
+        if (!isPublicEndpoint(session) && !isAuthorized(session)) {
+            return jsonResponse(
+                Response.Status.UNAUTHORIZED,
+                JSONObject().apply {
+                    put("status", "error")
+                    put("error", "Unauthorized")
+                }
+            )
+        }
+
         return try {
             when {
                 // Static Web Administration Interface — only "/" and "/index.html" serve the
@@ -236,6 +247,33 @@ class LocalHttpServer(
         if (!SettingsStore.isPasswordSet(context)) return true
         val token = extractToken(session)
         return SettingsStore.validateToken(context, token)
+    }
+
+    private fun isPublicEndpoint(session: IHTTPSession): Boolean {
+        val uri = session.uri
+        val method = session.method
+
+        // Static Web Administration SPA HTML shell (GET / and GET /index.html).
+        // If Accept contains "application/json" on "/", it queries status JSON (API-BEHAVE-001/028)
+        // and requires authentication when a password is configured.
+        if ((uri == "/" || uri == "/index.html") && method == Method.GET) {
+            val accept = session.headers["accept"] ?: session.headers["Accept"] ?: ""
+            if (!accept.contains("application/json") || uri != "/") {
+                return true
+            }
+        }
+
+        // Public Auth endpoints
+        if (uri == "/api/auth/status" && method == Method.GET) return true
+        if (uri == "/api/login" && method == Method.POST) return true
+        if (uri == "/api/logout" && method == Method.POST) return true
+
+        // Mesh Gossip Protocol endpoints (API-BEHAVE-027)
+        if (uri == "/api/mesh/config" && method == Method.GET) return true
+        if (uri == "/api/mesh/sync-config" && method == Method.POST) return true
+        if (uri == "/api/mesh/handshake" && method == Method.POST) return true
+
+        return false
     }
 
     // Best-effort bind probe — briefly opens and immediately closes a socket on the candidate

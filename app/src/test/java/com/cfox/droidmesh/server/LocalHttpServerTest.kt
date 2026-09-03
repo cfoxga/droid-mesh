@@ -1413,13 +1413,31 @@ class LocalHttpServerTest {
         val optionsProtectedSession = mockSession("/api/settings", method = NanoHTTPD.Method.OPTIONS)
         val protectedResponse = server.serve(optionsProtectedSession)
         assertEquals(NanoHTTPD.Response.Status.UNAUTHORIZED, protectedResponse.status)
-        assertNull(protectedResponse.getHeader("access-control-allow-origin"))
+        assertNull("OPTIONS response must not contain Access-Control-Allow-Origin", protectedResponse.getHeader("access-control-allow-origin"))
 
         val optionsPublicSession = mockSession("/api/auth/status", method = NanoHTTPD.Method.OPTIONS)
         val publicResponse = server.serve(optionsPublicSession)
         assertNotEquals(NanoHTTPD.Response.Status.OK, publicResponse.status)
         assertNull(publicResponse.getHeader("access-control-allow-origin"))
     }
-}
 
+    // [PROGRAMMATIC] UI-TEST-014 (UI-BEHAVE-015): index.html contains zero inline event attributes
+    // (e.g. onclick, onchange) with template interpolation (${...}), preventing attribute breakout
+    // and stored XSS. All dynamic action handlers attach via DOM properties/listeners and interpolate
+    // variables with escapeHtml().
+    @Test
+    fun testWebUiHasNoInterpolatedInlineEventHandlers() {
+        val assetFile = java.io.File("src/main/assets/web/index.html")
+        assertTrue("index.html asset must exist", assetFile.exists())
+        val html = assetFile.readText()
+
+        // Match on[a-zA-Z]+="..." or on[a-zA-Z]+='...' containing ${
+        val interpolatedEventPattern = Regex("""on[a-zA-Z]+\s*=\s*(["'])(?:(?!\1).)*?\$\{.*?\1""", RegexOption.DOT_MATCHES_ALL)
+        val matches = interpolatedEventPattern.findAll(html).map { it.value.trim() }.toList()
+        assertTrue(
+            "index.html must not contain inline event attributes with \${...} interpolation. Found: $matches",
+            matches.isEmpty()
+        )
+    }
+}
 

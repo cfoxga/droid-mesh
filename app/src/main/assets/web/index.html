@@ -1805,7 +1805,7 @@ function renderSidebarMeshes() {
   if (state.meshes.length === 0) {
     const btn = document.createElement('button');
     btn.className = 'nav-item active';
-    btn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/></svg><span>${state.localMeshName}</span>`;
+    btn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/></svg><span>${escapeHtml(state.localMeshName)}</span>`;
     btn.onclick = () => selectMesh(state.localMeshId);
     sidebarList.appendChild(btn);
     return;
@@ -1825,8 +1825,8 @@ function renderSidebarMeshes() {
 
     btn.innerHTML = `
       ${iconSvg}
-      <span style="flex-grow: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${m.name}</span>
-      <span class="badge ${m.online_count > 0 ? 'badge-sage' : 'badge-gray'}" style="font-size: 11px; padding: 2px 6px;">${m.peer_count}</span>
+      <span style="flex-grow: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHtml(m.name)}</span>
+      <span class="badge ${m.online_count > 0 ? 'badge-sage' : 'badge-gray'}" style="font-size: 11px; padding: 2px 6px;">${escapeHtml(m.peer_count !== undefined ? m.peer_count : 0)}</span>
     `;
 
     btn.onclick = () => selectMesh(m.id);
@@ -1973,12 +1973,13 @@ function renderSideloadedLibraryRows(currentMesh, library) {
   if (countBadge) countBadge.textContent = `${library.length} App${library.length === 1 ? '' : 's'}`;
   if (!tbody) return;
 
+  tbody.innerHTML = '';
   if (library.length === 0) {
     tbody.innerHTML = `<tr><td colspan="5" style="text-align: center; color: var(--text-muted); padding: 24px;">No sideloaded apps discovered on this mesh yet.</td></tr>`;
     return;
   }
 
-  tbody.innerHTML = library.map(app => {
+  library.forEach(app => {
     const targetVer = app.targetVersion || 'latest';
     const isManaged = hasReleaseSource(app);
 
@@ -2000,45 +2001,73 @@ function renderSideloadedLibraryRows(currentMesh, library) {
     }
     const isLoadingReleases = !!state.releasesLoadingByPackage[app.packageName];
 
-    return `
-      <tr style="border-bottom: 1px solid rgba(255, 255, 255, 0.04);">
-        <td style="padding: 10px 12px;">${libraryAppNameCell(app)}</td>
-        <td style="padding: 10px 12px;">
-          <input type="text" class="field" style="padding: 4px 8px; font-size: 12px; min-width: 220px;"
-            placeholder="Release download URL (required for Managed)"
-            value="${escapeHtml(app.downloadUrl || '')}"
-            onchange="updateLibraryApp('${currentMesh.id}', '${app.packageName}', { downloadUrl: this.value, managed: !!this.value.trim() })">
-        </td>
-        <td style="padding: 10px 12px;">
-          <div style="display: flex; align-items: center; gap: 4px;">
-            <select class="field" style="padding: 4px 8px; font-size: 12px; max-width: 160px;"
-              ${!isManaged ? 'disabled style="opacity: 0.4; cursor: not-allowed;"' : ''}
-              onchange="updateLibraryApp('${currentMesh.id}', '${app.packageName}', { targetVersion: this.value })">
-              ${versionOptions}
-            </select>
-            ${isManaged ? `
-              <button type="button" title="Refresh versions from ${escapeHtml(app.downloadUrl)}"
-                style="background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 12px; padding: 2px 4px;"
-                ${isLoadingReleases ? 'disabled' : ''}
-                onclick="loadReleasesForPackage('${app.packageName}', '${currentMesh.id}', true)">${isLoadingReleases ? '⟳' : '↻'}</button>
-            ` : ''}
-          </div>
-        </td>
-        <td style="padding: 10px 12px; text-align: center;">
-          <input type="checkbox" style="width: 16px; height: 16px; accent-color: var(--teal); cursor: pointer;"
-            ${app.autoInstall ? 'checked' : ''}
-            ${!isManaged ? 'disabled style="opacity: 0.3; cursor: not-allowed;"' : ''}
-            onchange="updateLibraryApp('${currentMesh.id}', '${app.packageName}', { autoInstall: this.checked })">
-        </td>
-        <td style="padding: 10px 12px; text-align: center;">
-          <input type="checkbox" style="width: 16px; height: 16px; accent-color: var(--teal); cursor: pointer;"
-            ${app.autoUpdate ? 'checked' : ''}
-            ${!isManaged ? 'disabled style="opacity: 0.3; cursor: not-allowed;"' : ''}
-            onchange="updateLibraryApp('${currentMesh.id}', '${app.packageName}', { autoUpdate: this.checked })">
-        </td>
-      </tr>
+    const tr = document.createElement('tr');
+    tr.style.borderBottom = '1px solid rgba(255, 255, 255, 0.04)';
+    tr.innerHTML = `
+      <td style="padding: 10px 12px;">${libraryAppNameCell(app)}</td>
+      <td style="padding: 10px 12px;">
+        <input type="text" class="field url-input" style="padding: 4px 8px; font-size: 12px; min-width: 220px;"
+          placeholder="Release download URL (required for Managed)"
+          value="${escapeHtml(app.downloadUrl || '')}">
+      </td>
+      <td style="padding: 10px 12px;">
+        <div style="display: flex; align-items: center; gap: 4px;">
+          <select class="field version-select" style="padding: 4px 8px; font-size: 12px; max-width: 160px;"
+            ${!isManaged ? 'disabled style="opacity: 0.4; cursor: not-allowed;"' : ''}>
+            ${versionOptions}
+          </select>
+          ${isManaged ? `
+            <button type="button" class="refresh-btn" title="Refresh versions from ${escapeHtml(app.downloadUrl)}"
+              style="background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 12px; padding: 2px 4px;"
+              ${isLoadingReleases ? 'disabled' : ''}>${isLoadingReleases ? '⟳' : '↻'}</button>
+          ` : ''}
+        </div>
+      </td>
+      <td style="padding: 10px 12px; text-align: center;">
+        <input type="checkbox" class="autoinstall-cb" style="width: 16px; height: 16px; accent-color: var(--teal); cursor: pointer;"
+          ${app.autoInstall ? 'checked' : ''}
+          ${!isManaged ? 'disabled style="opacity: 0.3; cursor: not-allowed;"' : ''}>
+      </td>
+      <td style="padding: 10px 12px; text-align: center;">
+        <input type="checkbox" class="autoupdate-cb" style="width: 16px; height: 16px; accent-color: var(--teal); cursor: pointer;"
+          ${app.autoUpdate ? 'checked' : ''}
+          ${!isManaged ? 'disabled style="opacity: 0.3; cursor: not-allowed;"' : ''}>
+      </td>
     `;
-  }).join('');
+
+    const urlInput = tr.querySelector('.url-input');
+    if (urlInput) {
+      urlInput.onchange = function() {
+        updateLibraryApp(currentMesh.id, app.packageName, { downloadUrl: this.value, managed: !!this.value.trim() });
+      };
+    }
+    const versionSelect = tr.querySelector('.version-select');
+    if (versionSelect) {
+      versionSelect.onchange = function() {
+        updateLibraryApp(currentMesh.id, app.packageName, { targetVersion: this.value });
+      };
+    }
+    const refreshBtn = tr.querySelector('.refresh-btn');
+    if (refreshBtn) {
+      refreshBtn.onclick = function() {
+        loadReleasesForPackage(app.packageName, currentMesh.id, true);
+      };
+    }
+    const autoInstallCb = tr.querySelector('.autoinstall-cb');
+    if (autoInstallCb) {
+      autoInstallCb.onchange = function() {
+        updateLibraryApp(currentMesh.id, app.packageName, { autoInstall: this.checked });
+      };
+    }
+    const autoUpdateCb = tr.querySelector('.autoupdate-cb');
+    if (autoUpdateCb) {
+      autoUpdateCb.onchange = function() {
+        updateLibraryApp(currentMesh.id, app.packageName, { autoUpdate: this.checked });
+      };
+    }
+
+    tbody.appendChild(tr);
+  });
 }
 
 // APP-BEHAVE-007: a store-origin entry is never gated on downloadUrl — it will never have one,
@@ -2052,27 +2081,43 @@ function renderStoreLibraryRows(currentMesh, library) {
   if (countBadge) countBadge.textContent = `${library.length} App${library.length === 1 ? '' : 's'}`;
   if (!tbody) return;
 
+  tbody.innerHTML = '';
   if (library.length === 0) {
     tbody.innerHTML = `<tr><td colspan="3" style="text-align: center; color: var(--text-muted); padding: 24px;">No store apps discovered on this mesh yet.</td></tr>`;
     return;
   }
 
-  tbody.innerHTML = library.map(app => `
-      <tr style="border-bottom: 1px solid rgba(255, 255, 255, 0.04);">
-        <td style="padding: 10px 12px;">${libraryAppNameCell(app)}</td>
-        <td style="padding: 10px 12px; text-align: center;">
-          <input type="checkbox" style="width: 16px; height: 16px; accent-color: var(--teal); cursor: pointer;"
-            ${app.managed ? 'checked' : ''}
-            onchange="updateLibraryApp('${currentMesh.id}', '${app.packageName}', { managed: this.checked })">
-        </td>
-        <td style="padding: 10px 12px; text-align: center;">
-          <input type="checkbox" style="width: 16px; height: 16px; accent-color: var(--teal); cursor: pointer;"
-            ${app.autoInstall ? 'checked' : ''}
-            ${!app.managed ? 'disabled style="opacity: 0.3; cursor: not-allowed;"' : ''}
-            onchange="updateLibraryApp('${currentMesh.id}', '${app.packageName}', { autoInstall: this.checked })">
-        </td>
-      </tr>
-    `).join('');
+  library.forEach(app => {
+    const tr = document.createElement('tr');
+    tr.style.borderBottom = '1px solid rgba(255, 255, 255, 0.04)';
+    tr.innerHTML = `
+      <td style="padding: 10px 12px;">${libraryAppNameCell(app)}</td>
+      <td style="padding: 10px 12px; text-align: center;">
+        <input type="checkbox" class="managed-cb" style="width: 16px; height: 16px; accent-color: var(--teal); cursor: pointer;"
+          ${app.managed ? 'checked' : ''}>
+      </td>
+      <td style="padding: 10px 12px; text-align: center;">
+        <input type="checkbox" class="autoinstall-cb" style="width: 16px; height: 16px; accent-color: var(--teal); cursor: pointer;"
+          ${app.autoInstall ? 'checked' : ''}
+          ${!app.managed ? 'disabled style="opacity: 0.3; cursor: not-allowed;"' : ''}>
+      </td>
+    `;
+
+    const managedCb = tr.querySelector('.managed-cb');
+    if (managedCb) {
+      managedCb.onchange = function() {
+        updateLibraryApp(currentMesh.id, app.packageName, { managed: this.checked });
+      };
+    }
+    const autoInstallCb = tr.querySelector('.autoinstall-cb');
+    if (autoInstallCb) {
+      autoInstallCb.onchange = function() {
+        updateLibraryApp(currentMesh.id, app.packageName, { autoInstall: this.checked });
+      };
+    }
+
+    tbody.appendChild(tr);
+  });
 }
 
 async function updateLibraryApp(meshId, packageName, patch) {
@@ -2164,34 +2209,40 @@ function renderMeshPeers(peers, library) {
 
       const installedRows = sortedApps.map(app => {
         const cfg = libraryMap[app.packageName];
-        // APP-BEHAVE-006: version tracking follows the release source, not the origin guess.
         const isTracked = hasReleaseSource(cfg);
         const needsUpdate = peerAppNeedsUpdate(cfg, app.versionName);
 
-        return `
-          <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; padding: 4px 0; border-bottom: 1px solid rgba(255,255,255,0.03);">
-            <div style="display: flex; flex-direction: column;">
-              <span style="font-weight: 500; color: var(--text-primary); font-size: 13px;">${escapeHtml(app.appName || app.packageName)}</span>
-              <span style="font-size: 11px; color: var(--text-muted); font-family: monospace;">${escapeHtml(app.packageName)}</span>
-            </div>
-            <div style="display: flex; align-items: center; gap: 6px;">
-              ${isTracked ? `
-                <span class="badge ${needsUpdate ? 'badge-rust' : 'badge-teal'}" style="font-size: 11px; padding: 2px 6px;">
-                  ${app.versionName ? `v${escapeHtml(app.versionName)}` : (app.versionCode ? `build ${escapeHtml(String(app.versionCode))}` : 'Installed')}
-                </span>
-                ${needsUpdate ? `
-                  <button class="btn btn-primary btn-sm" style="font-size: 11px; padding: 2px 8px;" onclick="triggerAppUpdate('${peer.ip}', ${peer.port}, '${app.packageName}', '${escapeHtml(resolveTargetTag(cfg) || '')}')">
-                    Update
-                  </button>
-                ` : ''}
+        const rowEl = document.createElement('div');
+        rowEl.style.cssText = 'display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; padding: 4px 0; border-bottom: 1px solid rgba(255,255,255,0.03);';
+        rowEl.innerHTML = `
+          <div style="display: flex; flex-direction: column;">
+            <span style="font-weight: 500; color: var(--text-primary); font-size: 13px;">${escapeHtml(app.appName || app.packageName)}</span>
+            <span style="font-size: 11px; color: var(--text-muted); font-family: monospace;">${escapeHtml(app.packageName)}</span>
+          </div>
+          <div style="display: flex; align-items: center; gap: 6px;">
+            ${isTracked ? `
+              <span class="badge ${needsUpdate ? 'badge-rust' : 'badge-teal'}" style="font-size: 11px; padding: 2px 6px;">
+                ${app.versionName ? `v${escapeHtml(app.versionName)}` : (app.versionCode ? `build ${escapeHtml(String(app.versionCode))}` : 'Installed')}
+              </span>
+              ${needsUpdate ? `
+                <button class="btn btn-primary btn-sm update-btn" style="font-size: 11px; padding: 2px 8px;">
+                  Update
+                </button>
               ` : ''}
-            </div>
+            ` : ''}
           </div>
         `;
-      }).join('');
+        const updateBtn = rowEl.querySelector('.update-btn');
+        if (updateBtn) {
+          updateBtn.onclick = () => triggerAppUpdate(peer.ip, peer.port, app.packageName, resolveTargetTag(cfg) || '');
+        }
+        return rowEl;
+      });
 
-      const missingRows = missingApps.map(app => `
-        <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; padding: 4px 0; border-bottom: 1px solid rgba(255,255,255,0.03);">
+      const missingRows = missingApps.map(app => {
+        const rowEl = document.createElement('div');
+        rowEl.style.cssText = 'display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; padding: 4px 0; border-bottom: 1px solid rgba(255,255,255,0.03);';
+        rowEl.innerHTML = `
           <div style="display: flex; flex-direction: column;">
             <span style="font-weight: 500; color: var(--rust); font-size: 13px;">${escapeHtml(app.appName || app.packageName)}</span>
             <span style="font-size: 11px; color: var(--text-muted); font-family: monospace;">${escapeHtml(app.packageName)} (Missing)</span>
@@ -2199,21 +2250,26 @@ function renderMeshPeers(peers, library) {
           <div style="display: flex; align-items: center; gap: 6px;">
             <span class="badge badge-rust" style="font-size: 11px; padding: 2px 6px;">Not Installed</span>
             ${hasReleaseSource(app) ? `
-              <button class="btn btn-primary btn-sm" style="font-size: 11px; padding: 2px 8px;" onclick="triggerAppUpdate('${peer.ip}', ${peer.port}, '${app.packageName}', '${app.targetVersion}')">
+              <button class="btn btn-primary btn-sm install-btn" style="font-size: 11px; padding: 2px 8px;">
                 Install
               </button>
             ` : ''}
           </div>
-        </div>
-      `).join('');
+        `;
+        const installBtn = rowEl.querySelector('.install-btn');
+        if (installBtn) {
+          installBtn.onclick = () => triggerAppUpdate(peer.ip, peer.port, app.packageName, app.targetVersion);
+        }
+        return rowEl;
+      });
 
-      appsListHtml = installedRows + missingRows;
+      appsListElements = [...installedRows, ...missingRows];
     }
 
     card.innerHTML = `
       <div class="card-header">
         <div class="card-title">
-          <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/></svg>
           ${escapeHtml(peer.displayName || peer.deviceModel)} ${peer.isCrossVlan ? '<span class="badge badge-gray" style="font-size:10px;">VLAN</span>' : ''}
         </div>
         <span class="badge ${badgeClass}">${stateText}</span>
@@ -2225,10 +2281,10 @@ function renderMeshPeers(peers, library) {
         </div>
         <div class="kv-row">
           <span class="kv-key">Network ADB</span>
-          <span class="kv-val">${peer.adbEnabled ? '<span style="color:var(--sage); font-weight:600;">Enabled (:5555)</span>' : `<span style="color:var(--rust); cursor:pointer; text-decoration:underline; font-weight:600;" onclick="togglePeerAdb('${peer.ip}', ${peer.port})">Disabled</span>`}</span>
+          <span class="kv-val adb-val"></span>
         </div>
         <div class="kv-row" style="flex-direction: column; align-items: flex-start; gap: 6px; border-bottom: 1px solid rgba(255, 255, 255, 0.04); padding-bottom: 8px;">
-          <div onclick="togglePeerApps('${peer.id}')" style="cursor: pointer; display: flex; align-items: center; justify-content: space-between; width: 100%; user-select: none;">
+          <div class="apps-toggle-header" style="cursor: pointer; display: flex; align-items: center; justify-content: space-between; width: 100%; user-select: none;">
             <span class="kv-key" style="font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">Installed Apps</span>
             <div style="display: flex; align-items: center; gap: 6px;">
               <span class="badge badge-teal" style="font-size: 10px; padding: 1px 6px;">${managedApps.length} Installed</span>
@@ -2237,12 +2293,39 @@ function renderMeshPeers(peers, library) {
               <span style="color: var(--text-muted); font-size: 10px; margin-left: 2px;">${isExpanded ? '▲' : '▼'}</span>
             </div>
           </div>
-          <div style="display: ${isExpanded ? 'flex' : 'none'}; flex-direction: column; gap: 2px; width: 100%; background: var(--bg-surface-elevated); padding: 8px 10px; border-radius: var(--radius-sm); border: 1px solid var(--border-subtle); margin-top: 4px;">
-            ${appsListHtml}
+          <div class="apps-panel" style="display: ${isExpanded ? 'flex' : 'none'}; flex-direction: column; gap: 2px; width: 100%; background: var(--bg-surface-elevated); padding: 8px 10px; border-radius: var(--radius-sm); border: 1px solid var(--border-subtle); margin-top: 4px;">
           </div>
         </div>
       </div>
     `;
+
+    const adbVal = card.querySelector('.adb-val');
+    if (adbVal) {
+      if (peer.adbEnabled) {
+        adbVal.innerHTML = '<span style="color:var(--sage); font-weight:600;">Enabled (:5555)</span>';
+      } else {
+        const toggleSpan = document.createElement('span');
+        toggleSpan.style.cssText = 'color:var(--rust); cursor:pointer; text-decoration:underline; font-weight:600;';
+        toggleSpan.textContent = 'Disabled';
+        toggleSpan.onclick = () => togglePeerAdb(peer.ip, peer.port);
+        adbVal.appendChild(toggleSpan);
+      }
+    }
+
+    const appsHeader = card.querySelector('.apps-toggle-header');
+    if (appsHeader) {
+      appsHeader.onclick = () => togglePeerApps(peer.id);
+    }
+
+    const appsPanel = card.querySelector('.apps-panel');
+    if (appsPanel) {
+      if (managedApps.length === 0 && missingApps.length === 0) {
+        appsPanel.innerHTML = '<span style="color: var(--text-muted); font-size: 12px; padding: 4px 0;">No managed apps installed</span>';
+      } else if (appsListElements) {
+        appsListElements.forEach(el => appsPanel.appendChild(el));
+      }
+    }
+
     container.appendChild(card);
   });
 }
@@ -2273,19 +2356,13 @@ async function handleDeleteMesh(targetId) {
   if (!confirm(`Delete the "${meshName}" mesh? This cannot be undone and syncs to all devices.`)) return;
 
   try {
-    await apiCall('/api/mesh/delete', {
-      method: 'POST',
-      body: JSON.stringify({ meshId })
-    });
+    await apiCall(`/api/mesh/${encodeURIComponent(meshId)}`, { method: 'DELETE' });
     if (state.selectedMeshId === meshId) {
       state.selectedMeshId = state.localMeshId;
     }
     await fetchMeshInfo();
-    if (state.currentTab === 'global-settings') {
-      loadGlobalSettings();
-    }
   } catch (e) {
-    alert(`Failed to delete mesh: ` + e.message);
+    alert('Failed to delete mesh: ' + e.message);
   }
 }
 
@@ -2313,7 +2390,6 @@ async function togglePeerAdb(ip, port) {
   }
 }
 
-// Global Settings (UI-BEHAVE-008)
 async function loadGlobalSettings() {
   try {
     const [settingsData, meshData, selfUpdateData, meshConfigData] = await Promise.all([
@@ -2333,7 +2409,6 @@ async function loadGlobalSettings() {
 }
 
 function renderGlobalSettings(settingsData = {}, meshData = {}, selfUpdateData = {}, meshConfigData = {}) {
-  // 1. Password Status
   const pwdStatusEl = document.getElementById('globalPasswordStatusText');
   if (pwdStatusEl) {
     const hasPwd = settingsData.hasPassword !== undefined ? settingsData.hasPassword : state.authRequired;
@@ -2341,7 +2416,6 @@ function renderGlobalSettings(settingsData = {}, meshData = {}, selfUpdateData =
     pwdStatusEl.style.color = hasPwd ? 'var(--sage)' : 'var(--ochre)';
   }
 
-  // 2. Mesh Partitions List
   const meshListEl = document.getElementById('globalMeshList');
   if (meshListEl) {
     meshListEl.innerHTML = '';
@@ -2368,17 +2442,24 @@ function renderGlobalSettings(settingsData = {}, meshData = {}, selfUpdateData =
             <span style="font-family: monospace; font-size: 12px; color: var(--text-muted);">${escapeHtml(m.id)}</span>
             <span class="badge ${peerCount > 0 ? 'badge-sage' : 'badge-gray'}" style="font-size: 11px;">${peerCount} node${peerCount === 1 ? '' : 's'}</span>
           </div>
-          <div style="display: flex; gap: 8px;">
-            <button class="btn btn-secondary btn-sm" onclick="showEditMeshModal('${escapeHtml(m.id)}')">Rename</button>
-            ${!isUnmanaged && peerCount === 0 ? `<button class="btn btn-danger btn-sm" onclick="handleDeleteMesh('${escapeHtml(m.id)}')">Delete</button>` : ''}
+          <div class="actions" style="display: flex; gap: 8px;">
+            <button class="btn btn-secondary btn-sm rename-btn">Rename</button>
+            ${!isUnmanaged && peerCount === 0 ? '<button class="btn btn-danger btn-sm delete-btn">Delete</button>' : ''}
           </div>
         `;
+        const renameBtn = row.querySelector('.rename-btn');
+        if (renameBtn) {
+          renameBtn.onclick = () => showEditMeshModal(m.id);
+        }
+        const deleteBtn = row.querySelector('.delete-btn');
+        if (deleteBtn) {
+          deleteBtn.onclick = () => handleDeleteMesh(m.id);
+        }
         meshListEl.appendChild(row);
       });
     }
   }
 
-  // 3. Persistent Discovered Devices (Cross-VLAN Seeds)
   const seedsList = document.getElementById('globalCrossVlanSeedList');
   if (seedsList) {
     seedsList.innerHTML = '';
@@ -2398,8 +2479,12 @@ function renderGlobalSettings(settingsData = {}, meshData = {}, selfUpdateData =
 
         row.innerHTML = `
           <span style="font-family: monospace; font-size: 13px;">${escapeHtml(seed)}</span>
-          <button class="btn btn-danger btn-sm" onclick="removeSeed('${escapeHtml(seed)}')">Remove</button>
+          <button class="btn btn-danger btn-sm remove-btn">Remove</button>
         `;
+        const removeBtn = row.querySelector('.remove-btn');
+        if (removeBtn) {
+          removeBtn.onclick = () => removeSeed(seed);
+        }
         seedsList.appendChild(row);
       });
     }

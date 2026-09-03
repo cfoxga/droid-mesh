@@ -212,6 +212,9 @@ class LocalHttpServer(
 
     // --- Authentication Helpers ---
 
+    // API-BEHAVE-032 (gitea#41 L3): the URL query-param fallback (`?token=`) is deliberately
+    // NOT supported here. Tokens in URLs risk exposure via server access logs, browser history,
+    // and Referer headers -- only header and cookie delivery are accepted.
     private fun extractToken(session: IHTTPSession): String? {
         val authHeader = session.headers["authorization"] ?: session.headers["Authorization"]
         if (!authHeader.isNullOrBlank() && authHeader.startsWith("Bearer ", ignoreCase = true)) {
@@ -232,7 +235,7 @@ class LocalHttpServer(
             if (!token.isNullOrBlank()) return token
         }
 
-        return session.parms["token"]?.trim()
+        return null
     }
 
     private fun isAuthorized(session: IHTTPSession): Boolean {

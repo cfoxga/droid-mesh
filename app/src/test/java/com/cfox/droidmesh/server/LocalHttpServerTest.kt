@@ -246,6 +246,37 @@ class LocalHttpServerTest {
         assertEquals(2330, SettingsStore.getWebServerPort(mockContext))
     }
 
+    // [PROGRAMMATIC] API-TEST-049 (API-BEHAVE-032, gitea#41 L3): the auth token is NOT accepted
+    // via a `?token=` URL query parameter -- only `Authorization: Bearer`, `X-Auth-Token` header,
+    // or `auth_token` cookie are valid delivery mechanisms. Tokens in URLs risk exposure via
+    // access logs, browser history, and Referer headers.
+    @Test
+    fun testTokenViaUrlQueryParamAloneIsRejected() {
+        SettingsStore.setPassword(mockContext, "secret123")
+        val validToken = SettingsStore.generateToken(mockContext)
+
+        // Negative case: token presented ONLY as a URL query param must be rejected.
+        val queryParamSession = mockSession(
+            uri = "/api/settings",
+            method = NanoHTTPD.Method.POST,
+            params = mapOf("token" to validToken),
+            postBody = """{"webServerPort": 2330}"""
+        )
+        val queryParamResponse = server.serve(queryParamSession)
+        assertEquals(NanoHTTPD.Response.Status.UNAUTHORIZED, queryParamResponse.status)
+
+        // Positive control: the same token delivered via Authorization header still succeeds --
+        // proves the rejection above is specifically about query-param delivery, not a broken token.
+        val headerSession = mockSession(
+            uri = "/api/settings",
+            method = NanoHTTPD.Method.POST,
+            headers = mapOf("authorization" to "Bearer $validToken"),
+            postBody = """{"webServerPort": 2330}"""
+        )
+        val headerResponse = server.serve(headerSession)
+        assertEquals(NanoHTTPD.Response.Status.OK, headerResponse.status)
+    }
+
     // [PROGRAMMATIC] API-TEST-017: out-of-range webServerPort is rejected server-side, not just
     // client-side — the local UI depends on this server, so an invalid value must never persist
     @Test

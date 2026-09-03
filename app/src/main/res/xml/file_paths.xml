@@ -1,15 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+    gitea#41 L2: narrowed to the single subdirectory ApkDownloader actually writes downloaded
+    APKs into: context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), i.e.
+    Android/data/com.cfox.droidmesh/files/Download, which PackageInstallerDispatcher then
+    resolves via FileProvider.getUriForFile() for the install intent. The previous root-level
+    "." grants on external-files, internal cache, and external cache exposed the entire app
+    sandbox (not just downloaded APKs) to any content:// URI this provider could mint.
+-->
 <paths xmlns:android="http://schemas.android.com/apk/res/android">
     <external-files-path
         name="external_files_downloads"
         path="Download" />
-    <external-files-path
-        name="external_files_all"
-        path="." />
-    <cache-path
-        name="internal_cache"
-        path="." />
-    <external-cache-path
-        name="external_cache"
-        path="." />
 </paths>

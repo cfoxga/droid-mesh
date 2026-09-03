@@ -40,7 +40,13 @@
             </intent-filter>
         </activity>
 
-        <!-- Auto-Install Accessibility Service -->
+        <!-- Auto-Install Accessibility Service. Must stay exported so the
+             system's AccessibilityManagerService can bind it, but the
+             android:permission attribute below already restricts every
+             caller, start and bind alike, to holders of
+             android.permission.BIND_ACCESSIBILITY_SERVICE, a signature-level
+             permission no third-party app can hold (INST-BEHAVE-012,
+             gitea#39). -->
         <service
             android:name=".service.AutoInstallService"
             android:exported="true"
@@ -54,10 +60,13 @@
                 android:resource="@xml/accessibility_service_config" />
         </service>
 
-        <!-- Persistent Foreground Service (HTTP Trigger Server on :2325) -->
+        <!-- Persistent Foreground Service (HTTP Trigger Server on :2325).
+             Not exported: DroidMesh always starts this itself from its own
+             process; the HTTP API on :2325 is the only supported external
+             trigger surface (API-BEHAVE-031, gitea#39). -->
         <service
             android:name=".service.UpdaterForegroundService"
-            android:exported="true" />
+            android:exported="false" />
 
         <!-- Boot Completed Receiver to auto-start foreground HTTP listener -->
         <receiver

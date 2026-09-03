@@ -617,12 +617,10 @@ object SettingsStore {
     fun exportConfigJson(context: Context, knownPeersJson: JSONArray? = null): JSONObject = JSONObject().apply {
         put("config_version", getConfigVersion(context))
         put("web_server_port", getWebServerPort(context))
-        val salt = prefs(context).getString(KEY_WEB_PASSWORD_SALT, null)
-        val hash = prefs(context).getString(KEY_WEB_PASSWORD_HASH, null)
-        val secret = prefs(context).getString(KEY_AUTH_SECRET, null)
-        put("web_password_salt", salt ?: JSONObject.NULL)
-        put("web_password_hash", hash ?: JSONObject.NULL)
-        put("auth_secret", secret ?: JSONObject.NULL)
+        // [SET-BEHAVE-007] auth_secret/web_password_hash/web_password_salt are deliberately never
+        // included here. This payload is gossiped over unauthenticated cleartext HTTP between mesh
+        // peers (MeshDiscoveryManager push/pull/handshake, and GET /api/mesh/config directly) -- see
+        // gitea#31/#32/#34. Credential material stays local to each device.
         val connectionsArr = JSONArray()
         getPersistentConnections(context).forEach { connectionsArr.put(it) }
         put("persistent_connections", connectionsArr)
@@ -690,28 +688,11 @@ object SettingsStore {
             }
         }
 
-        // Synchronize password hash, salt, and auth secret
-        if (json.has("web_password_hash")) {
-            val hash = if (json.isNull("web_password_hash")) null else json.optString("web_password_hash")
-            val salt = if (json.isNull("web_password_salt")) null else json.optString("web_password_salt")
-            val secret = if (json.isNull("auth_secret")) null else json.optString("auth_secret")
-
-            val currentHash = prefs(context).getString(KEY_WEB_PASSWORD_HASH, null)
-            val currentSalt = prefs(context).getString(KEY_WEB_PASSWORD_SALT, null)
-            val currentSecret = prefs(context).getString(KEY_AUTH_SECRET, null)
-
-            if (hash != currentHash || salt != currentSalt || secret != currentSecret) {
-                if (hash.isNullOrBlank()) {
-                    editor.remove(KEY_WEB_PASSWORD_HASH)
-                    editor.remove(KEY_WEB_PASSWORD_SALT)
-                } else {
-                    editor.putString(KEY_WEB_PASSWORD_HASH, hash)
-                    if (!salt.isNullOrBlank()) editor.putString(KEY_WEB_PASSWORD_SALT, salt)
-                    if (!secret.isNullOrBlank()) editor.putString(KEY_AUTH_SECRET, secret)
-                }
-                passwordChanged = true
-            }
-        }
+        // [SET-BEHAVE-007] web_password_hash/web_password_salt/auth_secret are deliberately never
+        // read from an incoming config, from any source (mesh sync, handshake, or otherwise) --
+        // gitea#32 showed a higher config_version with attacker-supplied credentials in this block
+        // let a remote caller overwrite and mesh-propagate its own admin password and HMAC signing
+        // secret with zero auth. Credential material is local-only now; see exportConfigJson above.
 
         // [MESH-BEHAVE-012] Synchronize persistent-connection deletion tombstones first: union of
         // local + incoming, keeping the max deletedAt per connection. Mirrors deleted_meshes below

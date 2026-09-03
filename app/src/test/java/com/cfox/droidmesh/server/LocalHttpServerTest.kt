@@ -353,10 +353,20 @@ class LocalHttpServerTest {
 
     @Test
     fun testMeshConfigGetAndSyncEndpoints() {
+        // [API-BEHAVE-027] With a real password set locally, GET /api/mesh/config must never leak
+        // auth_secret/web_password_hash/web_password_salt -- gitea#31, live-fleet-confirmed leak.
+        SettingsStore.setPassword(mockContext, "localAdminPassword")
+        SettingsStore.generateToken(mockContext)
+
         // 1. Initial GET config
         val getSession = mockSession("/api/mesh/config")
         val getRes = server.serve(getSession)
         assertEquals(NanoHTTPD.Response.Status.OK, getRes.status)
+        val getJson = JSONObject(getRes.data?.readBytes()?.toString(Charsets.UTF_8) ?: "")
+        val getConfig = getJson.getJSONObject("config")
+        assertFalse(getConfig.has("auth_secret"))
+        assertFalse(getConfig.has("web_password_hash"))
+        assertFalse(getConfig.has("web_password_salt"))
 
         // 2. Incoming newer config via /api/mesh/sync-config
         val syncPayload = JSONObject().apply {
@@ -381,11 +391,28 @@ class LocalHttpServerTest {
         val syncRes = server.serve(syncSession)
         assertEquals(NanoHTTPD.Response.Status.OK, syncRes.status)
 
-        // Verify that SettingsStore reflects the synced values
+        // Verify that SettingsStore reflects the synced values -- except credential fields, which
+        // [SET-BEHAVE-007] never applies from an incoming sync payload (gitea#32: this same payload
+        // shape, unauthenticated, previously let a remote caller overwrite the local admin password
+        // with its own attacker-supplied hash/secret and have it mesh-propagate). The real local
+        // password set at the top of this test must survive the sync completely unchanged.
         assertEquals(2326, SettingsStore.getWebServerPort(mockContext))
         assertTrue(SettingsStore.isPasswordSet(mockContext))
+        assertTrue(SettingsStore.verifyPassword(mockContext, "localAdminPassword"))
         assertTrue(SettingsStore.getPersistentConnections(mockContext).contains("192.168.50.64:2326"))
         assertEquals(2000000000000L, SettingsStore.getConfigVersion(mockContext))
+
+        // 3. A subsequent GET must still never leak credentials -- a leak introduced only on the
+        // post-sync code path would have escaped the pre-sync-only check above.
+        val getAfterSyncSession = mockSession("/api/mesh/config")
+        val getAfterSyncRes = server.serve(getAfterSyncSession)
+        assertEquals(NanoHTTPD.Response.Status.OK, getAfterSyncRes.status)
+        val getAfterSyncConfig = JSONObject(
+            getAfterSyncRes.data?.readBytes()?.toString(Charsets.UTF_8) ?: ""
+        ).getJSONObject("config")
+        assertFalse(getAfterSyncConfig.has("auth_secret"))
+        assertFalse(getAfterSyncConfig.has("web_password_hash"))
+        assertFalse(getAfterSyncConfig.has("web_password_salt"))
     }
 
     // [PROGRAMMATIC] API-TEST-005: Mesh Library GET and POST endpoints

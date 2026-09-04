@@ -186,15 +186,145 @@ class AdbLoopbackInstallerTest {
 
     @Test
     fun testRunShellCommandFailsGracefullyWhenNothingListening() {
-        // Bind, discover a free port, then close before the client ever connects.
+        // Bind, discover a free port, then close before the client ever connects. Uses an
+        // allowlisted command (INST-BEHAVE-015) so this test still proves a genuine
+        // connection-refused failure, distinct from the allowlist-rejection tests below.
         val server = ServerSocket(0)
         val port = server.localPort
         server.close()
 
         val result = runBlocking {
-            AdbLoopbackInstaller.runShellCommand("echo hi", host = "127.0.0.1", port = port)
+            AdbLoopbackInstaller.runShellCommand(
+                "settings put secure accessibility_enabled 1",
+                host = "127.0.0.1",
+                port = port
+            )
         }
 
         assertFalse("expected failure when nothing is listening, got $result", result.isSuccess)
+        assertFalse(
+            "expected a connection failure, not an allowlist rejection",
+            result.exceptionOrNull() is SecurityException
+        )
+    }
+
+    // [PROGRAMMATIC] INST-TEST-019: gitea#70 -- isAllowedShellCommand accepts every exact
+    // hardcoded command ProvisioningAuditor.repair()/repairAccessibility() currently sends, plus
+    // the one fixed-prefix pattern for the runtime-varying merged accessibility-services value.
+    @Test
+    fun testIsAllowedShellCommandAcceptsKnownProvisioningCommands() {
+        assertTrue(
+            AdbLoopbackInstaller.isAllowedShellCommand(
+                "appops set com.cfox.droidmesh REQUEST_INSTALL_PACKAGES allow"
+            )
+        )
+        assertTrue(
+            AdbLoopbackInstaller.isAllowedShellCommand(
+                "dumpsys deviceidle whitelist +com.cfox.droidmesh"
+            )
+        )
+        assertTrue(
+            AdbLoopbackInstaller.isAllowedShellCommand(
+                "settings get secure enabled_accessibility_services"
+            )
+        )
+        assertTrue(
+            AdbLoopbackInstaller.isAllowedShellCommand(
+                "settings put secure accessibility_enabled 1"
+            )
+        )
+        // The one call site whose value varies at runtime (repairAccessibility()'s re-merged
+        // colon-joined component list) -- safe-charset value must still be accepted.
+        assertTrue(
+            AdbLoopbackInstaller.isAllowedShellCommand(
+                "settings put secure enabled_accessibility_services " +
+                    "com.cfox.droidmesh/com.cfox.droidmesh.service.AutoInstallService"
+            )
+        )
+        assertTrue(
+            "multiple colon-joined pre-existing OEM services plus DroidMesh's own must be accepted",
+            AdbLoopbackInstaller.isAllowedShellCommand(
+                "settings put secure enabled_accessibility_services " +
+                    "com.meta.horizon/com.meta.horizon.PresenceService:" +
+                    "com.cfox.droidmesh/com.cfox.droidmesh.service.AutoInstallService"
+            )
+        )
+    }
+
+    // [PROGRAMMATIC] INST-TEST-020 (negative): gitea#70 -- anything not on the allowlist, and the
+    // one prefix pattern with an unsafe (shell-metacharacter-bearing) value, must be rejected.
+    // Without this test, deleting isAllowedShellCommand entirely (or making it always return true)
+    // would still pass every other test in this file, since they only ever pass allowlisted
+    // commands.
+    @Test
+    fun testIsAllowedShellCommandRejectsUnknownAndInjectedCommands() {
+        assertFalse(AdbLoopbackInstaller.isAllowedShellCommand("echo hi"))
+        assertFalse(AdbLoopbackInstaller.isAllowedShellCommand("reboot -p"))
+        assertFalse(AdbLoopbackInstaller.isAllowedShellCommand("rm -rf /data"))
+        assertFalse(
+            "shell metacharacters in the runtime-varying value must be rejected, not merely the fixed prefix",
+            AdbLoopbackInstaller.isAllowedShellCommand(
+                "settings put secure enabled_accessibility_services com.evil/x; rm -rf /data"
+            )
+        )
+        assertFalse(
+            AdbLoopbackInstaller.isAllowedShellCommand(
+                "settings put secure enabled_accessibility_services `reboot`"
+            )
+        )
+        assertFalse(
+            AdbLoopbackInstaller.isAllowedShellCommand(
+                "settings put secure enabled_accessibility_services com.a/b | com.c/d"
+            )
+        )
+        assertFalse(
+            "a near-miss prefix (extra trailing text before the real settings key) must not slip through",
+            AdbLoopbackInstaller.isAllowedShellCommand(
+                "settings put secure enabled_accessibility_services_evil com.a/b"
+            )
+        )
+        // Falsification guard: without this, weakening the exact-string-set membership check
+        // (ALLOWED_EXACT_SHELL_COMMANDS.contains(command)) to a prefix check
+        // (ALLOWED_EXACT_SHELL_COMMANDS.any { command.startsWith(it) }) would still pass every
+        // accept-test above (each exact literal trivially starts with itself) while letting a
+        // malicious suffix appended after an already-allowed literal slip through as a real
+        // command injection.
+        assertFalse(
+            "appending an injection after an otherwise-allowed exact command must be rejected",
+            AdbLoopbackInstaller.isAllowedShellCommand(
+                "settings put secure accessibility_enabled 1; rm -rf /data"
+            )
+        )
+        assertFalse(
+            AdbLoopbackInstaller.isAllowedShellCommand(
+                "settings get secure enabled_accessibility_services && reboot"
+            )
+        )
+    }
+
+    // [PROGRAMMATIC] INST-TEST-021: gitea#70 -- runShellCommand rejects a disallowed command
+    // before ever opening a socket connection. Nothing is listening on this port at all, so if
+    // runShellCommand tried to connect first it would surface a connection-refused failure
+    // instead -- asserting specifically on SecurityException naming the rejected command proves
+    // the allowlist check runs before any network I/O.
+    @Test
+    fun testRunShellCommandRejectsDisallowedCommandBeforeOpeningSocket() {
+        val server = ServerSocket(0)
+        val port = server.localPort
+        server.close()
+
+        val result = runBlocking {
+            AdbLoopbackInstaller.runShellCommand("reboot -p", host = "127.0.0.1", port = port)
+        }
+
+        assertFalse("expected failure for a disallowed command", result.isSuccess)
+        assertTrue(
+            "expected a SecurityException naming the rejected command, got: ${result.exceptionOrNull()}",
+            result.exceptionOrNull() is SecurityException
+        )
+        assertTrue(
+            "expected the exception message to name the rejected command",
+            (result.exceptionOrNull()?.message ?: "").contains("reboot -p")
+        )
     }
 }

@@ -189,6 +189,22 @@ class AutoInstallService : AccessibilityService() {
             }
             return false
         }
+
+        /**
+         * INST-BEHAVE-014 (gitea#56, incomplete-fix followup to gitea#40/INST-BEHAVE-013): the
+         * first gate deciding whether a window is inspected at all. `accessibility_service_config.xml`
+         * has no `android:packageNames` filter, so this exact-match check is the only thing standing
+         * between "any installed app's windows" and the accessibility service's node-tree inspection.
+         * Exact match only against the known installer/permission-controller package allowlist --
+         * unlike the old `.contains("packageinstaller"/"permissioncontroller", ignoreCase = true)`
+         * substring branches this replaces, which a spoofed package name like
+         * "com.attacker.custompackageinstaller" passed. INST-BEHAVE-013's exact-match scoping only
+         * protected the downstream, more specific INSTALL_ONLY_PACKAGES bypass check -- it never
+         * covered this earlier, more fundamental gate.
+         */
+        internal fun isInstallerPackage(packageName: String): Boolean {
+            return INSTALLER_PACKAGES.any { packageName.equals(it, ignoreCase = true) }
+        }
     }
 
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -240,12 +256,6 @@ class AutoInstallService : AccessibilityService() {
                 Logger.e("Error inspecting node tree", e)
             }
         }
-    }
-
-    private fun isInstallerPackage(packageName: String): Boolean {
-        return INSTALLER_PACKAGES.contains(packageName) ||
-                packageName.contains("packageinstaller", ignoreCase = true) ||
-                packageName.contains("permissioncontroller", ignoreCase = true)
     }
 
     private fun inspectAndProcessNodeTree(packageName: String, root: AccessibilityNodeInfo) {

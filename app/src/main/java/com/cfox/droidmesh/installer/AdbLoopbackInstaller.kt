@@ -40,6 +40,41 @@ object AdbLoopbackInstaller {
         runAdbSession(host, port, cmd, earlyStopOnSubstring = "Success")
     }
 
+    // INST-BEHAVE-015 (gitea#70): runShellCommand is a generic, fully-unvalidated shell-exec
+    // primitive over the loopback ADB session -- it currently has exactly one caller
+    // (ProvisioningAuditor's repair flow, PROV-BEHAVE-004/006) passing only these hardcoded
+    // strings, but a future caller that forwarded request-derived data into it would inherit full
+    // command execution risk with no additional review needed to notice. Fail closed at this
+    // function's own boundary: exact match against the known-legitimate command set, or -- for the
+    // one call site whose content varies at runtime (repairAccessibility()'s re-merged
+    // enabled_accessibility_services value) -- a fixed prefix followed by a charset-restricted
+    // value, mirroring ApkDownloader.isSafeApkFileName's whitelist-regex style (gitea#53).
+    private val ALLOWED_EXACT_SHELL_COMMANDS = setOf(
+        "appops set com.cfox.droidmesh REQUEST_INSTALL_PACKAGES allow",
+        "dumpsys deviceidle whitelist +com.cfox.droidmesh",
+        "settings get secure enabled_accessibility_services",
+        "settings put secure accessibility_enabled 1"
+    )
+
+    private const val ACCESSIBILITY_SERVICES_PUT_PREFIX =
+        "settings put secure enabled_accessibility_services "
+
+    // Matches colon-joined "package/Class" component names -- the only shape
+    // ProvisioningAuditor.mergeAccessibilityServices ever produces -- and rejects every shell
+    // metacharacter (quotes, `;`, `|`, backticks, spaces) outright rather than trying to escape them.
+    private val ACCESSIBILITY_SERVICES_VALUE_REGEX = Regex("^[A-Za-z0-9_./:]+$")
+
+    internal fun isAllowedShellCommand(command: String): Boolean {
+        if (ALLOWED_EXACT_SHELL_COMMANDS.contains(command)) {
+            return true
+        }
+        if (command.startsWith(ACCESSIBILITY_SERVICES_PUT_PREFIX)) {
+            val value = command.removePrefix(ACCESSIBILITY_SERVICES_PUT_PREFIX)
+            return ACCESSIBILITY_SERVICES_VALUE_REGEX.matches(value)
+        }
+        return false
+    }
+
     // INST-BEHAVE-008: generic shell command execution over the same loopback ADB session
     // installWithAdbLoopback already used, for callers other than the APK installer (e.g.
     // PROV-BEHAVE-004's provisioning repair). Waits for the remote to close the exec stream
@@ -50,6 +85,11 @@ object AdbLoopbackInstaller {
         host: String = DEFAULT_HOST,
         port: Int = DEFAULT_PORT
     ): Result<String> = withContext(Dispatchers.IO) {
+        if (!isAllowedShellCommand(command)) {
+            val err = "Rejected non-allowlisted shell command: $command"
+            Logger.e(err)
+            return@withContext Result.failure(SecurityException(err))
+        }
         Logger.i("Running loopback ADB shell command on $host:$port: $command")
         runAdbSession(host, port, command, earlyStopOnSubstring = null)
     }

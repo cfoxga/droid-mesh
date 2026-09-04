@@ -178,4 +178,41 @@ class AutoInstallServiceTest {
             AutoInstallService.isEligibleForGenericAutoClick("com.android.settings", rootWithSignal)
         )
     }
+
+    // [PROGRAMMATIC] INST-TEST-017: gitea#56 -- isInstallerPackage (the first gate deciding
+    // whether a window is inspected at all) accepts every real INSTALLER_PACKAGES entry via exact
+    // match, case-insensitively (mirroring isEligibleForGenericAutoClick's exact-match style).
+    @Test
+    fun testIsInstallerPackageAcceptsExactKnownPackages() {
+        assertTrue(AutoInstallService.isInstallerPackage("com.android.packageinstaller"))
+        assertTrue(AutoInstallService.isInstallerPackage("com.google.android.packageinstaller"))
+        assertTrue(AutoInstallService.isInstallerPackage("com.android.permissioncontroller"))
+        assertTrue(AutoInstallService.isInstallerPackage("com.google.android.permissioncontroller"))
+        assertTrue(AutoInstallService.isInstallerPackage("com.android.settings"))
+        assertTrue(AutoInstallService.isInstallerPackage("com.android.systemui"))
+        assertTrue(
+            "exact match must be case-insensitive, matching isEligibleForGenericAutoClick's style",
+            AutoInstallService.isInstallerPackage("COM.ANDROID.PACKAGEINSTALLER")
+        )
+    }
+
+    // [PROGRAMMATIC] INST-TEST-018 (negative): gitea#56 -- the exact scenario the issue describes.
+    // A third-party app named e.g. com.attacker.custompackageinstaller must NOT pass this gate --
+    // without this test, reverting isInstallerPackage back to the old
+    // packageName.contains("packageinstaller", ignoreCase = true) substring check would still pass
+    // every other test in this file (they all use exact real package names).
+    @Test
+    fun testIsInstallerPackageRejectsSubstringSpoofedNames() {
+        assertFalse(AutoInstallService.isInstallerPackage("com.attacker.custompackageinstaller"))
+        assertFalse(AutoInstallService.isInstallerPackage("com.evil.permissioncontrollerclone"))
+        assertFalse(AutoInstallService.isInstallerPackage("com.evil.fakepackageinstallerhelper"))
+        assertFalse(AutoInstallService.isInstallerPackage("com.example.unrelatedapp"))
+        // Falsification guard: without this, weakening the exact-match set-membership check to a
+        // prefix check (e.g. packageName.startsWith("com.android.")) would still pass every test
+        // above -- all real entries and all other spoofed names happen to differ in prefix too --
+        // while still letting a package sharing a real prefix (but not equal to any of the six
+        // known packages) through.
+        assertFalse(AutoInstallService.isInstallerPackage("com.android.evilinstaller"))
+        assertFalse(AutoInstallService.isInstallerPackage("com.google.android.evilcontroller"))
+    }
 }

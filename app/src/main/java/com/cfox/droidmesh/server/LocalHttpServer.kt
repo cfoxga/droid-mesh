@@ -42,6 +42,30 @@ class LocalHttpServer(
 
     companion object {
         const val SELF_UPDATE_RELEASES_URL = "https://api.github.com/repos/cfoxga/droid-mesh/releases"
+
+        // API-BEHAVE-035 (gitea#61): a forged Content-Length header must not be able to trigger
+        // a multi-GB allocation attempt on a memory-constrained device before a single body byte
+        // has actually arrived. 1MB comfortably covers every real JSON control-plane payload this
+        // server accepts (config sync, mesh handshake, settings) with headroom to spare.
+        const val MAX_REQUEST_BODY_BYTES = 1_048_576
+    }
+
+    // API-BEHAVE-037 (gitea#69): thrown by the requireInt/requireString field readers below so a
+    // malformed field type produces a specific, safe, actionable 400 -- caught explicitly in
+    // serve(), never falling through to the generic catch-all.
+    private class InvalidFieldException(field: String, expected: String) :
+        Exception("Invalid value for '$field': expected $expected")
+
+    private fun requireInt(body: JSONObject, field: String): Int {
+        return when (val raw = body.opt(field)) {
+            is Number -> raw.toInt()
+            is String -> raw.toIntOrNull() ?: throw InvalidFieldException(field, "a number")
+            else -> throw InvalidFieldException(field, "a number")
+        }
+    }
+
+    private fun requireString(body: JSONObject, field: String): String {
+        return body.opt(field) as? String ?: throw InvalidFieldException(field, "a string")
     }
 
 
@@ -109,15 +133,49 @@ class LocalHttpServer(
         val method = session.method
         Logger.i("LocalHttpServer.serve: $method $uri from ${session.remoteIpAddress}")
 
-        // Deny-by-default endpoint authorization (API-BEHAVE-028 / gitea#36)
-        if (!isPublicEndpoint(session) && !isAuthorized(session)) {
+        // API-BEHAVE-035 (gitea#61): reject an oversized Content-Length before ever allocating a
+        // buffer for it -- the attacker never has to actually send that much data for the
+        // allocation itself to OOM-crash the foreground service.
+        val declaredLength = session.headers["content-length"]?.toIntOrNull() ?: 0
+        if (declaredLength > MAX_REQUEST_BODY_BYTES) {
             return jsonResponse(
-                Response.Status.UNAUTHORIZED,
+                Response.Status.PAYLOAD_TOO_LARGE,
                 JSONObject().apply {
                     put("status", "error")
-                    put("error", "Unauthorized")
+                    put("error", "Request body exceeds maximum allowed size ($MAX_REQUEST_BODY_BYTES bytes)")
                 }
             )
+        }
+
+        // Deny-by-default endpoint authorization (API-BEHAVE-028 / gitea#36). API-BEHAVE-034
+        // (gitea#55): isAuthorized() unconditionally passes every request while no admin password
+        // is configured yet, since there is no token to present until one is set -- that must not
+        // mean every state-mutating endpoint is wide open until an admin happens to visit the
+        // settings screen. A missing password fails a state-changing request closed instead;
+        // read-only/status endpoints stay reachable pre-bootstrap exactly as before, so the
+        // in-app "set a password" flow (served from this same port) never gets locked out of
+        // itself before it exists.
+        if (!isPublicEndpoint(session)) {
+            val passwordSet = SettingsStore.isPasswordSet(context)
+            val denied = if (!passwordSet) {
+                isStateChangingEndpoint(session)
+            } else {
+                !isAuthorized(session)
+            }
+            if (denied) {
+                val message = if (!passwordSet) {
+                    "An admin password must be set before this action is allowed. POST /api/password to set one."
+                } else {
+                    "Unauthorized"
+                }
+                return jsonResponse(
+                    Response.Status.UNAUTHORIZED,
+                    JSONObject().apply {
+                        put("status", "error")
+                        put("error", message)
+                    }
+                )
+            }
         }
 
         return try {
@@ -198,13 +256,27 @@ class LocalHttpServer(
                     )
                 }
             }
+        } catch (e: InvalidFieldException) {
+            // API-BEHAVE-037 (gitea#69): a malformed field type gets a specific, safe 400 naming
+            // the field instead of falling through to the generic catch-all below.
+            jsonResponse(
+                Response.Status.BAD_REQUEST,
+                JSONObject().apply {
+                    put("status", "error")
+                    put("error", e.message)
+                }
+            )
         } catch (e: Exception) {
+            // API-BEHAVE-037 (gitea#69): the real exception is still logged server-side (visible
+            // via /logs to an authenticated admin), but the raw message never reaches the client
+            // response body verbatim -- an uncaught exception's text is not something a remote
+            // caller is entitled to see, whatever it happens to contain.
             Logger.e("Error processing HTTP request ($method $uri)", e)
             jsonResponse(
                 Response.Status.INTERNAL_ERROR,
                 JSONObject().apply {
                     put("status", "error")
-                    put("error", e.message ?: "Internal Server Error")
+                    put("error", "Internal Server Error")
                 }
             )
         }
@@ -269,6 +341,36 @@ class LocalHttpServer(
         if (uri == "/api/mesh/handshake" && method == Method.POST) return true
 
         return false
+    }
+
+    // API-BEHAVE-034 (gitea#55): every non-public endpoint that mutates device state (installs
+    // apps, toggles ADB, changes mesh membership, edits settings, launches system UI, clears
+    // logs) must fail closed while no admin password exists, since there is no way to present a
+    // valid token before one does. Deliberately excludes the mesh gossip endpoints
+    // (/api/mesh/sync-config, /api/mesh/handshake, /api/mesh/beacon) -- those are a separate,
+    // already-public-by-design trust boundary tracked under API-OPEN-003/gitea#52, not this gap.
+    private fun isStateChangingEndpoint(session: IHTTPSession): Boolean {
+        val uri = session.uri
+        val method = session.method
+        return when {
+            uri == "/update" || uri == "/api/update" -> true
+            uri == "/adb/toggle" || uri == "/api/adb/toggle" -> true
+            uri == "/api/self-update" && method == Method.POST -> true
+            uri == "/api/system/provisioning/repair" && method == Method.POST -> true
+            uri == "/api/settings" && method == Method.POST -> true
+            (uri == "/api/mesh/library" || uri == "/mesh/library") && method == Method.POST -> true
+            uri == "/api/mesh/create" || uri == "/api/mesh/update" || uri == "/api/mesh/delete" -> true
+            uri == "/api/mesh/connect" && method == Method.POST -> true
+            (uri == "/api/mesh/seeds" || uri == "/api/mesh/seeds/remove" ||
+                uri == "/api/mesh/persistent-connections" || uri == "/api/mesh/persistent-connections/remove") &&
+                (method == Method.DELETE || method == Method.POST) -> true
+            uri == "/api/peers/update" && method == Method.POST -> true
+            uri == "/api/peers/adb/toggle" && method == Method.POST -> true
+            uri == "/api/logs/clear" && method == Method.POST -> true
+            uri == "/api/system/open-accessibility-settings" && method == Method.POST -> true
+            uri == "/api/system/open-install-settings" && method == Method.POST -> true
+            else -> false
+        }
     }
 
     // Best-effort bind probe — briefly opens and immediately closes a socket on the candidate
@@ -495,7 +597,7 @@ class LocalHttpServer(
         val body = parseJsonBody(session)
         var settingsChanged = false
         if (body.has("webServerPort")) {
-            val port = body.getInt("webServerPort")
+            val port = requireInt(body, "webServerPort")
             // The WebView shell's entire UI is served by this port now (UI-BEHAVE-005) — accepting
             // an out-of-range or already-bound port here would strand the app with no in-app way to
             // recover, the same failure mode the webServerEnabled removal was meant to close off.
@@ -517,7 +619,7 @@ class LocalHttpServer(
             settingsChanged = true
         }
         if (body.has("localMeshId")) {
-            val meshId = body.getString("localMeshId").trim()
+            val meshId = requireString(body, "localMeshId").trim()
             if (meshId.isNotBlank()) {
                 SettingsStore.setLocalMeshId(context, meshId)
                 Logger.i("Local mesh ID updated: $meshId")
@@ -525,7 +627,7 @@ class LocalHttpServer(
             }
         }
         if (body.has("localMeshName")) {
-            val meshName = body.getString("localMeshName").trim()
+            val meshName = requireString(body, "localMeshName").trim()
             if (meshName.isNotBlank()) {
                 SettingsStore.setLocalMeshName(context, meshName)
                 Logger.i("Local mesh name updated: $meshName")
@@ -533,7 +635,7 @@ class LocalHttpServer(
             }
         }
         if (body.has("customDeviceName")) {
-            val deviceName = body.getString("customDeviceName").trim()
+            val deviceName = requireString(body, "customDeviceName").trim()
             SettingsStore.setCustomDeviceName(context, deviceName)
             if (deviceName.isNotBlank()) {
                 Logger.i("Custom device name set: $deviceName")
@@ -1297,8 +1399,7 @@ class LocalHttpServer(
         scope.launch {
             try {
                 val req = buildPeerUpdateRequest(ip, port, tag, url, pkg, force)
-                httpClient.newCall(req).execute().close()
-                Logger.i("Dispatched remote peer update to $ip:$port (package=$pkg)")
+                httpClient.newCall(req).execute().use { logRelayOutcome(it, ip, port, "update") }
             } catch (e: Exception) {
                 Logger.e("Error dispatching peer update to $ip:$port", e)
             }
@@ -1311,13 +1412,28 @@ class LocalHttpServer(
         return jsonResponse(Response.Status.ACCEPTED, json)
     }
 
+    // API-BEHAVE-036 (gitea#63): a non-2xx relay response was previously discarded entirely
+    // (`.close()` with no status check), so a caller who thinks a peer relay "succeeded" (this
+    // endpoint always returns 202 immediately, before the relay even runs) had no way to learn a
+    // password-protected peer actually rejected it -- surfaced here via /logs, the existing
+    // observability path for this fire-and-forget dispatch.
+    internal fun logRelayOutcome(response: okhttp3.Response, ip: String, port: Int, action: String) {
+        if (!response.isSuccessful) {
+            Logger.w("Peer relay '$action' to $ip:$port was rejected: HTTP ${response.code} -- " +
+                "this device's auth token does not necessarily validate against that peer's own " +
+                "admin password (auth_secret is deliberately never synced mesh-wide, SET-BEHAVE-007)")
+        } else {
+            Logger.i("Peer relay '$action' to $ip:$port succeeded: HTTP ${response.code}")
+        }
+    }
+
     // [API-BEHAVE-022] Builds the outbound relay request for a peer-directed update. Attaches a
-    // freshly minted, short-lived bearer token whenever this device has a password configured, so
-    // a password-protected target peer's own isAuthorized check (API-BEHAVE-003) doesn't reject the
-    // relay with a 401 that the fire-and-forget caller (handlePeerUpdate) never sees. KEY_AUTH_SECRET
-    // already syncs mesh-wide alongside the password hash via SettingsStore.exportConfigJson /
-    // importConfigJson, so a token minted here validates on any peer that has completed a config
-    // sync with this device -- no new synced credential is needed, only this header.
+    // freshly minted, short-lived bearer token whenever this device has a password configured, in
+    // case the target peer happens to share the same admin password (and therefore, coincidentally,
+    // could derive the same auth_secret) -- but API-BEHAVE-036/gitea#63: auth_secret is deliberately
+    // NEVER synced mesh-wide (SET-BEHAVE-007), so a token minted here is expected to be rejected by
+    // any peer with its own independently-set password. This is not a real cross-device credential;
+    // logRelayOutcome() surfaces the resulting 401 via /logs instead of silently swallowing it.
     internal fun buildPeerUpdateRequest(
         ip: String,
         port: Int,
@@ -1362,12 +1478,13 @@ class LocalHttpServer(
 
         scope.launch {
             try {
-                val req = Request.Builder()
+                val builder = Request.Builder()
                     .url("http://$ip:$port/adb/toggle")
                     .post(ByteArray(0).toRequestBody(null, 0, 0))
-                    .build()
-                httpClient.newCall(req).execute().close()
-                Logger.i("Dispatched remote ADB toggle to $ip:$port")
+                if (SettingsStore.isPasswordSet(context)) {
+                    builder.header("Authorization", "Bearer ${SettingsStore.generateToken(context, ttlSeconds = 60)}")
+                }
+                httpClient.newCall(builder.build()).execute().use { logRelayOutcome(it, ip, port, "adb-toggle") }
             } catch (e: Exception) {
                 Logger.e("Failed to toggle ADB on remote peer $ip", e)
             }

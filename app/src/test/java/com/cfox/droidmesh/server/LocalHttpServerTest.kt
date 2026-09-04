@@ -177,6 +177,16 @@ class LocalHttpServerTest {
         }
     }
 
+    // Sets a local admin password and returns headers carrying a valid bearer token for it.
+    // API-BEHAVE-034 (gitea#55) means every non-public endpoint now requires a real admin
+    // password to exist before it responds at all -- these helper headers let tests whose actual
+    // subject is unrelated to auth (port validation, mesh CRUD, self-update dispatch) keep
+    // exercising that subject without each hand-rolling password bootstrap plus a token.
+    private fun authedHeaders(): Map<String, String> {
+        SettingsStore.setPassword(mockContext, "secret123")
+        return mapOf("authorization" to "Bearer ${SettingsStore.generateToken(mockContext)}")
+    }
+
 
 
     // [PROGRAMMATIC] API-TEST-001: LocalHttpServer status endpoint
@@ -284,6 +294,7 @@ class LocalHttpServerTest {
         val session = mockSession(
             uri = "/api/settings",
             method = NanoHTTPD.Method.POST,
+            headers = authedHeaders(),
             postBody = """{"webServerPort": 80}"""
         )
         val before = SettingsStore.getWebServerPort(mockContext)
@@ -302,6 +313,7 @@ class LocalHttpServerTest {
             val session = mockSession(
                 uri = "/api/settings",
                 method = NanoHTTPD.Method.POST,
+                headers = authedHeaders(),
                 postBody = """{"webServerPort": $busyPort}"""
             )
             val before = SettingsStore.getWebServerPort(mockContext)
@@ -320,6 +332,7 @@ class LocalHttpServerTest {
         val session = mockSession(
             uri = "/api/settings",
             method = NanoHTTPD.Method.POST,
+            headers = authedHeaders(),
             postBody = """{"webServerPort": ${server.activePort}}"""
         )
         val response = server.serve(session)
@@ -361,8 +374,10 @@ class LocalHttpServerTest {
     // [PROGRAMMATIC] MESH-TEST-003: Mesh seeds endpoints
     @Test
     fun testMeshSeedsEndpoints() {
+        val headers = authedHeaders()
+
         // GET seeds
-        val getSession = mockSession("/api/mesh/seeds")
+        val getSession = mockSession("/api/mesh/seeds", headers = headers)
         val getRes = server.serve(getSession)
         assertEquals(NanoHTTPD.Response.Status.OK, getRes.status)
 
@@ -371,6 +386,7 @@ class LocalHttpServerTest {
         val deleteSession = mockSession(
             uri = "/api/mesh/seeds",
             method = NanoHTTPD.Method.DELETE,
+            headers = headers,
             postBody = """{"ip": "192.168.50.10:2325"}"""
         )
         val deleteRes = server.serve(deleteSession)
@@ -456,8 +472,10 @@ class LocalHttpServerTest {
     // [PROGRAMMATIC] API-TEST-005: Mesh Library GET and POST endpoints
     @Test
     fun testMeshLibraryGetAndPostEndpoints() {
+        val headers = authedHeaders()
+
         // 1. GET initial library
-        val getSession = mockSession("/api/mesh/library?meshId=meta-portals")
+        val getSession = mockSession("/api/mesh/library?meshId=meta-portals", headers = headers)
         val getRes = server.serve(getSession)
         assertEquals(NanoHTTPD.Response.Status.OK, getRes.status)
 
@@ -476,6 +494,7 @@ class LocalHttpServerTest {
         val postSession = mockSession(
             uri = "/api/mesh/library",
             method = NanoHTTPD.Method.POST,
+            headers = headers,
             postBody = postPayload.toString()
         )
         val postRes = server.serve(postSession)
@@ -500,6 +519,7 @@ class LocalHttpServerTest {
         val postSession = mockSession(
             uri = "/api/mesh/library",
             method = NanoHTTPD.Method.POST,
+            headers = authedHeaders(),
             postBody = postPayload.toString()
         )
         val postRes = server.serve(postSession)
@@ -636,7 +656,7 @@ class LocalHttpServerTest {
         whenever(mockCoordinator.resolveTargetRelease(any(), any())).thenReturn(Result.success(pinned))
 
         val response = server.serve(
-            mockSession("/api/update?package=com.example.pinned&tag=v1.5.0", NanoHTTPD.Method.POST)
+            mockSession("/api/update?package=com.example.pinned&tag=v1.5.0", NanoHTTPD.Method.POST, authedHeaders())
         )
 
         assertEquals(NanoHTTPD.Response.Status.ACCEPTED, response.status)
@@ -665,7 +685,7 @@ class LocalHttpServerTest {
         )
 
         val response = server.serve(
-            mockSession("/api/update?package=com.example.badpin&tag=v9.9.9", NanoHTTPD.Method.POST)
+            mockSession("/api/update?package=com.example.badpin&tag=v9.9.9", NanoHTTPD.Method.POST, authedHeaders())
         )
 
         assertEquals(NanoHTTPD.Response.Status.BAD_REQUEST, response.status)
@@ -774,7 +794,7 @@ class LocalHttpServerTest {
     // "package is required".
     @Test
     fun testUpdateWithoutPackageReturns400() {
-        val session = mockSession("/api/update", method = NanoHTTPD.Method.POST, postBody = "{}")
+        val session = mockSession("/api/update", method = NanoHTTPD.Method.POST, headers = authedHeaders(), postBody = "{}")
         val response = server.serve(session)
         assertEquals(NanoHTTPD.Response.Status.BAD_REQUEST, response.status)
         val json = JSONObject(response.data?.readBytes()?.toString(Charsets.UTF_8) ?: "")
@@ -787,6 +807,7 @@ class LocalHttpServerTest {
         val session = mockSession(
             "/api/update?package=com.example.unknown",
             method = NanoHTTPD.Method.POST,
+            headers = authedHeaders(),
             postBody = "{}"
         )
         val response = server.serve(session)
@@ -801,6 +822,7 @@ class LocalHttpServerTest {
         val session = mockSession(
             uri = "/api/mesh/delete",
             method = NanoHTTPD.Method.POST,
+            headers = authedHeaders(),
             postBody = """{"meshId": "unmanaged"}"""
         )
         val response = server.serve(session)
@@ -834,6 +856,7 @@ class LocalHttpServerTest {
         val session = mockSession(
             uri = "/api/mesh/delete",
             method = NanoHTTPD.Method.POST,
+            headers = authedHeaders(),
             postBody = """{"meshId": "googletv"}"""
         )
         val response = serverWithPeers.serve(session)
@@ -850,6 +873,7 @@ class LocalHttpServerTest {
         val session = mockSession(
             uri = "/api/mesh/delete",
             method = NanoHTTPD.Method.POST,
+            headers = authedHeaders(),
             postBody = """{"meshId": "googletv"}"""
         )
         val response = server.serve(session)
@@ -894,7 +918,7 @@ class LocalHttpServerTest {
     // coordinator, never the managed-app coordinator (statusFlow/mutex isolation).
     @Test
     fun testSelfUpdateAuthorizedInvokesDedicatedCoordinator() {
-        val session = mockSession("/api/self-update", method = NanoHTTPD.Method.POST, postBody = "{}")
+        val session = mockSession("/api/self-update", method = NanoHTTPD.Method.POST, headers = authedHeaders(), postBody = "{}")
         val response = server.serve(session)
         assertEquals(NanoHTTPD.Response.Status.ACCEPTED, response.status)
         verify(mockSelfUpdateCoordinator).startUpdateAsync(eq("com.cfox.droidmesh"), any(), eq(false), any())
@@ -905,7 +929,7 @@ class LocalHttpServerTest {
     // to the dedicated coordinator, not silently dropped
     @Test
     fun testSelfUpdateForceTrueIsPassedThrough() {
-        val session = mockSession("/api/self-update", method = NanoHTTPD.Method.POST, postBody = "{\"force\": true}")
+        val session = mockSession("/api/self-update", method = NanoHTTPD.Method.POST, headers = authedHeaders(), postBody = "{\"force\": true}")
         val response = server.serve(session)
         assertEquals(NanoHTTPD.Response.Status.ACCEPTED, response.status)
         verify(mockSelfUpdateCoordinator).startUpdateAsync(eq("com.cfox.droidmesh"), any(), eq(true), any())
@@ -926,10 +950,11 @@ class LocalHttpServerTest {
     // and invoke Context.startActivity
     @Test
     fun testSystemSettingsEndpointsAuthorizedOpenSettings() {
-        val a11ySession = mockSession("/api/system/open-accessibility-settings", method = NanoHTTPD.Method.POST, postBody = "{}")
+        val headers = authedHeaders()
+        val a11ySession = mockSession("/api/system/open-accessibility-settings", method = NanoHTTPD.Method.POST, headers = headers, postBody = "{}")
         assertEquals(NanoHTTPD.Response.Status.OK, server.serve(a11ySession).status)
 
-        val installSession = mockSession("/api/system/open-install-settings", method = NanoHTTPD.Method.POST, postBody = "{}")
+        val installSession = mockSession("/api/system/open-install-settings", method = NanoHTTPD.Method.POST, headers = headers, postBody = "{}")
         assertEquals(NanoHTTPD.Response.Status.OK, server.serve(installSession).status)
 
         verify(mockContext, atLeastOnce()).startActivity(any())
@@ -962,7 +987,7 @@ class LocalHttpServerTest {
     // exercising exactly the fail-fast path PROV-BEHAVE-006 describes).
     @Test
     fun testProvisioningRepairFailsFastWhenAdbDisabled() {
-        val session = mockSession("/api/system/provisioning/repair", method = NanoHTTPD.Method.POST, postBody = "{}")
+        val session = mockSession("/api/system/provisioning/repair", method = NanoHTTPD.Method.POST, headers = authedHeaders(), postBody = "{}")
         val response = server.serve(session)
         assertEquals(NanoHTTPD.Response.Status.CONFLICT, response.status)
         val json = JSONObject(response.data?.readBytes()?.toString(Charsets.UTF_8) ?: "")
@@ -1376,10 +1401,13 @@ class LocalHttpServerTest {
             )
         )
 
+        val headers = authedHeaders()
+
         // 1. Cleartext HTTP
         val cleartextSession = mockSession(
             uri = "/api/update",
             method = NanoHTTPD.Method.POST,
+            headers = headers,
             postBody = """{"package": "com.example.app", "tag": "v1.0.0", "url": "http://attacker.com/malicious.apk"}"""
         )
         val cleartextResponse = server.serve(cleartextSession)
@@ -1392,6 +1420,7 @@ class LocalHttpServerTest {
         val untrustedSession = mockSession(
             uri = "/api/update",
             method = NanoHTTPD.Method.POST,
+            headers = headers,
             postBody = """{"package": "com.example.app", "tag": "v1.0.0", "url": "https://attacker.evil/malicious.apk"}"""
         )
         val untrustedResponse = server.serve(untrustedSession)
@@ -1415,6 +1444,7 @@ class LocalHttpServerTest {
         val trustedSession = mockSession(
             uri = "/api/update",
             method = NanoHTTPD.Method.POST,
+            headers = authedHeaders(),
             postBody = """{"package": "com.example.trusted", "tag": "v1.0.0", "url": "https://github.com/owner/trusted/releases/download/v1.0.0/trusted.apk"}"""
         )
         val response = server.serve(trustedSession)
@@ -1441,9 +1471,12 @@ class LocalHttpServerTest {
             )
         )
 
+        val headers = authedHeaders()
+
         val injectionSession = mockSession(
             uri = "/api/update",
             method = NanoHTTPD.Method.POST,
+            headers = headers,
             postBody = """{"package": "com.example.app", "tag": "v1.0.0", "url": "https://github.com/owner/repo/releases/download/v1.0.0/app.apk", "filename": "app.apk;touch /tmp/pwned"}"""
         )
         val injectionResponse = server.serve(injectionSession)
@@ -1453,11 +1486,165 @@ class LocalHttpServerTest {
         val traversalSession = mockSession(
             uri = "/api/update",
             method = NanoHTTPD.Method.POST,
+            headers = headers,
             postBody = """{"package": "com.example.app", "tag": "v1.0.0", "url": "https://github.com/owner/repo/releases/download/v1.0.0/app.apk", "filename": "../../../../data/data/evil.apk"}"""
         )
         val traversalResponse = server.serve(traversalSession)
         assertEquals(NanoHTTPD.Response.Status.BAD_REQUEST, traversalResponse.status)
         verify(mockCoordinator, never()).startUpdateForRelease(any(), any(), any(), any())
+    }
+
+    // [PROGRAMMATIC] API-TEST-051 (API-BEHAVE-034, gitea#55): every state-changing endpoint fails
+    // closed with 401 while no admin password has ever been set -- previously isAuthorized()
+    // unconditionally passed every request in this state, leaving the whole mutating surface
+    // wide open until an admin happened to visit the settings screen.
+    @Test
+    fun testStateChangingEndpointsFailClosedWithNoPasswordSet() {
+        // One representative per branch of isStateChangingEndpoint()'s allowlist, so a one-line
+        // regression deleting any single branch is caught here instead of only in production.
+        val endpoints = listOf(
+            "/update" to NanoHTTPD.Method.POST,
+            "/adb/toggle" to NanoHTTPD.Method.POST,
+            "/api/self-update" to NanoHTTPD.Method.POST,
+            "/api/system/provisioning/repair" to NanoHTTPD.Method.POST,
+            "/api/settings" to NanoHTTPD.Method.POST,
+            "/api/mesh/library" to NanoHTTPD.Method.POST,
+            "/api/mesh/create" to NanoHTTPD.Method.POST,
+            "/api/mesh/update" to NanoHTTPD.Method.POST,
+            "/api/mesh/delete" to NanoHTTPD.Method.POST,
+            "/api/mesh/connect" to NanoHTTPD.Method.POST,
+            "/api/mesh/seeds" to NanoHTTPD.Method.POST,
+            "/api/mesh/seeds/remove" to NanoHTTPD.Method.DELETE,
+            "/api/mesh/persistent-connections" to NanoHTTPD.Method.POST,
+            "/api/mesh/persistent-connections/remove" to NanoHTTPD.Method.DELETE,
+            "/api/peers/update" to NanoHTTPD.Method.POST,
+            "/api/peers/adb/toggle" to NanoHTTPD.Method.POST,
+            "/api/logs/clear" to NanoHTTPD.Method.POST,
+            "/api/system/open-accessibility-settings" to NanoHTTPD.Method.POST,
+            "/api/system/open-install-settings" to NanoHTTPD.Method.POST
+        )
+        for ((uri, method) in endpoints) {
+            val session = mockSession(uri, method = method, postBody = "{}")
+            val response = server.serve(session)
+            assertEquals(
+                "$uri should require an admin password to be set before allowing this action",
+                NanoHTTPD.Response.Status.UNAUTHORIZED,
+                response.status
+            )
+        }
+    }
+
+    // [PROGRAMMATIC] API-TEST-052 (API-BEHAVE-034, gitea#55): read-only/status endpoints stay
+    // reachable with no admin password set, so the in-app "set a password" flow served from this
+    // same port never gets locked out of itself before a password exists.
+    @Test
+    fun testReadOnlyEndpointsRemainOpenWithNoPasswordSet() {
+        val endpoints = listOf("/status", "/check", "/mesh", "/logs", "/api/settings", "/api/auth/status")
+        for (uri in endpoints) {
+            val response = server.serve(mockSession(uri))
+            assertNotEquals(
+                "$uri must not require auth before a password has ever been set",
+                NanoHTTPD.Response.Status.UNAUTHORIZED,
+                response.status
+            )
+        }
+    }
+
+    // [PROGRAMMATIC] API-TEST-053 (API-BEHAVE-035, gitea#61): a forged oversized Content-Length
+    // header is rejected with 413 before a single body byte is read, so an attacker never has to
+    // actually send gigabytes of data for the declared length alone to trigger the allocation.
+    @Test
+    fun testOversizedContentLengthReturns413() {
+        val session = mockSession(
+            "/api/settings",
+            method = NanoHTTPD.Method.POST,
+            headers = mapOf("content-length" to (LocalHttpServer.MAX_REQUEST_BODY_BYTES + 1).toString())
+        )
+        val response = server.serve(session)
+        assertEquals(NanoHTTPD.Response.Status.PAYLOAD_TOO_LARGE, response.status)
+    }
+
+    // [PROGRAMMATIC] API-TEST-054 (API-BEHAVE-036, gitea#63): logRelayOutcome logs the real
+    // outcome of a peer-relay dispatch -- both the rejection case (with status code, no fixed
+    // "Dispatched" message regardless of what actually happened) and the success case.
+    @Test
+    fun testLogRelayOutcomeLogsRejectionAndSuccess() {
+        com.cfox.droidmesh.utils.Logger.clear()
+        val rejected = okhttp3.Response.Builder()
+            .request(okhttp3.Request.Builder().url("http://192.168.1.5:2325/update").build())
+            .protocol(okhttp3.Protocol.HTTP_1_1)
+            .code(401)
+            .message("Unauthorized")
+            .build()
+        server.logRelayOutcome(rejected, "192.168.1.5", 2325, "update")
+        val logsAfterRejection = com.cfox.droidmesh.utils.Logger.getRecentLogs()
+        assertTrue(
+            "Expected a log entry describing the real rejection status, not a fixed success message",
+            logsAfterRejection.any { it.contains("rejected") && it.contains("401") && it.contains("192.168.1.5") }
+        )
+
+        val succeeded = okhttp3.Response.Builder()
+            .request(okhttp3.Request.Builder().url("http://192.168.1.6:2325/adb/toggle").build())
+            .protocol(okhttp3.Protocol.HTTP_1_1)
+            .code(200)
+            .message("OK")
+            .build()
+        server.logRelayOutcome(succeeded, "192.168.1.6", 2325, "adb-toggle")
+        val logsAfterSuccess = com.cfox.droidmesh.utils.Logger.getRecentLogs()
+        assertTrue(
+            "Expected a log entry describing the real success status",
+            logsAfterSuccess.any { it.contains("succeeded") && it.contains("200") && it.contains("192.168.1.6") }
+        )
+    }
+
+    // [PROGRAMMATIC] API-TEST-055 (API-BEHAVE-037, gitea#69): a field with the wrong JSON type
+    // gets a specific, safe 400 naming the field, not a raw exception or a silent no-op.
+    @Test
+    fun testPostSettingsWithWrongFieldTypeReturns400WithFriendlyMessage() {
+        val session = mockSession(
+            uri = "/api/settings",
+            method = NanoHTTPD.Method.POST,
+            headers = authedHeaders(),
+            postBody = """{"webServerPort": true}"""
+        )
+        val response = server.serve(session)
+        assertEquals(NanoHTTPD.Response.Status.BAD_REQUEST, response.status)
+        val json = JSONObject(response.data?.readBytes()?.toString(Charsets.UTF_8) ?: "")
+        assertEquals("error", json.getString("status"))
+        assertEquals("Invalid value for 'webServerPort': expected a number", json.getString("error"))
+    }
+
+    // [PROGRAMMATIC] API-TEST-056 (API-BEHAVE-037, gitea#69): an unexpected exception thrown from
+    // deep inside a handler (not the deliberate InvalidFieldException path) never reaches the
+    // client verbatim -- it becomes a fixed, generic 500, while the real exception is still logged
+    // server-side via Logger.e for an authenticated admin to inspect via /logs.
+    @Test
+    fun testUnexpectedExceptionDoesNotLeakRawMessage() {
+        SettingsStore.setMeshAppConfig(
+            mockContext, "unmanaged",
+            SettingsStore.MeshAppConfig(
+                packageName = "com.example.pinned",
+                appName = "Pinned",
+                managed = true,
+                downloadUrl = "https://github.com/owner/pinned/releases"
+            )
+        )
+        val sensitiveMessage = "internal db path /data/data/com.cfox.droidmesh/secret.db unreachable"
+        runBlocking {
+            whenever(mockCoordinator.resolveTargetRelease(any(), any())).thenThrow(RuntimeException(sensitiveMessage))
+        }
+
+        val response = server.serve(
+            mockSession("/api/update?package=com.example.pinned&tag=v1.5.0", NanoHTTPD.Method.POST, authedHeaders())
+        )
+
+        assertEquals(NanoHTTPD.Response.Status.INTERNAL_ERROR, response.status)
+        val json = JSONObject(response.data?.readBytes()?.toString(Charsets.UTF_8) ?: "")
+        assertEquals("Internal Server Error", json.getString("error"))
+        assertFalse(
+            "The raw exception message must never reach the client response body",
+            json.toString().contains(sensitiveMessage)
+        )
     }
 
     // [PROGRAMMATIC] API-TEST-046: Responses do not contain wildcard CORS or Access-Control headers

@@ -7,11 +7,13 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.Response
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
 import java.io.InputStream
 import java.io.RandomAccessFile
+import java.net.URI
 import java.util.concurrent.TimeUnit
 
 class ApkDownloader(
@@ -19,13 +21,21 @@ class ApkDownloader(
     private val client: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(30, TimeUnit.SECONDS)
         .readTimeout(60, TimeUnit.SECONDS)
-        .followRedirects(true)
-        .followSslRedirects(true)
+        // [UPD-BEHAVE-016] / gitea#64: OkHttp's own follow-redirects previously re-fetched
+        // whatever host a trusted host's 3xx pointed at -- including a scheme downgrade to
+        // cleartext http, which followSslRedirects(true) explicitly permits -- with no re-check
+        // against TrustedReleaseHosts. Redirects are now walked manually in
+        // executeWithTrustedRedirects() so every hop is independently re-validated.
+        .followRedirects(false)
+        .followSslRedirects(false)
         .build()
 ) {
 
     companion object {
         private val SAFE_FILENAME_REGEX = Regex("^[A-Za-z0-9._-]{1,255}$")
+
+        /** [UPD-BEHAVE-016] gitea#64: max redirect hops before a download is failed outright. */
+        private const val MAX_REDIRECT_HOPS = 5
 
         /**
          * [UPD-BEHAVE-015] Whitelists APK file names to a safe charset before they ever reach a
@@ -41,6 +51,60 @@ class ApkDownloader(
         fun isSafeApkFileName(name: String): Boolean {
             if (name == "." || name == "..") return false
             return SAFE_FILENAME_REGEX.matches(name)
+        }
+    }
+
+    /**
+     * [UPD-BEHAVE-016] gitea#64: executes [requestBuilder] against [startUrl], following any
+     * `3xx` response's `Location` header manually -- the client itself never auto-follows
+     * (`followRedirects(false)`/`followSslRedirects(false)`) -- and re-validating every resolved
+     * hop against [com.cfox.droidmesh.security.TrustedReleaseHosts] before it is ever queried.
+     * [startUrl] itself is validated by the caller before this is invoked; this only re-checks
+     * hops discovered via redirects. Fails with [SecurityException] the instant a hop resolves to
+     * an untrusted or non-HTTPS host, or [IOException] if the chain exceeds [MAX_REDIRECT_HOPS]
+     * without reaching a non-redirect response -- either way, the untrusted/excess hop is never
+     * queried.
+     */
+    private fun executeWithTrustedRedirects(requestBuilder: Request.Builder, startUrl: String): Response {
+        var currentUrl = startUrl
+        var hops = 0
+
+        while (true) {
+            val request = requestBuilder.url(currentUrl).build()
+            val response = client.newCall(request).execute()
+
+            if (response.code !in 300..399) {
+                return response
+            }
+
+            val location = response.header("Location")
+            response.close()
+
+            if (location.isNullOrBlank()) {
+                throw IOException("Redirect response (HTTP ${response.code}) from $currentUrl had no Location header")
+            }
+
+            hops++
+            if (hops > MAX_REDIRECT_HOPS) {
+                throw IOException(
+                    "APK download aborted: exceeded maximum redirect hops ($MAX_REDIRECT_HOPS) starting from $startUrl"
+                )
+            }
+
+            val resolvedUrl = try {
+                URI(currentUrl).resolve(location).toString()
+            } catch (e: Exception) {
+                throw IOException("Redirect from $currentUrl had an unresolvable Location header: $location", e)
+            }
+
+            if (!com.cfox.droidmesh.security.TrustedReleaseHosts.isTrustedReleaseUrl(resolvedUrl)) {
+                throw SecurityException(
+                    "Insecure or untrusted APK redirect target: $resolvedUrl (redirected from $currentUrl; " +
+                        "HTTPS and trusted release host required on every hop)"
+                )
+            }
+
+            currentUrl = resolvedUrl
         }
     }
 
@@ -84,15 +148,13 @@ class ApkDownloader(
             Logger.i("Starting download for $targetFileName from $downloadUrl (resume offset: $existingLength bytes)")
 
             val requestBuilder = Request.Builder()
-                .url(downloadUrl)
                 .header("User-Agent", "DroidMesh-Android")
 
             if (existingLength > 0L) {
                 requestBuilder.header("Range", "bytes=$existingLength-")
             }
 
-            val request = requestBuilder.build()
-            val response = client.newCall(request).execute()
+            val response = executeWithTrustedRedirects(requestBuilder, downloadUrl)
 
             if (!response.isSuccessful && response.code != 206) {
                 // If Range not satisfiable (e.g. HTTP 416), delete part file and retry from 0

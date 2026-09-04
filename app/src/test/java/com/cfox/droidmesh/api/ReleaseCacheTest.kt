@@ -17,11 +17,25 @@ import java.io.IOException
  */
 class ReleaseCacheTest {
 
+    // UPD-TEST-018 / gitea#71: apkAssetUrl must be a TrustedReleaseHosts host now that
+    // resolve()/peek() re-validate on read -- example.com is not on the allowlist, so every
+    // pre-existing fixture in this file moved to a trusted host to keep testing cache *policy*
+    // (TTL, per-URL isolation, stale fallback) independently of the new host-trust behavior,
+    // which gets its own dedicated tests below with a deliberately untrusted URL.
     private fun rel(tag: String) = ReleaseInfo(
         tagName = tag,
         name = tag,
         publishedAt = "",
-        apkAssetUrl = "https://example.com/app-$tag.apk",
+        apkAssetUrl = "https://github.com/owner/repo/releases/download/$tag/app-$tag.apk",
+        apkFileName = "app-$tag.apk",
+        apkSize = 0L
+    )
+
+    private fun poisonedRel(tag: String) = ReleaseInfo(
+        tagName = tag,
+        name = tag,
+        publishedAt = "",
+        apkAssetUrl = "https://attacker.evil/app-$tag.apk",
         apkFileName = "app-$tag.apk",
         apkSize = 0L
     )
@@ -161,5 +175,84 @@ class ReleaseCacheTest {
         }
 
         assertTrue("urlB has no prior success; must not borrow urlA's cache", bFails.isFailure)
+    }
+
+    // [PROGRAMMATIC] UPD-TEST-018 (negative): gitea#71 -- a fresh (within-TTL) cache entry whose
+    // apkAssetUrl fails TrustedReleaseHosts must be treated as a miss, not served, and the fetch
+    // lambda must run instead of being skipped.
+    @Test
+    fun testPoisonedEntryIsEvictedAndTreatedAsMissWithinTtl() = runBlocking {
+        val cache = ReleaseCache(ttlMs = 900_000L)
+        var fetches = 0
+
+        // Simulates a pre-#57-fix poisoned write: an untrusted apkAssetUrl made it into the cache.
+        cache.resolve(urlA, forceRefresh = false, nowMs = 1_000L) {
+            fetches++; Result.success(listOf(poisonedRel("1.0.0")))
+        }
+
+        val second = cache.resolve(urlA, forceRefresh = false, nowMs = 2_000L) {
+            fetches++; Result.success(listOf(rel("2.0.0")))
+        }
+
+        assertEquals(
+            "poisoned entry must not be served from cache -- a second fetch must run",
+            2, fetches
+        )
+        assertEquals(listOf("2.0.0"), second.getOrThrow().map { it.tagName })
+    }
+
+    // [PROGRAMMATIC] UPD-TEST-018 (negative): a poisoned entry must not be served as the
+    // last-known-good stale fallback either -- a subsequent fetch failure with only a poisoned
+    // entry on record must propagate the failure, not return spoofed data.
+    @Test
+    fun testPoisonedEntryIsNotServedAsStaleFallback() = runBlocking {
+        val cache = ReleaseCache(ttlMs = 900_000L)
+
+        cache.resolve(urlA, forceRefresh = false, nowMs = 1_000L) {
+            Result.success(listOf(poisonedRel("1.0.0")))
+        }
+        val duringOutage = cache.resolve(urlA, forceRefresh = true, nowMs = 5_000_000L) {
+            Result.failure(IOException("GitHub API responded with code 403"))
+        }
+
+        assertTrue(
+            "a poisoned stale entry must not be served -- the outage failure must propagate",
+            duringOutage.isFailure
+        )
+    }
+
+    // [PROGRAMMATIC] UPD-TEST-018 (negative): peek() must not return a poisoned entry either.
+    @Test
+    fun testPeekEvictsAndHidesPoisonedEntry() = runBlocking {
+        val cache = ReleaseCache(ttlMs = 900_000L)
+
+        cache.resolve(urlA, forceRefresh = false, nowMs = 1_000L) {
+            Result.success(listOf(poisonedRel("1.0.0")))
+        }
+
+        assertEquals(
+            "peek() must treat a poisoned entry as absent",
+            emptyList<String>(),
+            cache.peek(urlA).map { it.tagName }
+        )
+    }
+
+    // [PROGRAMMATIC] UPD-TEST-018 (negative): a single untrusted apkAssetUrl anywhere in an
+    // entry's release list poisons the whole entry -- a mixed list (one trusted, one untrusted
+    // release) must still be evicted/treated as a miss. Guards against an `.any { trusted }`
+    // check that would wrongly let the entry through because *some* release passed.
+    @Test
+    fun testMixedTrustedAndPoisonedReleasesInOneEntryStillEvicted() = runBlocking {
+        val cache = ReleaseCache(ttlMs = 900_000L)
+
+        cache.resolve(urlA, forceRefresh = false, nowMs = 1_000L) {
+            Result.success(listOf(rel("1.0.0"), poisonedRel("0.9.0")))
+        }
+
+        assertEquals(
+            "an entry with any untrusted release must be evicted entirely, not partially trusted",
+            emptyList<String>(),
+            cache.peek(urlA).map { it.tagName }
+        )
     }
 }

@@ -13,6 +13,7 @@ import com.cfox.droidmesh.installer.AdbLoopbackInstaller
 import com.cfox.droidmesh.installer.InstallVerification
 import com.cfox.droidmesh.installer.AppVersionHelper
 import com.cfox.droidmesh.installer.PackageInstallerDispatcher
+import com.cfox.droidmesh.security.TrustedReleaseHosts
 import com.cfox.droidmesh.utils.Logger
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -68,10 +69,29 @@ class UpdateCoordinator(
      * Resolves the release list for [downloadUrl], served from [releaseCache] when a fetch is not
      * warranted (`UPD-BEHAVE-009`) and falling back to the last known-good list when the upstream
      * fetch fails (`UPD-BEHAVE-010`).
+     *
+     * `UPD-BEHAVE-016` / gitea#57: [downloadUrl] is App Library data, writable via the
+     * unauthenticated `/api/mesh/sync-config`/`/api/mesh/handshake` endpoints. It is validated
+     * against [TrustedReleaseHosts] here, before either the cache or any network call, so an
+     * injected untrusted host can never be queried as an unauthenticated SSRF vector. A rejection
+     * is a logged `Result.failure(SecurityException)` -- treated as no-release-available for this
+     * entry -- never an uncaught throw.
      */
     suspend fun fetchAvailableReleases(
         downloadUrl: String,
         forceRefresh: Boolean = false
+    ): Result<List<ReleaseInfo>> {
+        if (!TrustedReleaseHosts.isTrustedReleaseUrl(downloadUrl)) {
+            val err = "Untrusted or insecure release source URL: $downloadUrl (HTTPS and trusted release host required)"
+            Logger.e(err)
+            return Result.failure(SecurityException(err))
+        }
+        return fetchAvailableReleasesUnchecked(downloadUrl, forceRefresh)
+    }
+
+    private suspend fun fetchAvailableReleasesUnchecked(
+        downloadUrl: String,
+        forceRefresh: Boolean
     ): Result<List<ReleaseInfo>> = releaseCache.resolve(downloadUrl, forceRefresh) {
         // UPD-BEHAVE-008: accept the plain github.com URL an admin actually copies out of their
         // browser, not just the api.github.com form.

@@ -1427,6 +1427,39 @@ class LocalHttpServerTest {
         )
     }
 
+    // [PROGRAMMATIC] API-TEST-050: /update with a shell-metacharacter or path-traversal filename
+    // param is rejected with 400, and never reaches the update coordinator.
+    @Test
+    fun testUpdateWithUnsafeFilenameReturns400() {
+        SettingsStore.setMeshAppConfig(
+            mockContext, "unmanaged",
+            SettingsStore.MeshAppConfig(
+                packageName = "com.example.app",
+                appName = "App",
+                managed = true,
+                downloadUrl = "https://github.com/owner/repo/releases"
+            )
+        )
+
+        val injectionSession = mockSession(
+            uri = "/api/update",
+            method = NanoHTTPD.Method.POST,
+            postBody = """{"package": "com.example.app", "tag": "v1.0.0", "url": "https://github.com/owner/repo/releases/download/v1.0.0/app.apk", "filename": "app.apk;touch /tmp/pwned"}"""
+        )
+        val injectionResponse = server.serve(injectionSession)
+        assertEquals(NanoHTTPD.Response.Status.BAD_REQUEST, injectionResponse.status)
+        verify(mockCoordinator, never()).startUpdateForRelease(any(), any(), any(), any())
+
+        val traversalSession = mockSession(
+            uri = "/api/update",
+            method = NanoHTTPD.Method.POST,
+            postBody = """{"package": "com.example.app", "tag": "v1.0.0", "url": "https://github.com/owner/repo/releases/download/v1.0.0/app.apk", "filename": "../../../../data/data/evil.apk"}"""
+        )
+        val traversalResponse = server.serve(traversalSession)
+        assertEquals(NanoHTTPD.Response.Status.BAD_REQUEST, traversalResponse.status)
+        verify(mockCoordinator, never()).startUpdateForRelease(any(), any(), any(), any())
+    }
+
     // [PROGRAMMATIC] API-TEST-046: Responses do not contain wildcard CORS or Access-Control headers
     @Test
     fun testResponsesDoNotContainAccessControlHeaders() {

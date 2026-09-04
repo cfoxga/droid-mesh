@@ -24,6 +24,26 @@ class ApkDownloader(
         .build()
 ) {
 
+    companion object {
+        private val SAFE_FILENAME_REGEX = Regex("^[A-Za-z0-9._-]{1,255}$")
+
+        /**
+         * [UPD-BEHAVE-015] Whitelists APK file names to a safe charset before they ever reach a
+         * File() construction or a shell command line. gitea#53: an unsanitized filename/tag param
+         * on /update flowed verbatim into ApkDownloader's File(downloadDir, targetFileName) and
+         * then into AdbLoopbackInstaller's unescaped `cat "<path>" | pm install ...` shell string --
+         * shell metacharacters (quotes, `;`, `|`, backticks) in the filename broke out of the
+         * quoted path and ran arbitrary shell commands with the app's privileges. A bare ".." also
+         * resolves to the parent directory via File(dir, "..") even with no "/" in the name, so it
+         * is rejected explicitly alongside the character whitelist (closes the related path
+         * traversal gap, gitea#58, with the same check).
+         */
+        fun isSafeApkFileName(name: String): Boolean {
+            if (name == "." || name == "..") return false
+            return SAFE_FILENAME_REGEX.matches(name)
+        }
+    }
+
     /**
      * Downloads an APK from the provided url into Scoped Storage safe directory
      * (context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)) with byte-stream progress tracking.
@@ -36,6 +56,12 @@ class ApkDownloader(
         try {
             if (!com.cfox.droidmesh.security.TrustedReleaseHosts.isTrustedReleaseUrl(downloadUrl)) {
                 val err = "Insecure or untrusted APK download URL: $downloadUrl (HTTPS and trusted release host required)"
+                Logger.e(err)
+                return@withContext Result.failure(SecurityException(err))
+            }
+
+            if (!isSafeApkFileName(targetFileName)) {
+                val err = "Invalid or unsafe APK file name: $targetFileName"
                 Logger.e(err)
                 return@withContext Result.failure(SecurityException(err))
             }

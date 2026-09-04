@@ -761,30 +761,57 @@ object SettingsStore {
             }
         }
 
-        // Synchronize mesh app libraries. Re-serialized through MeshAppConfig.fromJson/toJson
-        // per entry rather than stored as raw incoming JSON, so SET-BEHAVE-005 (an entry can
-        // never be Managed without a downloadUrl) holds at the persistence layer itself — not
-        // only by coincidence of every current reader re-applying the same coercion. A peer
-        // that sends managed:true with a blank downloadUrl can no longer durably persist or
-        // re-propagate that invalid combination through sync.
+        // [SET-BEHAVE-008] Synchronize mesh app libraries. Re-serialized through
+        // MeshAppConfig.fromJson/toJson per entry rather than stored as raw incoming JSON, so
+        // SET-BEHAVE-005 (an entry can never be Managed without a downloadUrl) holds at the
+        // persistence layer itself. gitea#54: /api/mesh/sync-config and /api/mesh/handshake are
+        // both unauthenticated by design (peers gossip config before they know each other's
+        // password), and until now that meant ANY device on the network could hand this device a
+        // higher config_version carrying a brand-new managed:true/autoInstall:true/downloadUrl
+        // entry -- MeshAutoActionPlanner then downloaded and auto-installed it with zero admin
+        // action or clicks. managed/autoInstall/downloadUrl are now admin-local for any package
+        // this device already has an App Library entry for: an incoming sync can still update
+        // every other field (appName, targetVersion, autoUpdate, isSideloaded) for inventory/
+        // visibility, but always keeps this device's own existing values for those three fields
+        // -- only the authenticated local setMeshAppConfig (POST /api/mesh/library) can change
+        // them from then on. A package this device has never locally configured at all is still
+        // seeded from the incoming sync (unchanged bootstrap behavior for a freshly-joined
+        // device inheriting an existing mesh's App Library -- APP-TEST-003), since there is no
+        // local value to protect yet; full closure of the "attacker wins the race on a brand new
+        // device" residual case needs actual peer authentication (API-OPEN-003, gitea#52), not
+        // solved here.
         if (json.has("mesh_app_libraries")) {
             val librariesObj = json.optJSONObject("mesh_app_libraries")
             if (librariesObj != null) {
+                val existingRoot = getAllMeshAppLibraries(context)
                 val sanitizedLibraries = JSONObject()
                 val meshIds = librariesObj.keys()
                 while (meshIds.hasNext()) {
                     val meshKey = meshIds.next()
                     val meshEntries = librariesObj.optJSONObject(meshKey) ?: continue
+                    val existingMeshEntries = existingRoot.optJSONObject(meshKey)
                     val sanitizedMesh = JSONObject()
                     val pkgKeys = meshEntries.keys()
                     while (pkgKeys.hasNext()) {
                         val pkgKey = pkgKeys.next()
                         val entryObj = meshEntries.optJSONObject(pkgKey) ?: continue
-                        sanitizedMesh.put(pkgKey, MeshAppConfig.fromJson(entryObj).toJson())
+                        val incoming = MeshAppConfig.fromJson(entryObj)
+                        val existingEntryObj = existingMeshEntries?.optJSONObject(pkgKey)
+                        val sanitizedEntry = if (existingEntryObj != null) {
+                            val existing = MeshAppConfig.fromJson(existingEntryObj)
+                            incoming.copy(
+                                managed = existing.managed,
+                                autoInstall = existing.autoInstall,
+                                downloadUrl = existing.downloadUrl
+                            )
+                        } else {
+                            incoming
+                        }
+                        sanitizedMesh.put(pkgKey, sanitizedEntry.toJson())
                     }
                     sanitizedLibraries.put(meshKey, sanitizedMesh)
                 }
-                val currentLibraries = getAllMeshAppLibraries(context).toString()
+                val currentLibraries = existingRoot.toString()
                 val incomingLibraries = sanitizedLibraries.toString()
                 if (currentLibraries != incomingLibraries) {
                     editor.putString(KEY_MESH_APP_LIBRARIES, incomingLibraries)

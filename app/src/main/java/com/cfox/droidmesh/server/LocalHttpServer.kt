@@ -643,6 +643,16 @@ class LocalHttpServer(
         val tag = body.optString("tag", session.parms["tag"] ?: session.parms["version"] ?: "")
         val url = body.optString("url", session.parms["url"] ?: session.parms["download_url"] ?: "")
         val filenameOverride = body.optString("filename", session.parms["filename"] ?: "")
+        // [API-BEHAVE-033] Reject an unsafe filename/tag override at the API boundary with a clear
+        // 400 before it ever reaches ApkDownloader (which independently enforces the same
+        // whitelist as its own choke point -- UPD-BEHAVE-015 -- for every caller, not only this
+        // endpoint). gitea#53.
+        if (filenameOverride.isNotBlank() && !com.cfox.droidmesh.downloader.ApkDownloader.isSafeApkFileName(filenameOverride)) {
+            return jsonResponse(Response.Status.BAD_REQUEST, JSONObject().apply {
+                put("status", "error")
+                put("message", "Invalid or unsafe filename: $filenameOverride")
+            })
+        }
         val packageName = body.optString("package", session.parms["package"] ?: "").trim().ifBlank { null }
             ?: return jsonResponse(Response.Status.BAD_REQUEST, JSONObject().apply {
                 put("status", "error")

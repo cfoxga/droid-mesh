@@ -190,6 +190,93 @@ class SettingsStoreTest {
         assertFalse(SettingsStore.verifyPassword(mockContext, "attacker-hash"))
     }
 
+    // [PROGRAMMATIC] SET-TEST-013: gitea#54 -- an incoming sync/handshake payload cannot override
+    // managed/autoInstall/downloadUrl for a package this device ALREADY has an App Library entry
+    // for. Those three fields are admin-local once an entry exists; only setMeshAppConfig
+    // (the authenticated local endpoint) can change them from then on.
+    @Test
+    fun testImportConfigJsonPreservesExistingManagedAutoInstallDownloadUrlFromNetwork() {
+        SettingsStore.setMeshAppConfig(
+            mockContext, "meta-portals",
+            SettingsStore.MeshAppConfig(
+                packageName = "com.cfoxga.kiosksatellite",
+                appName = "Kiosk Satellite",
+                managed = true,
+                autoInstall = true,
+                downloadUrl = "https://github.com/cfoxga/kiosk-satellite/releases/download/v1/app.apk"
+            )
+        )
+
+        // Attacker-crafted sync payload: same package, attacker-controlled downloadUrl, arriving
+        // via the unauthenticated mesh gossip path with a higher config_version.
+        val maliciousConfig = JSONObject().apply {
+            put("config_version", SettingsStore.getConfigVersion(mockContext) + 1000L)
+            put("mesh_app_libraries", JSONObject().apply {
+                put("meta-portals", JSONObject().apply {
+                    put("com.cfoxga.kiosksatellite", JSONObject().apply {
+                        put("packageName", "com.cfoxga.kiosksatellite")
+                        put("appName", "Kiosk Satellite (renamed)")
+                        put("managed", true)
+                        put("autoInstall", true)
+                        put("downloadUrl", "https://attacker.evil/malicious.apk")
+                    })
+                })
+            })
+        }
+
+        val result = SettingsStore.importConfigJson(mockContext, maliciousConfig)
+        assertTrue(result.applied)
+
+        val entry = SettingsStore.getMeshAppLibrary(mockContext, "meta-portals")["com.cfoxga.kiosksatellite"]
+        assertEquals(
+            "https://github.com/cfoxga/kiosk-satellite/releases/download/v1/app.apk",
+            entry?.downloadUrl
+        )
+        assertEquals(true, entry?.managed)
+        assertEquals(true, entry?.autoInstall)
+        // Non-sensitive fields still sync normally.
+        assertEquals("Kiosk Satellite (renamed)", entry?.appName)
+    }
+
+    // [PROGRAMMATIC] SET-TEST-014: gitea#54 -- an incoming sync payload cannot ARM auto-install
+    // (flip managed/autoInstall false -> true) for a package this device already knows about but
+    // has never marked managed, even with an attacker-controlled downloadUrl attached.
+    @Test
+    fun testImportConfigJsonCannotArmAutoInstallForExistingUnmanagedEntryFromNetwork() {
+        SettingsStore.setMeshAppConfig(
+            mockContext, "meta-portals",
+            SettingsStore.MeshAppConfig(
+                packageName = "com.example.reference",
+                appName = "Reference App",
+                managed = false,
+                autoInstall = false,
+                downloadUrl = ""
+            )
+        )
+
+        val maliciousConfig = JSONObject().apply {
+            put("config_version", SettingsStore.getConfigVersion(mockContext) + 1000L)
+            put("mesh_app_libraries", JSONObject().apply {
+                put("meta-portals", JSONObject().apply {
+                    put("com.example.reference", JSONObject().apply {
+                        put("packageName", "com.example.reference")
+                        put("appName", "Reference App")
+                        put("managed", true)
+                        put("autoInstall", true)
+                        put("downloadUrl", "https://attacker.evil/malicious.apk")
+                    })
+                })
+            })
+        }
+
+        SettingsStore.importConfigJson(mockContext, maliciousConfig)
+
+        val entry = SettingsStore.getMeshAppLibrary(mockContext, "meta-portals")["com.example.reference"]
+        assertEquals(false, entry?.managed)
+        assertEquals(false, entry?.autoInstall)
+        assertEquals("", entry?.downloadUrl)
+    }
+
     // [PROGRAMMATIC] APP-TEST-003: Mesh App Library persistence and synchronization
     @Test
     fun testMeshAppLibraryPersistenceAndSync() {

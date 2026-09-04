@@ -395,6 +395,14 @@ class LocalHttpServerTest {
 
     @Test
     fun testMeshHandshakeEndpoint() {
+        // MESH-BEHAVE-018 (gitea#59, #65): this test's `server` is built with meshManager = null
+        // (see setUp above), which routes through LocalHttpServer.handleMeshHandshake's own
+        // fallback branch, not MeshDiscoveryManager.handleIncomingHandshake -- that fallback had
+        // its own separate sender_ip-trusting bug (found in adversarial review of this diff) that
+        // MeshDiscoveryManagerTest could never catch since it never touches LocalHttpServer at
+        // all. Declared sender_ip is deliberately a different, attacker-controlled-looking address
+        // from the real observed source (mockSession's fixed "192.168.40.100") to prove this path
+        // ignores it too.
         val handshakeSession = mockSession(
             uri = "/api/mesh/handshake",
             method = NanoHTTPD.Method.POST,
@@ -402,7 +410,14 @@ class LocalHttpServerTest {
         )
         val response = server.serve(handshakeSession)
         assertEquals(NanoHTTPD.Response.Status.OK, response.status)
-        assertTrue(SettingsStore.getPersistentConnections(mockContext).contains("192.168.50.10:2325"))
+        assertTrue(
+            "must persist the real observed source, not the forged sender_ip",
+            SettingsStore.getPersistentConnections(mockContext).contains("192.168.40.100:2325")
+        )
+        assertFalse(
+            "must never persist the attacker-declared sender_ip",
+            SettingsStore.getPersistentConnections(mockContext).contains("192.168.50.10:2325")
+        )
     }
 
     @Test
@@ -423,8 +438,12 @@ class LocalHttpServerTest {
         assertFalse(getConfig.has("web_password_salt"))
 
         // 2. Incoming newer config via /api/mesh/sync-config
+        // SET-BEHAVE-009 (gitea#60): config_version must be plausibly close to "now" -- an
+        // implausibly-future value like the old 2000000000000L literal here would now be rejected
+        // outright by the 24h future-skew ceiling, so this uses a merely-newer-than-current value.
+        val syncedConfigVersion = SettingsStore.getConfigVersion(mockContext) + 1000L
         val syncPayload = JSONObject().apply {
-            put("config_version", 2000000000000L)
+            put("config_version", syncedConfigVersion)
             put("web_server_enabled", true)
             put("web_server_port", 2326)
             put("web_password_hash", "testhash123")
@@ -454,7 +473,7 @@ class LocalHttpServerTest {
         assertTrue(SettingsStore.isPasswordSet(mockContext))
         assertTrue(SettingsStore.verifyPassword(mockContext, "localAdminPassword"))
         assertTrue(SettingsStore.getPersistentConnections(mockContext).contains("192.168.50.64:2326"))
-        assertEquals(2000000000000L, SettingsStore.getConfigVersion(mockContext))
+        assertEquals(syncedConfigVersion, SettingsStore.getConfigVersion(mockContext))
 
         // 3. A subsequent GET must still never leak credentials -- a leak introduced only on the
         // post-sync code path would have escaped the pre-sync-only check above.

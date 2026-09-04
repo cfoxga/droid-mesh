@@ -373,18 +373,10 @@ class LocalHttpServer(
         }
     }
 
-    // Best-effort bind probe — briefly opens and immediately closes a socket on the candidate
-    // port to check nothing else on-device already holds it. Racy in theory (TOCTOU against a
-    // process binding between probe and actual rebind), but that race exists on the read side of
-    // any bind check; it converts the common case (a stale/wrong port) from a silent brick into
-    // an explicit 400 up front.
-    private fun isPortAvailable(port: Int): Boolean {
-        return try {
-            java.net.ServerSocket(port).use { true }
-        } catch (e: Exception) {
-            false
-        }
-    }
+    // SET-BEHAVE-010: shared with SettingsStore.importConfigJson's mesh-sync web_server_port
+    // check via com.cfox.droidmesh.utils.NetworkUtils, so both paths reject an already-bound
+    // port instead of only this authenticated one.
+    private fun isPortAvailable(port: Int): Boolean = com.cfox.droidmesh.utils.NetworkUtils.isPortAvailable(port)
 
     private fun parseJsonBody(session: IHTTPSession): JSONObject {
         if (session.method != Method.POST && session.method != Method.PUT && session.method != Method.PATCH && session.method != Method.DELETE) {
@@ -1119,9 +1111,11 @@ class LocalHttpServer(
         val responseJson = if (meshManager != null) {
             meshManager.handleIncomingHandshake(body, senderIp)
         } else {
-            val remoteSenderIp = body.optString("sender_ip", senderIp)
+            // MESH-BEHAVE-018 (gitea#59, #65): this fallback (no meshManager wired) must apply the
+            // exact same real-source-IP trust rule as the primary path above, or a caller built
+            // without a mesh manager silently reopens the sender_ip-spoofing hole this diff closes.
             val remotePort = body.optInt("sender_port", 2325)
-            val remoteSeed = "$remoteSenderIp:$remotePort"
+            val remoteSeed = "$senderIp:$remotePort"
             SettingsStore.addPersistentConnection(context, remoteSeed)
             JSONObject()
         }

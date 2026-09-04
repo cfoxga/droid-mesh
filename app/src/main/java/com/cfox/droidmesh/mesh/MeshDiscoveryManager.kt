@@ -481,9 +481,14 @@ class MeshDiscoveryManager(
     }
 
     fun handleIncomingHandshake(json: JSONObject, senderIp: String): JSONObject {
-        val remoteSenderIp = json.optString("sender_ip", senderIp)
+        // MESH-BEHAVE-018 (gitea#59, #65): the actual observed TCP source IP is authoritative --
+        // a self-declared "sender_ip" in the request body is never trusted for persistence,
+        // since trusting it let one attacker-controlled host register an arbitrary, unrelated
+        // third-party IP:port as a permanently-trusted mesh connection. Only sender_port is still
+        // taken from the body: the real source port of an inbound HTTP connection is an ephemeral
+        // client port, not the peer's actual listening port, so it carries no verification value.
         val remotePort = json.optInt("sender_port", 2325)
-        val remoteConnection = "$remoteSenderIp:$remotePort"
+        val remoteConnection = "$senderIp:$remotePort"
         val reciprocal = json.optBoolean("reciprocal", false)
 
         // Automatically persist remote peer as persistent connection for power outage resilience
@@ -560,7 +565,11 @@ class MeshDiscoveryManager(
             // last-write-wins-by-receipt-order merge lets a stale relay clobber a fresher entry
             // already held locally (observed live: Kiosk Satellite Mesh bouncing a node from IDLE
             // back to a stale AWAITING_CONFIRMATION). Trust the newer timestamp, not the newer receipt.
-            val incomingLastSeen = peerJson.optLong("lastSeenTimestamp", now)
+            // MESH-BEHAVE-017 (gitea#59): clamp to receipt time before it's ever compared or
+            // stored -- an unclamped future value could otherwise win the recency check below
+            // and make PeerNode.isOnline (now - lastSeenTimestamp < 30_000L) evaluate true
+            // indefinitely for a spoofed or decommissioned peer id.
+            val incomingLastSeen = minOf(now, peerJson.optLong("lastSeenTimestamp", now))
             val existingPeer = peersMap[id]
             if (existingPeer != null && existingPeer.lastSeenTimestamp >= incomingLastSeen) {
                 continue

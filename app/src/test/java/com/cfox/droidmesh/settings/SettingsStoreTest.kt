@@ -758,4 +758,98 @@ class SettingsStoreTest {
             SettingsStore.verifyPassword(mockContext, "hunter2")
         )
     }
+
+    // [PROGRAMMATIC] SET-TEST-015: gitea#60 -- a config_version implausibly far in this device's
+    // future (e.g. an attacker-forged epoch value) must never be accepted, since accepting it
+    // would permanently outrank every real peer's honest, clock-derived version number.
+    @Test
+    fun testImportConfigJsonRejectsImplausiblyFutureConfigVersion() {
+        val before = SettingsStore.getConfigVersion(mockContext)
+        val poisoned = JSONObject().apply {
+            put("config_version", 99999999999999L)
+            put("web_server_port", 2400)
+        }
+
+        val result = SettingsStore.importConfigJson(mockContext, poisoned)
+
+        assertFalse("implausibly future config_version must not apply", result.applied)
+        assertEquals(before, SettingsStore.getConfigVersion(mockContext))
+        assertEquals(2325, SettingsStore.getWebServerPort(mockContext))
+    }
+
+    // [PROGRAMMATIC] SET-TEST-016: negative control for SET-TEST-015 -- a legitimately newer
+    // version close to "now" (the only shape a real peer's clock-derived config_version ever
+    // takes) must still be accepted, proving the future-version rejection isn't just refusing
+    // every import outright.
+    @Test
+    fun testImportConfigJsonAcceptsPlausibleNewerConfigVersion() {
+        val plausible = JSONObject().apply {
+            put("config_version", SettingsStore.getConfigVersion(mockContext) + 1000L)
+            put("web_server_port", 2400)
+        }
+
+        val result = SettingsStore.importConfigJson(mockContext, plausible)
+
+        assertTrue("a plausible newer config_version must apply", result.applied)
+        assertEquals(2400, SettingsStore.getWebServerPort(mockContext))
+    }
+
+    // [PROGRAMMATIC] SET-TEST-017: gitea#60 -- an in-range but already-bound web_server_port
+    // arriving via unauthenticated mesh sync must not be applied, mirroring API-TEST-018's check
+    // on the authenticated /api/settings path.
+    @Test
+    fun testImportConfigJsonRejectsAlreadyBoundWebServerPort() {
+        val busySocket = java.net.ServerSocket(0)
+        try {
+            val busyPort = busySocket.localPort
+            val before = SettingsStore.getWebServerPort(mockContext)
+            val payload = JSONObject().apply {
+                put("config_version", SettingsStore.getConfigVersion(mockContext) + 1000L)
+                put("web_server_port", busyPort)
+            }
+
+            SettingsStore.importConfigJson(mockContext, payload)
+
+            assertEquals(
+                "an already-bound port must never be applied via mesh sync",
+                before, SettingsStore.getWebServerPort(mockContext)
+            )
+        } finally {
+            busySocket.close()
+        }
+    }
+
+    // [PROGRAMMATIC] SET-TEST-019: gitea#65 -- once the persistent-connections set is at its cap,
+    // a new address is rejected outright; re-adding a known address and removal remain unaffected.
+    @Test
+    fun testAddPersistentConnectionRejectsNewAddressAtCap() {
+        for (i in 0 until 32) {
+            assertTrue(SettingsStore.addPersistentConnection(mockContext, "10.0.0.$i:2325"))
+        }
+        assertEquals(32, SettingsStore.getPersistentConnections(mockContext).size)
+
+        val rejected = SettingsStore.addPersistentConnection(mockContext, "10.0.1.1:2325")
+        assertFalse("a new address beyond the cap must be rejected", rejected)
+        assertEquals(32, SettingsStore.getPersistentConnections(mockContext).size)
+
+        // Re-adding an address already in the set is a no-op that must not be treated as a
+        // rejection -- addPersistentConnection returns true only when it actually adds a new
+        // entry, so re-adding an existing one returns false for an unrelated reason (already
+        // present, not "cap exceeded"); confirm the set is untouched either way.
+        SettingsStore.addPersistentConnection(mockContext, "10.0.0.5:2325")
+        assertEquals(32, SettingsStore.getPersistentConnections(mockContext).size)
+
+        assertTrue(SettingsStore.removePersistentConnection(mockContext, "10.0.0.5:2325"))
+        assertEquals(31, SettingsStore.getPersistentConnections(mockContext).size)
+        assertTrue(SettingsStore.addPersistentConnection(mockContext, "10.0.1.1:2325"))
+        assertEquals(32, SettingsStore.getPersistentConnections(mockContext).size)
+    }
+
+    // [PROGRAMMATIC] SET-TEST-020: negative control for SET-TEST-019 -- below the cap, adding
+    // still succeeds normally.
+    @Test
+    fun testAddPersistentConnectionSucceedsBelowCap() {
+        assertTrue(SettingsStore.addPersistentConnection(mockContext, "192.168.40.250:2325"))
+        assertTrue(SettingsStore.getPersistentConnections(mockContext).contains("192.168.40.250:2325"))
+    }
 }

@@ -2,6 +2,7 @@ package com.cfox.droidmesh.settings
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.cfox.droidmesh.utils.Logger
 import org.json.JSONArray
 import org.json.JSONObject
 import java.security.MessageDigest
@@ -40,6 +41,16 @@ object SettingsStore {
     private const val KEY_DELETED_MESHES = "deleted_meshes"
     private const val KEY_DELETED_CONNECTIONS = "deleted_connections"
     private const val KEY_MESH_APP_LIBRARIES = "mesh_app_libraries"
+    // SET-BEHAVE-009 (gitea#60): ceiling on how far ahead of this device's own clock an incoming
+    // config_version may be and still be accepted -- legit values are always minted close to
+    // "now" (see updateConfigVersion below), so 24h comfortably absorbs real fleet clock drift
+    // while foreclosing an attacker jumping the counter years ahead in a single unauthenticated
+    // mesh-sync packet.
+    private const val MAX_FUTURE_CONFIG_VERSION_SKEW_MS = 24 * 60 * 60 * 1000L
+    // SET-BEHAVE-011 (gitea#65): hard cap on the persistent-connections set size -- comfortably
+    // above this fleet's real device count, with room for legitimate growth, while foreclosing
+    // unbounded growth from an unauthenticated handshake flood (MESH-BEHAVE-018).
+    private const val MAX_PERSISTENT_CONNECTIONS = 32
 
     private const val DEFAULT_WEB_SERVER_PORT = 2325
 
@@ -367,6 +378,15 @@ object SettingsStore {
         val cleanConnection = connection.trim()
         if (cleanConnection.isBlank()) return false
         val current = getPersistentConnections(context).toMutableSet()
+        // SET-BEHAVE-011 (gitea#65): reject once the set is at capacity. An already-known address
+        // is never actually blocked by this -- current.add() below is a Set no-op for it either
+        // way, returning false regardless of this check -- so in practice this only ever forecloses
+        // unbounded growth from a genuinely new entry. (A `cleanConnection !in current &&` guard
+        // was considered here but is dead weight: it can't change the outcome of either branch.)
+        if (current.size >= MAX_PERSISTENT_CONNECTIONS) {
+            Logger.w("Rejected persistent connection $cleanConnection: at capacity ($MAX_PERSISTENT_CONNECTIONS)")
+            return false
+        }
         val added = current.add(cleanConnection)
         if (added) {
             setPersistentConnections(context, current)
@@ -665,7 +685,12 @@ object SettingsStore {
         val incomingVersion = json.optLong("config_version", 0L)
         val currentVersion = getConfigVersion(context)
 
-        if (incomingVersion <= 0L || incomingVersion <= currentVersion) {
+        // SET-BEHAVE-009 (gitea#60): an implausibly-future config_version (e.g. a forged epoch
+        // value like 99999999999999) would otherwise permanently outrank every real peer's
+        // honest, clock-derived version number -- reject it exactly like a stale/equal version.
+        if (incomingVersion <= 0L || incomingVersion <= currentVersion ||
+            incomingVersion > System.currentTimeMillis() + MAX_FUTURE_CONFIG_VERSION_SKEW_MS
+        ) {
             return ConfigImportResult(
                 applied = false,
                 oldVersion = currentVersion,
@@ -682,7 +707,13 @@ object SettingsStore {
 
         if (json.has("web_server_port")) {
             val port = json.getInt("web_server_port")
-            if (port in 1024..65535 && getWebServerPort(context) != port) {
+            // SET-BEHAVE-010 (gitea#60): reuse the same bind-probe the authenticated
+            // POST /api/settings path already requires (API-TEST-018) -- an unauthenticated mesh
+            // sync must not be able to silently rewrite this device's admin port to a value
+            // already bound by another process on the device.
+            if (port in 1024..65535 && getWebServerPort(context) != port &&
+                com.cfox.droidmesh.utils.NetworkUtils.isPortAvailable(port)
+            ) {
                 editor.putInt(KEY_WEB_SERVER_PORT, port)
                 portChanged = true
             }

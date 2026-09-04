@@ -64,6 +64,12 @@ class MeshDiscoveryManagerTest {
                 inMemoryPrefs[inv.getArgument<String>(0)] = inv.getArgument<Long>(1)
                 it
             }
+            whenever(it.putStringSet(any(), anyOrNull())).thenAnswer { inv ->
+                val k = inv.getArgument<String>(0)
+                val v = inv.getArgument<Set<String>?>(1)
+                if (v != null) inMemoryPrefs[k] = v else inMemoryPrefs.remove(k)
+                it
+            }
             whenever(it.remove(any())).thenAnswer { inv ->
                 inMemoryPrefs.remove(inv.getArgument<String>(0))
                 it
@@ -84,6 +90,10 @@ class MeshDiscoveryManagerTest {
             }
             whenever(it.getString(any(), anyOrNull())).thenAnswer { inv ->
                 inMemoryPrefs[inv.getArgument<String>(0)] as? String ?: inv.getArgument<String?>(1)
+            }
+            whenever(it.getStringSet(any(), anyOrNull())).thenAnswer { inv ->
+                @Suppress("UNCHECKED_CAST")
+                inMemoryPrefs[inv.getArgument<String>(0)] as? Set<String> ?: inv.getArgument<Set<String>?>(1) ?: emptySet<String>()
             }
             whenever(it.edit()).thenAnswer { editor }
         }
@@ -189,5 +199,69 @@ class MeshDiscoveryManagerTest {
 
         val peer = manager.peersFlow.value.first { it.id == "mb-portal" }
         assertEquals("IDLE", peer.updaterState)
+    }
+
+    // [PROGRAMMATIC] MESH-TEST-024: gitea#59 -- a relayed peer report claiming a lastSeenTimestamp
+    // far in this device's future must be clamped to "now" at ingest time, not stored as-is. An
+    // unclamped future value would make PeerNode.isOnline (now - lastSeenTimestamp < 30_000L)
+    // evaluate true indefinitely and win every future recency comparison in ingestRemotePeers.
+    @Test
+    fun testIngestRemotePeersClampsFutureLastSeenTimestampToNow() {
+        val farFuture = System.currentTimeMillis() + 365L * 24 * 60 * 60 * 1000
+        val beforeIngest = System.currentTimeMillis()
+        val forged = org.json.JSONArray().put(peerJson("attacker-forged", "IDLE", "9.9.9", farFuture))
+
+        manager.ingestRemotePeers(forged, "seed-a")
+
+        val peer = manager.peersFlow.value.first { it.id == "attacker-forged" }
+        val afterIngest = System.currentTimeMillis()
+        assertTrue(
+            "a future-dated lastSeenTimestamp must be clamped to receipt time, not stored as the forged future value: ${peer.lastSeenTimestamp}",
+            peer.lastSeenTimestamp in beforeIngest..afterIngest
+        )
+    }
+
+    // [PROGRAMMATIC] MESH-TEST-025: gitea#59/#65 -- handleIncomingHandshake must persist the
+    // connection keyed on the actual observed TCP source IP, not an attacker-declared sender_ip
+    // in the request body that points somewhere else entirely.
+    @Test
+    fun testHandleIncomingHandshakeIgnoresForgedSenderIp() {
+        val realSourceIp = "203.0.113.5"
+        val forgedJson = org.json.JSONObject().apply {
+            put("sender_ip", "10.0.0.99")
+            put("sender_port", 2325)
+            put("mesh_id", "unmanaged")
+            put("reciprocal", false)
+        }
+
+        manager.handleIncomingHandshake(forgedJson, realSourceIp)
+
+        val connections = com.cfox.droidmesh.settings.SettingsStore.getPersistentConnections(mockContext)
+        assertTrue(
+            "must persist the real observed source, not the forged sender_ip: $connections",
+            connections.contains("$realSourceIp:2325")
+        )
+        assertFalse(
+            "must never persist the attacker-declared sender_ip",
+            connections.contains("10.0.0.99:2325")
+        )
+    }
+
+    // [PROGRAMMATIC] MESH-TEST-026: negative control for MESH-TEST-025 -- a handshake whose
+    // declared sender_ip happens to be truthful (the honest, common case) still persists normally.
+    @Test
+    fun testHandleIncomingHandshakeAcceptsTruthfulSenderIp() {
+        val realSourceIp = "192.168.40.59"
+        val truthfulJson = org.json.JSONObject().apply {
+            put("sender_ip", realSourceIp)
+            put("sender_port", 2325)
+            put("mesh_id", "unmanaged")
+            put("reciprocal", false)
+        }
+
+        manager.handleIncomingHandshake(truthfulJson, realSourceIp)
+
+        val connections = com.cfox.droidmesh.settings.SettingsStore.getPersistentConnections(mockContext)
+        assertTrue(connections.contains("$realSourceIp:2325"))
     }
 }

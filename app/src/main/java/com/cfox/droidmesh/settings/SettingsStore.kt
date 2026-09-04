@@ -33,6 +33,11 @@ object SettingsStore {
     private const val PBKDF2_ITERATIONS = 210_000
     private const val PBKDF2_KEY_LENGTH_BITS = 256
     private const val KEY_AUTH_SECRET = "auth_secret"
+    // API-BEHAVE-038 (gitea#66): bumped by handleLogout on a request that was itself
+    // authenticated -- every token minted before that point embeds the epoch it was signed
+    // under, so an old value here silently invalidates every previously-issued token without a
+    // full password/auth_secret rotation.
+    private const val KEY_TOKEN_EPOCH = "token_epoch"
     private const val KEY_LOCAL_MESH_ID = "local_mesh_id"
     private const val KEY_LOCAL_MESH_NAME = "local_mesh_name"
     private const val KEY_PERSISTENT_CONNECTIONS = "persistent_connections"
@@ -940,9 +945,10 @@ object SettingsStore {
 
     fun generateToken(context: Context, ttlSeconds: Long = 7 * 86400): String {
         val expiry = System.currentTimeMillis() + (ttlSeconds * 1000L)
+        val epoch = getTokenEpoch(context)
         val secret = getAuthSecret(context)
-        val signature = hmacSha256(secret, expiry.toString())
-        return "$expiry.$signature"
+        val signature = hmacSha256(secret, "$expiry.$epoch")
+        return "$expiry.$epoch.$signature"
     }
 
     fun validateToken(context: Context, token: String?): Boolean {
@@ -950,14 +956,44 @@ object SettingsStore {
         if (token.isNullOrBlank()) return false
 
         val parts = token.split(".")
-        if (parts.size != 2) return false
+        if (parts.size != 3) return false
 
         val expiry = parts[0].toLongOrNull() ?: return false
         if (System.currentTimeMillis() > expiry) return false
 
+        // API-BEHAVE-038 (gitea#66): a token minted under a since-superseded epoch is rejected
+        // even if its expiry/signature both still check out -- this is what actually makes
+        // bumpTokenEpoch() a revocation rather than just a stored counter nobody reads.
+        val epoch = parts[1].toLongOrNull() ?: return false
+        if (epoch != getTokenEpoch(context)) return false
+
         val secret = getAuthSecret(context)
-        val expectedSig = hmacSha256(secret, parts[0])
-        return MessageDigest.isEqual(expectedSig.toByteArray(Charsets.UTF_8), parts[1].toByteArray(Charsets.UTF_8))
+        val expectedSig = hmacSha256(secret, "${parts[0]}.${parts[1]}")
+        return MessageDigest.isEqual(expectedSig.toByteArray(Charsets.UTF_8), parts[2].toByteArray(Charsets.UTF_8))
+    }
+
+    private fun getTokenEpoch(context: Context): Long = prefs(context).getLong(KEY_TOKEN_EPOCH, 0L)
+
+    // API-BEHAVE-038 (gitea#66): server-side revocation of every currently-outstanding token --
+    // called from a logout request that was itself authenticated (LocalHttpServer.handleLogout),
+    // so an unauthenticated caller can't use this as a free denial-of-session gadget against a
+    // legitimate admin. Previously the only way to invalidate all outstanding tokens was a full
+    // password change (which rotates auth_secret); a captured or retained bearer token otherwise
+    // stayed valid for its full TTL (default 7 days) even after the browser that held it logged out.
+    fun bumpTokenEpoch(context: Context) {
+        val p = prefs(context)
+        p.edit().putLong(KEY_TOKEN_EPOCH, getTokenEpoch(context) + 1).apply()
+    }
+
+    // API-BEHAVE-039 (gitea#67): observability only -- reports whether this device's stored
+    // password hash is still the legacy pre-PBKDF2 SHA-256 format (SET-BEHAVE-006 predates it).
+    // The legacy verification branch itself is deliberately left in place (removing it would lock
+    // out any device that hasn't successfully logged in since migrating) -- this just lets fleet
+    // migration status actually be tracked instead of being invisible until someone reads the
+    // stored hash by hand.
+    fun isUsingLegacyPasswordHash(context: Context): Boolean {
+        val hashHex = prefs(context).getString(KEY_WEB_PASSWORD_HASH, null) ?: return false
+        return !hashHex.startsWith(PBKDF2_HASH_PREFIX)
     }
 
     private fun getAuthSecret(context: Context): ByteArray {

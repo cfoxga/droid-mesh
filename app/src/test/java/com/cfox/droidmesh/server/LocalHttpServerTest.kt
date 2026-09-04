@@ -256,6 +256,137 @@ class LocalHttpServerTest {
         assertEquals(2330, SettingsStore.getWebServerPort(mockContext))
     }
 
+    // [PROGRAMMATIC] API-TEST-057 (API-BEHAVE-038, gitea#66): logging out with a valid token must
+    // revoke every outstanding token for this device, not just clear the caller's own cookie --
+    // otherwise a captured/retained bearer token stays valid for its full 7-day TTL even after the
+    // legitimate admin believes they've logged out.
+    @Test
+    fun testLogoutRevokesOutstandingToken() {
+        SettingsStore.setPassword(mockContext, "secret123")
+        val tokenBeforeLogout = SettingsStore.generateToken(mockContext)
+
+        // Sanity: the token works before logout.
+        val preLogoutSession = mockSession(
+            uri = "/api/settings",
+            method = NanoHTTPD.Method.POST,
+            headers = mapOf("authorization" to "Bearer $tokenBeforeLogout"),
+            postBody = """{"webServerPort": 2331}"""
+        )
+        assertEquals(NanoHTTPD.Response.Status.OK, server.serve(preLogoutSession).status)
+
+        // Authenticated logout, using the same still-valid token.
+        val logoutSession = mockSession(
+            uri = "/api/logout",
+            method = NanoHTTPD.Method.POST,
+            headers = mapOf("authorization" to "Bearer $tokenBeforeLogout")
+        )
+        val logoutResponse = server.serve(logoutSession)
+        assertEquals(NanoHTTPD.Response.Status.OK, logoutResponse.status)
+
+        // The pre-logout token must now be rejected, even though its expiry and signature are
+        // both still individually valid -- only the epoch it was minted under has changed.
+        val postLogoutSession = mockSession(
+            uri = "/api/settings",
+            method = NanoHTTPD.Method.POST,
+            headers = mapOf("authorization" to "Bearer $tokenBeforeLogout"),
+            postBody = """{"webServerPort": 2332}"""
+        )
+        assertEquals(NanoHTTPD.Response.Status.UNAUTHORIZED, server.serve(postLogoutSession).status)
+        assertEquals(2331, SettingsStore.getWebServerPort(mockContext))
+    }
+
+    // [PROGRAMMATIC] API-TEST-058 (API-BEHAVE-038, gitea#66): negative control for API-TEST-057 --
+    // a freshly-issued token minted after logout (i.e. under the new epoch) must still work
+    // normally. Without this, API-TEST-057 alone couldn't distinguish "logout correctly revoked
+    // the old token" from "validateToken/generateToken is just broken for everyone."
+    @Test
+    fun testFreshTokenAfterLogoutStillWorks() {
+        SettingsStore.setPassword(mockContext, "secret123")
+        val oldToken = SettingsStore.generateToken(mockContext)
+
+        val logoutSession = mockSession(
+            uri = "/api/logout",
+            method = NanoHTTPD.Method.POST,
+            headers = mapOf("authorization" to "Bearer $oldToken")
+        )
+        assertEquals(NanoHTTPD.Response.Status.OK, server.serve(logoutSession).status)
+
+        val freshToken = SettingsStore.generateToken(mockContext)
+        val freshSession = mockSession(
+            uri = "/api/settings",
+            method = NanoHTTPD.Method.POST,
+            headers = mapOf("authorization" to "Bearer $freshToken"),
+            postBody = """{"webServerPort": 2333}"""
+        )
+        assertEquals(NanoHTTPD.Response.Status.OK, server.serve(freshSession).status)
+        assertEquals(2333, SettingsStore.getWebServerPort(mockContext))
+    }
+
+    // [PROGRAMMATIC] API-TEST-061 (API-BEHAVE-038, gitea#66): an UNAUTHENTICATED call to
+    // /api/logout must be a no-op with respect to revocation -- it still returns 200 (so a caller
+    // who merely thinks they're logged in isn't told otherwise), but it must not bump the token
+    // epoch. Without this, any anonymous LAN host could spam a public POST /api/logout to
+    // continuously invalidate a legitimate admin's active session -- exactly the denial-of-session
+    // gadget the isAuthorized(session) gate in handleLogout exists to prevent. Found during cold
+    // self-review: API-TEST-057/058 alone only ever call logout WITH a valid token, so neither
+    // could have failed if that gate were simply removed.
+    @Test
+    fun testUnauthenticatedLogoutDoesNotRevokeOtherTokens() {
+        SettingsStore.setPassword(mockContext, "secret123")
+        val activeToken = SettingsStore.generateToken(mockContext)
+
+        // No Authorization header/cookie at all -- an anonymous caller.
+        val anonLogoutResponse = server.serve(mockSession(uri = "/api/logout", method = NanoHTTPD.Method.POST))
+        assertEquals(NanoHTTPD.Response.Status.OK, anonLogoutResponse.status)
+
+        // A real admin's still-active token must be unaffected by that anonymous call.
+        val stillAuthedSession = mockSession(
+            uri = "/api/settings",
+            method = NanoHTTPD.Method.POST,
+            headers = mapOf("authorization" to "Bearer $activeToken"),
+            postBody = """{"webServerPort": 2334}"""
+        )
+        assertEquals(NanoHTTPD.Response.Status.OK, server.serve(stillAuthedSession).status)
+        assertEquals(2334, SettingsStore.getWebServerPort(mockContext))
+    }
+
+    // [PROGRAMMATIC] API-TEST-059 (API-BEHAVE-039, gitea#67): /api/status surfaces whether this
+    // device's stored password hash is still the legacy pre-PBKDF2 SHA-256 format, so fleet
+    // migration status is observable instead of requiring a raw read of the stored hash.
+    @Test
+    fun testStatusReportsLegacyPasswordHashPending() {
+        // Force a legacy-format hash onto disk the same way a device that set its password before
+        // the PBKDF2 migration (SET-BEHAVE-006) would have one -- bypassing setPassword (which
+        // always writes PBKDF2 for new passwords) to simulate that pre-existing state. Mirrors the
+        // same direct-inMemoryPrefs technique SettingsStoreTest's
+        // testVerifyPasswordMigratesLegacyShaHashToPbkdf2 already uses; an untagged bare hex digest
+        // (no "pbkdf2$" prefix) is exactly what isUsingLegacyPasswordHash checks for.
+        inMemoryPrefs["web_password_salt"] = "00".repeat(16)
+        inMemoryPrefs["web_password_hash"] = "aa".repeat(32)
+        // /api/status requires auth once a password is set -- generateToken only depends on
+        // auth_secret, not the password hash format, so a valid token can be minted independently
+        // of the legacy-vs-pbkdf2 hash this test is actually exercising.
+        val token = SettingsStore.generateToken(mockContext)
+
+        val session = mockSession("/api/status", headers = mapOf("authorization" to "Bearer $token"))
+        val response = server.serve(session)
+        val json = JSONObject(response.data?.readBytes()?.toString(Charsets.UTF_8) ?: "")
+        assertTrue(json.getBoolean("legacyPasswordHashPending"))
+    }
+
+    // [PROGRAMMATIC] API-TEST-060 (API-BEHAVE-039, gitea#67): negative control for API-TEST-059 --
+    // a device on the normal PBKDF2 path reports legacyPasswordHashPending: false.
+    @Test
+    fun testStatusReportsNoLegacyPasswordHashOnPbkdf2Device() {
+        SettingsStore.setPassword(mockContext, "secret123")
+        val token = SettingsStore.generateToken(mockContext)
+
+        val session = mockSession("/api/status", headers = mapOf("authorization" to "Bearer $token"))
+        val response = server.serve(session)
+        val json = JSONObject(response.data?.readBytes()?.toString(Charsets.UTF_8) ?: "")
+        assertFalse(json.getBoolean("legacyPasswordHashPending"))
+    }
+
     // [PROGRAMMATIC] API-TEST-049 (API-BEHAVE-032, gitea#41 L3): the auth token is NOT accepted
     // via a `?token=` URL query parameter -- only `Authorization: Bearer`, `X-Auth-Token` header,
     // or `auth_token` cookie are valid delivery mechanisms. Tokens in URLs risk exposure via

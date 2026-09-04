@@ -198,7 +198,7 @@ class LocalHttpServer(
                 // Auth Endpoints
                 uri == "/api/auth/status" && method == Method.GET -> handleAuthStatus(session)
                 uri == "/api/login" && method == Method.POST -> handleLogin(session)
-                uri == "/api/logout" && method == Method.POST -> handleLogout()
+                uri == "/api/logout" && method == Method.POST -> handleLogout(session)
                 uri == "/api/password" && method == Method.POST -> handlePassword(session)
 
                 // Status & Health
@@ -463,7 +463,13 @@ class LocalHttpServer(
         }
     }
 
-    private fun handleLogout(): Response {
+    private fun handleLogout(session: IHTTPSession): Response {
+        // API-BEHAVE-038 (gitea#66): only revoke every outstanding token when this request itself
+        // proved it held a currently-valid one -- otherwise an unauthenticated caller could spam
+        // this public endpoint as a free denial-of-session gadget against a legitimate admin.
+        if (isAuthorized(session)) {
+            SettingsStore.bumpTokenEpoch(context)
+        }
         val json = JSONObject().apply {
             put("status", "ok")
             put("message", "Logged out")
@@ -553,6 +559,10 @@ class LocalHttpServer(
             put("cpuUsage", telemetry.usagePercent ?: JSONObject.NULL)
             put("cpuTemp", telemetry.tempCelsius ?: JSONObject.NULL)
             put("passwordConfigured", SettingsStore.isPasswordSet(context))
+            // API-BEHAVE-039 (gitea#67): observability for fleet migration status off the legacy
+            // pre-PBKDF2 SHA-256 password hash -- always false once a password has been verified
+            // successfully at least once since it auto-migrates on that first successful login.
+            put("legacyPasswordHashPending", SettingsStore.isUsingLegacyPasswordHash(context))
             put("configVersion", SettingsStore.getConfigVersion(context))
         }
 

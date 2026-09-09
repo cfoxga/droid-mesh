@@ -5,11 +5,14 @@ import android.content.SharedPreferences
 import com.cfox.droidmesh.utils.Logger
 import org.json.JSONArray
 import org.json.JSONObject
+import java.util.Base64
 import java.security.MessageDigest
 import java.security.SecureRandom
 import java.util.concurrent.CopyOnWriteArraySet
 import javax.crypto.Mac
+import javax.crypto.Cipher
 import javax.crypto.SecretKeyFactory
+import javax.crypto.spec.GCMParameterSpec
 import javax.crypto.spec.PBEKeySpec
 import javax.crypto.spec.SecretKeySpec
 
@@ -33,6 +36,9 @@ object SettingsStore {
     private const val PBKDF2_ITERATIONS = 210_000
     private const val PBKDF2_KEY_LENGTH_BITS = 256
     private const val KEY_AUTH_SECRET = "auth_secret"
+    private const val KEY_FLEET_ID = "fleet_id"
+    private const val KEY_FLEET_KEY = "fleet_key"
+    private const val KEY_FLEET_SEEN_NONCES = "fleet_seen_nonces"
     // API-BEHAVE-038 (gitea#66): bumped by handleLogout on a request that was itself
     // authenticated -- every token minted before that point embeds the epoch it was signed
     // under, so an old value here silently invalidates every previously-issued token without a
@@ -117,6 +123,9 @@ object SettingsStore {
         val libraryChanged: Boolean = false,
         val meshesChanged: Boolean = false
     )
+
+    /** A fleet is a trust domain; mesh IDs remain configuration scopes inside it. */
+    data class FleetTrust(val id: String, val key: ByteArray)
 
     fun interface OnConfigChangeListener {
         fun onConfigChanged(result: ConfigImportResult)
@@ -686,7 +695,152 @@ object SettingsStore {
         }
     }
 
-    fun importConfigJson(context: Context, json: JSONObject): ConfigImportResult {
+    /**
+     * Exports credentials only for an already-authenticated fleet envelope.  It is deliberately
+     * separate from [exportConfigJson], which may be used for untrusted/local diagnostics.
+     */
+    fun exportFleetConfigJson(context: Context, knownPeersJson: JSONArray? = null): JSONObject =
+        exportConfigJson(context, knownPeersJson).apply {
+            put("web_password_hash", prefs(context).getString(KEY_WEB_PASSWORD_HASH, null) ?: JSONObject.NULL)
+            put("web_password_salt", prefs(context).getString(KEY_WEB_PASSWORD_SALT, null) ?: JSONObject.NULL)
+            put("auth_secret", bytesToHex(getAuthSecret(context)))
+            put("token_epoch", getTokenEpoch(context))
+        }
+
+    fun isFleetTrusted(context: Context): Boolean {
+        val p = prefs(context)
+        return !p.getString(KEY_FLEET_ID, null).isNullOrBlank() &&
+            !p.getString(KEY_FLEET_KEY, null).isNullOrBlank()
+    }
+
+    fun ensureFleetTrust(context: Context): FleetTrust {
+        getFleetTrust(context)?.let { return it }
+        val key = ByteArray(32).also { SecureRandom().nextBytes(it) }
+        val id = ByteArray(16).also { SecureRandom().nextBytes(it) }.let(::bytesToHex)
+        prefs(context).edit().putString(KEY_FLEET_ID, id).putString(KEY_FLEET_KEY, bytesToHex(key)).apply()
+        return FleetTrust(id, key)
+    }
+
+    fun getFleetTrust(context: Context): FleetTrust? {
+        val p = prefs(context)
+        val id = p.getString(KEY_FLEET_ID, null) ?: return null
+        val keyHex = p.getString(KEY_FLEET_KEY, null) ?: return null
+        return try { FleetTrust(id, hexToBytes(keyHex)) } catch (_: IllegalArgumentException) { null }
+    }
+
+    /** Encrypt a payload for a peer already in this fleet. */
+    fun sealForFleet(context: Context, payload: JSONObject): JSONObject {
+        val trust = ensureFleetTrust(context)
+        return seal(payload.toString().toByteArray(Charsets.UTF_8), trust.key).put("fleet_id", trust.id)
+    }
+
+    /** Returns null for an unknown fleet, malformed envelope, or failed GCM authentication. */
+    fun openFromFleet(context: Context, envelope: JSONObject): JSONObject? {
+        val trust = getFleetTrust(context) ?: return null
+        if (envelope.optString("fleet_id") != trust.id) return null
+        return try { JSONObject(String(open(envelope, trust.key), Charsets.UTF_8)) } catch (_: Exception) { null }
+    }
+
+    fun fleetRequestMac(context: Context, method: String, path: String, timestamp: String, nonce: String): String? {
+        val trust = getFleetTrust(context) ?: return null
+        return hmacSha256(trust.key, "$method\\n$path\\n$timestamp\\n$nonce\\n${trust.id}")
+    }
+
+    fun validateFleetRequest(context: Context, method: String, path: String, timestamp: String?, nonce: String?, mac: String?): Boolean {
+        val trust = getFleetTrust(context) ?: return false
+        val whenSent = timestamp?.toLongOrNull() ?: return false
+        if (nonce.isNullOrBlank() || nonce.length !in 16..128) return false
+        if (kotlin.math.abs(System.currentTimeMillis() - whenSent) > 60_000L) return false
+        val expected = hmacSha256(trust.key, "$method\\n$path\\n$timestamp\\n$nonce\\n${trust.id}")
+        return !mac.isNullOrBlank() && MessageDigest.isEqual(expected.toByteArray(), mac.toByteArray())
+    }
+
+    /** Persisted, bounded replay protection so an app restart cannot reopen the 60-second window. */
+    @Synchronized
+    fun consumeFleetNonce(context: Context, nonce: String, now: Long = System.currentTimeMillis()): Boolean {
+        val current = prefs(context).getString(KEY_FLEET_SEEN_NONCES, null)?.let { runCatching { JSONObject(it) }.getOrNull() } ?: JSONObject()
+        val keys = current.keys().asSequence().toList()
+        for (key in keys) if (current.optLong(key, 0L) < now - 60_000L) current.remove(key)
+        if (current.has(nonce)) return false
+        current.put(nonce, now)
+        // Bound persistent storage even under sustained requests; all retained values are recent.
+        while (current.length() > 256) current.keys().next().let { current.remove(it) }
+        prefs(context).edit().putString(KEY_FLEET_SEEN_NONCES, current.toString()).commit()
+        return true
+    }
+
+    /**
+     * A locally-authenticated operator exports this encrypted one-time pairing bundle and imports
+     * it while authenticated on the joining device.  The pairing code is never put in the bundle.
+     */
+    fun exportFleetTrustBundle(context: Context, pairingCode: String): JSONObject {
+        require(isValidPairingCode(pairingCode)) { "Invalid generated pairing code" }
+        val trust = ensureFleetTrust(context)
+        val bundle = JSONObject().apply {
+            put("fleet_id", trust.id)
+            put("fleet_key", bytesToHex(trust.key))
+            put("web_password_hash", prefs(context).getString(KEY_WEB_PASSWORD_HASH, null) ?: JSONObject.NULL)
+            put("web_password_salt", prefs(context).getString(KEY_WEB_PASSWORD_SALT, null) ?: JSONObject.NULL)
+            put("auth_secret", bytesToHex(getAuthSecret(context)))
+            put("token_epoch", getTokenEpoch(context))
+            put("config", exportFleetConfigJson(context))
+        }
+        val salt = ByteArray(16).also { SecureRandom().nextBytes(it) }
+        return seal(bundle.toString().toByteArray(Charsets.UTF_8), pairingKey(pairingCode, salt))
+            .put("pairing_salt", b64(salt))
+            .put("format", 1)
+    }
+
+    fun importFleetTrustBundle(context: Context, bundle: JSONObject, pairingCode: String) {
+        require(isValidPairingCode(pairingCode)) { "Invalid generated pairing code" }
+        val salt = b64decode(bundle.getString("pairing_salt"))
+        val decoded = JSONObject(String(open(bundle, pairingKey(pairingCode, salt)), Charsets.UTF_8))
+        val id = decoded.getString("fleet_id")
+        val key = decoded.getString("fleet_key")
+        val authSecret = decoded.getString("auth_secret")
+        require(hexToBytes(key).size == 32) { "Invalid fleet key" }
+        require(hexToBytes(authSecret).size == 32) { "Invalid auth secret" }
+        prefs(context).edit()
+            .putString(KEY_FLEET_ID, id).putString(KEY_FLEET_KEY, key)
+            .putString(KEY_WEB_PASSWORD_HASH, decoded.optString("web_password_hash", ""))
+            .putString(KEY_WEB_PASSWORD_SALT, decoded.optString("web_password_salt", ""))
+            .putString(KEY_AUTH_SECRET, authSecret)
+            .putLong(KEY_TOKEN_EPOCH, decoded.optLong("token_epoch", 0L))
+            .apply()
+        // The initiator is authoritative when independent fleets merge.  Raise the bundle's
+        // config version over the joining node so the normal tombstone/union machinery preserves
+        // unrelated topology while the initiating values win true field conflicts.
+        decoded.optJSONObject("config")?.let { sourceConfig ->
+            val authoritative = JSONObject(sourceConfig.toString())
+            authoritative.put("config_version", maxOf(getConfigVersion(context) + 1L, System.currentTimeMillis()))
+            importConfigJson(context, authoritative, trustedFleet = true)
+        }
+    }
+
+    private fun pairingKey(code: String, salt: ByteArray): ByteArray =
+        SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256")
+            .generateSecret(PBEKeySpec(code.toCharArray(), salt, PBKDF2_ITERATIONS, 256)).encoded
+
+    private fun isValidPairingCode(code: String): Boolean =
+        code.matches(Regex("dm1_[A-Za-z0-9_-]{43}"))
+
+    private fun seal(cleartext: ByteArray, key: ByteArray): JSONObject {
+        val iv = ByteArray(12).also { SecureRandom().nextBytes(it) }
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+        cipher.init(Cipher.ENCRYPT_MODE, SecretKeySpec(key, "AES"), GCMParameterSpec(128, iv))
+        return JSONObject().put("iv", b64(iv)).put("ciphertext", b64(cipher.doFinal(cleartext)))
+    }
+
+    private fun open(envelope: JSONObject, key: ByteArray): ByteArray {
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+        cipher.init(Cipher.DECRYPT_MODE, SecretKeySpec(key, "AES"), GCMParameterSpec(128, b64decode(envelope.getString("iv"))))
+        return cipher.doFinal(b64decode(envelope.getString("ciphertext")))
+    }
+
+    private fun b64(value: ByteArray): String = Base64.getEncoder().encodeToString(value)
+    private fun b64decode(value: String): ByteArray = Base64.getDecoder().decode(value)
+
+    fun importConfigJson(context: Context, json: JSONObject, trustedFleet: Boolean = false): ConfigImportResult {
         val incomingVersion = json.optLong("config_version", 0L)
         val currentVersion = getConfigVersion(context)
 
@@ -721,6 +875,26 @@ object SettingsStore {
             ) {
                 editor.putInt(KEY_WEB_SERVER_PORT, port)
                 portChanged = true
+            }
+        }
+
+        // Untrusted imports never handle credentials. A verified fleet envelope may synchronize
+        // the verifier and HMAC secret so sessions work across the fleet without sending either
+        // in cleartext.
+        if (trustedFleet) {
+            val hash = json.optString("web_password_hash", "")
+            val salt = json.optString("web_password_salt", "")
+            val secret = json.optString("auth_secret", "")
+            if (hash.isNotBlank() && salt.isNotBlank() && secret.isNotBlank()) {
+                val authSecretChanged = prefs(context).getString(KEY_AUTH_SECRET, null) != secret
+                if (prefs(context).getString(KEY_WEB_PASSWORD_HASH, null) != hash || authSecretChanged) passwordChanged = true
+                editor.putString(KEY_WEB_PASSWORD_HASH, hash).putString(KEY_WEB_PASSWORD_SALT, salt)
+                    .putString(KEY_AUTH_SECRET, secret)
+                    // A new auth secret invalidates every old token by signature, so its epoch is
+                    // a new namespace and must follow the authoritative source exactly. With the
+                    // same secret, epochs only move forward to preserve logout revocation.
+                    .putLong(KEY_TOKEN_EPOCH, if (authSecretChanged) json.optLong("token_epoch", 0L)
+                        else maxOf(getTokenEpoch(context), json.optLong("token_epoch", 0L)))
             }
         }
 
@@ -820,20 +994,26 @@ object SettingsStore {
             val librariesObj = json.optJSONObject("mesh_app_libraries")
             if (librariesObj != null) {
                 val existingRoot = getAllMeshAppLibraries(context)
-                val sanitizedLibraries = JSONObject()
+                val sanitizedLibraries = if (trustedFleet) JSONObject(existingRoot.toString()) else JSONObject()
                 val meshIds = librariesObj.keys()
                 while (meshIds.hasNext()) {
                     val meshKey = meshIds.next()
                     val meshEntries = librariesObj.optJSONObject(meshKey) ?: continue
                     val existingMeshEntries = existingRoot.optJSONObject(meshKey)
-                    val sanitizedMesh = JSONObject()
+                    val sanitizedMesh = if (trustedFleet && existingMeshEntries != null) {
+                        JSONObject(existingMeshEntries.toString())
+                    } else {
+                        JSONObject()
+                    }
                     val pkgKeys = meshEntries.keys()
                     while (pkgKeys.hasNext()) {
                         val pkgKey = pkgKeys.next()
                         val entryObj = meshEntries.optJSONObject(pkgKey) ?: continue
                         val incoming = MeshAppConfig.fromJson(entryObj)
                         val existingEntryObj = existingMeshEntries?.optJSONObject(pkgKey)
-                        val sanitizedEntry = if (existingEntryObj != null) {
+                        val sanitizedEntry = if (trustedFleet) {
+                            incoming
+                        } else if (existingEntryObj != null) {
                             val existing = MeshAppConfig.fromJson(existingEntryObj)
                             incoming.copy(
                                 managed = existing.managed,
@@ -982,7 +1162,8 @@ object SettingsStore {
     // stayed valid for its full TTL (default 7 days) even after the browser that held it logged out.
     fun bumpTokenEpoch(context: Context) {
         val p = prefs(context)
-        p.edit().putLong(KEY_TOKEN_EPOCH, getTokenEpoch(context) + 1).apply()
+        val nextConfigVersion = maxOf(System.currentTimeMillis(), getConfigVersion(context) + 1L)
+        p.edit().putLong(KEY_TOKEN_EPOCH, getTokenEpoch(context) + 1).putLong(KEY_CONFIG_VERSION, nextConfigVersion).apply()
     }
 
     // API-BEHAVE-039 (gitea#67): observability only -- reports whether this device's stored
@@ -1048,4 +1229,3 @@ object SettingsStore {
     private fun prefs(context: Context): SharedPreferences =
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 }
-

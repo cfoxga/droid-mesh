@@ -814,7 +814,7 @@ input:checked + .slider:before {
         <div class="settings-row">
           <div class="settings-row-info">
             <span class="settings-row-label">Fleet Admin Password</span>
-            <span class="settings-row-help">Protects management UI and REST API on all mesh nodes. Synchronized via mesh gossip.</span>
+            <span class="settings-row-help">One password per paired fleet. It is synchronized only inside encrypted fleet control messages.</span>
           </div>
           <div class="settings-row-value">
             <span id="globalPasswordStatusText">Not set</span>
@@ -875,6 +875,16 @@ input:checked + .slider:before {
             <span class="settings-row-help">Currently running DroidMesh APK on this device.</span>
           </div>
           <div class="settings-row-value" id="globalDmVersion">--</div>
+        </div>
+        <div class="settings-row">
+          <div class="settings-row-info">
+            <span class="settings-row-label">Pair Fleet Trust</span>
+            <span class="settings-row-help">Pair a separately configured device once with a short code. After pairing, passwords, App Libraries, and cross-VLAN topology synchronize securely.</span>
+          </div>
+          <div class="settings-row-value">
+            <button type="button" class="btn btn-secondary btn-sm" onclick="exportFleetPairingBundle()">Create Pairing Bundle</button>
+            <button type="button" class="btn btn-secondary btn-sm" onclick="importFleetPairingBundle()">Join Fleet</button>
+          </div>
         </div>
         <div class="settings-row">
           <div class="settings-row-info">
@@ -2549,6 +2559,42 @@ async function exportConfigJson() {
     URL.revokeObjectURL(url);
   } catch (err) {
     alert('Failed to export config: ' + err.message);
+  }
+}
+
+async function exportFleetPairingBundle() {
+  const pairingCode = generateFleetPairingCode();
+  try {
+    const data = await apiCall('/api/fleet/trust/export', {
+      method: 'POST', body: JSON.stringify({ pairing_code: pairingCode })
+    });
+    const bundle = JSON.stringify(data.bundle);
+    await navigator.clipboard.writeText(bundle);
+    alert(`Encrypted pairing bundle copied. Pairing code: ${pairingCode}\n\nOpen the joining device, choose “Join Fleet”, paste the bundle, and enter this code.`);
+  } catch (err) {
+    alert('Failed to create pairing bundle: ' + err.message);
+  }
+}
+
+function generateFleetPairingCode() {
+  const bytes = new Uint8Array(32);
+  crypto.getRandomValues(bytes);
+  return 'dm1_' + btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+async function importFleetPairingBundle() {
+  const bundleText = prompt('Paste the encrypted pairing bundle from the initiating fleet.');
+  if (!bundleText) return;
+  const pairingCode = prompt('Enter the pairing code used to create that bundle.');
+  if (!pairingCode) return;
+  try {
+    const data = await apiCall('/api/fleet/trust/import', {
+      method: 'POST', body: JSON.stringify({ bundle: JSON.parse(bundleText), pairing_code: pairingCode })
+    });
+    alert(data.message || 'Joined fleet trust domain. Refresh this page and reconnect the persistent device if needed.');
+    window.location.reload();
+  } catch (err) {
+    alert('Failed to join fleet: ' + err.message);
   }
 }
 

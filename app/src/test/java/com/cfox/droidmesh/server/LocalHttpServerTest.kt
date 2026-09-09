@@ -187,6 +187,19 @@ class LocalHttpServerTest {
         return mapOf("authorization" to "Bearer ${SettingsStore.generateToken(mockContext)}")
     }
 
+    private fun fleetHeaders(method: String, path: String): Map<String, String> {
+        val trust = SettingsStore.ensureFleetTrust(mockContext)
+        val timestamp = System.currentTimeMillis().toString()
+        val nonce = "test-nonce-${java.util.UUID.randomUUID()}"
+        val mac = SettingsStore.fleetRequestMac(mockContext, method, path, timestamp, nonce)!!
+        return mapOf(
+            "x-droidmesh-fleet-id" to trust.id,
+            "x-droidmesh-fleet-time" to timestamp,
+            "x-droidmesh-fleet-nonce" to nonce,
+            "x-droidmesh-fleet-mac" to mac
+        )
+    }
+
 
 
     // [PROGRAMMATIC] API-TEST-001: LocalHttpServer status endpoint
@@ -534,10 +547,14 @@ class LocalHttpServerTest {
         // all. Declared sender_ip is deliberately a different, attacker-controlled-looking address
         // from the real observed source (mockSession's fixed "192.168.40.100") to prove this path
         // ignores it too.
+        SettingsStore.setPassword(mockContext, "secret123")
+        val payload = JSONObject().put("sender_ip", "192.168.50.10").put("sender_port", 2325)
+            .put("mesh_id", "googletv").put("mesh_name", "Google TV").put("reciprocal", false)
         val handshakeSession = mockSession(
             uri = "/api/mesh/handshake",
             method = NanoHTTPD.Method.POST,
-            postBody = """{"sender_ip": "192.168.50.10", "sender_port": 2325, "mesh_id": "googletv", "mesh_name": "Google TV", "reciprocal": false}"""
+            headers = fleetHeaders("POST", "/api/mesh/handshake"),
+            postBody = SettingsStore.sealForFleet(mockContext, payload).toString()
         )
         val response = server.serve(handshakeSession)
         assertEquals(NanoHTTPD.Response.Status.OK, response.status)
@@ -553,70 +570,81 @@ class LocalHttpServerTest {
 
     @Test
     fun testMeshConfigGetAndSyncEndpoints() {
-        // [API-BEHAVE-027] With a real password set locally, GET /api/mesh/config must never leak
-        // auth_secret/web_password_hash/web_password_salt -- gitea#31, live-fleet-confirmed leak.
+        // [FT-TEST-003] Fleet config is unavailable to unauthenticated LAN callers and encrypted
+        // to a paired peer; only the peer can decrypt the shared admin verifier/secret.
         SettingsStore.setPassword(mockContext, "localAdminPassword")
-        SettingsStore.generateToken(mockContext)
 
-        // 1. Initial GET config
-        val getSession = mockSession("/api/mesh/config")
+        val denied = server.serve(mockSession("/api/mesh/config"))
+        assertEquals(NanoHTTPD.Response.Status.UNAUTHORIZED, denied.status)
+
+        // 1. Initial GET config is a fleet envelope.
+        val getSession = mockSession("/api/mesh/config", headers = fleetHeaders("GET", "/api/mesh/config"))
         val getRes = server.serve(getSession)
         assertEquals(NanoHTTPD.Response.Status.OK, getRes.status)
-        val getJson = JSONObject(getRes.data?.readBytes()?.toString(Charsets.UTF_8) ?: "")
+        val getJson = SettingsStore.openFromFleet(mockContext, JSONObject(getRes.data?.readBytes()?.toString(Charsets.UTF_8) ?: ""))!!
         val getConfig = getJson.getJSONObject("config")
-        assertFalse(getConfig.has("auth_secret"))
-        assertFalse(getConfig.has("web_password_hash"))
-        assertFalse(getConfig.has("web_password_salt"))
+        assertTrue(getConfig.has("auth_secret"))
 
         // 2. Incoming newer config via /api/mesh/sync-config
         // SET-BEHAVE-009 (gitea#60): config_version must be plausibly close to "now" -- an
         // implausibly-future value like the old 2000000000000L literal here would now be rejected
         // outright by the 24h future-skew ceiling, so this uses a merely-newer-than-current value.
         val syncedConfigVersion = SettingsStore.getConfigVersion(mockContext) + 1000L
-        val syncPayload = JSONObject().apply {
+        val syncPayload = SettingsStore.exportFleetConfigJson(mockContext).apply {
             put("config_version", syncedConfigVersion)
-            put("web_server_enabled", true)
             put("web_server_port", 2326)
-            put("web_password_hash", "testhash123")
-            put("web_password_salt", "testsalt123")
-            put("auth_secret", "testsecret123")
             val seedsArr = org.json.JSONArray().apply {
                 put("192.168.40.250:2326")
                 put("192.168.50.64:2326")
             }
             put("cross_vlan_seeds", seedsArr)
+            put("persistent_connections", seedsArr)
         }
 
         val syncSession = mockSession(
             uri = "/api/mesh/sync-config",
             method = NanoHTTPD.Method.POST,
-            postBody = syncPayload.toString()
+            headers = fleetHeaders("POST", "/api/mesh/sync-config"),
+            postBody = SettingsStore.sealForFleet(mockContext, JSONObject().put("config", syncPayload)).toString()
         )
         val syncRes = server.serve(syncSession)
         assertEquals(NanoHTTPD.Response.Status.OK, syncRes.status)
 
-        // Verify that SettingsStore reflects the synced values -- except credential fields, which
-        // [SET-BEHAVE-007] never applies from an incoming sync payload (gitea#32: this same payload
-        // shape, unauthenticated, previously let a remote caller overwrite the local admin password
-        // with its own attacker-supplied hash/secret and have it mesh-propagate). The real local
-        // password set at the top of this test must survive the sync completely unchanged.
+        // Verify that the authenticated fleet payload applied.
         assertEquals(2326, SettingsStore.getWebServerPort(mockContext))
         assertTrue(SettingsStore.isPasswordSet(mockContext))
         assertTrue(SettingsStore.verifyPassword(mockContext, "localAdminPassword"))
         assertTrue(SettingsStore.getPersistentConnections(mockContext).contains("192.168.50.64:2326"))
         assertEquals(syncedConfigVersion, SettingsStore.getConfigVersion(mockContext))
 
-        // 3. A subsequent GET must still never leak credentials -- a leak introduced only on the
-        // post-sync code path would have escaped the pre-sync-only check above.
-        val getAfterSyncSession = mockSession("/api/mesh/config")
+        // 3. A subsequent paired GET remains encrypted.
+        val getAfterSyncSession = mockSession("/api/mesh/config", headers = fleetHeaders("GET", "/api/mesh/config"))
         val getAfterSyncRes = server.serve(getAfterSyncSession)
         assertEquals(NanoHTTPD.Response.Status.OK, getAfterSyncRes.status)
-        val getAfterSyncConfig = JSONObject(
+        val getAfterSyncConfig = SettingsStore.openFromFleet(mockContext, JSONObject(
             getAfterSyncRes.data?.readBytes()?.toString(Charsets.UTF_8) ?: ""
-        ).getJSONObject("config")
-        assertFalse(getAfterSyncConfig.has("auth_secret"))
-        assertFalse(getAfterSyncConfig.has("web_password_hash"))
-        assertFalse(getAfterSyncConfig.has("web_password_salt"))
+        ))!!.getJSONObject("config")
+        assertTrue(getAfterSyncConfig.has("auth_secret"))
+    }
+
+    // [PROGRAMMATIC] FT-TEST-006: pairing is not a pre-password bootstrap bypass.
+    @Test
+    fun testFleetTrustEndpointsRequireAnExistingAdminPassword() {
+        val code = "dm1_" + "A".repeat(43)
+        val response = server.serve(mockSession(
+            "/api/fleet/trust/export", NanoHTTPD.Method.POST,
+            postBody = JSONObject().put("pairing_code", code).toString()
+        ))
+        assertEquals(NanoHTTPD.Response.Status.UNAUTHORIZED, response.status)
+    }
+
+    // [PROGRAMMATIC] FT-TEST-007: a captured fleet proof cannot be replayed inside its time window.
+    @Test
+    fun testFleetRequestNonceCannotBeReplayed() {
+        SettingsStore.setPassword(mockContext, "secret123")
+        val headers = fleetHeaders("GET", "/api/mesh/config")
+        assertEquals(NanoHTTPD.Response.Status.OK, server.serve(mockSession("/api/mesh/config", headers = headers)).status)
+        assertEquals(NanoHTTPD.Response.Status.UNAUTHORIZED, server.serve(mockSession("/api/mesh/config", headers = headers)).status)
     }
 
     // [PROGRAMMATIC] API-TEST-005: Mesh Library GET and POST endpoints
@@ -1457,7 +1485,7 @@ class LocalHttpServerTest {
     }
 
     // [PROGRAMMATIC] API-TEST-041: Public allowlist endpoints (HTML shell, auth status, login, logout,
-    // and mesh gossip sync) succeed without auth even when password is set.
+    // succeed without auth even when password is set.
     @Test
     fun testPublicAllowlistEndpointsSucceedWithoutAuthWhenPasswordSet() {
         SettingsStore.setPassword(mockContext, "secret123")
@@ -1487,20 +1515,6 @@ class LocalHttpServerTest {
         val logoutRes = server.serve(logoutSession)
         assertEquals(NanoHTTPD.Response.Status.OK, logoutRes.status)
 
-        // 6. GET /api/mesh/config (mesh pull)
-        val meshConfigSession = mockSession("/api/mesh/config")
-        val meshConfigRes = server.serve(meshConfigSession)
-        assertEquals(NanoHTTPD.Response.Status.OK, meshConfigRes.status)
-
-        // 7. POST /api/mesh/sync-config (mesh push)
-        val syncConfigSession = mockSession("/api/mesh/sync-config", method = NanoHTTPD.Method.POST, postBody = """{"config_version":1}""")
-        val syncConfigRes = server.serve(syncConfigSession)
-        assertEquals(NanoHTTPD.Response.Status.OK, syncConfigRes.status)
-
-        // 8. POST /api/mesh/handshake (mesh handshake)
-        val handshakeSession = mockSession("/api/mesh/handshake", method = NanoHTTPD.Method.POST, postBody = """{"sender_ip":"192.168.1.100"}""")
-        val handshakeRes = server.serve(handshakeSession)
-        assertEquals(NanoHTTPD.Response.Status.OK, handshakeRes.status)
     }
 
     // [PROGRAMMATIC] API-TEST-042: GET / with Accept: application/json returns 401 when unauthenticated.
@@ -1841,4 +1855,3 @@ class LocalHttpServerTest {
         )
     }
 }
-

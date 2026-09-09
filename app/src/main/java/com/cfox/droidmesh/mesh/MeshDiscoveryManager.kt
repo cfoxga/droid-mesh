@@ -31,6 +31,7 @@ import java.net.InetSocketAddress
 import java.net.NetworkInterface
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
+import java.util.UUID
 
 class MeshDiscoveryManager(
     private val context: Context,
@@ -241,8 +242,9 @@ class MeshDiscoveryManager(
 
     suspend fun pullConfigFromPeer(ip: String, port: Int) = withContext(Dispatchers.IO) {
         try {
+            if (!SettingsStore.isFleetTrusted(context)) return@withContext
             val url = "http://$ip:$port/api/mesh/config"
-            val req = Request.Builder()
+            val req = fleetRequest(url, "/api/mesh/config")
                 .url(url)
                 .header("Accept", "application/json")
                 .header("User-Agent", "DroidMesh-ConfigSync")
@@ -250,9 +252,9 @@ class MeshDiscoveryManager(
             httpClient.newCall(req).execute().use { res ->
                 if (res.isSuccessful) {
                     val body = res.body?.string() ?: return@use
-                    val json = JSONObject(body)
+                    val json = SettingsStore.openFromFleet(context, JSONObject(body)) ?: return@use
                     val config = json.optJSONObject("config") ?: json
-                    val result = SettingsStore.importConfigJson(context, config)
+                    val result = SettingsStore.importConfigJson(context, config, trustedFleet = true)
                     if (result.applied) {
                         Logger.i("Pulled newer mesh config v${result.newVersion} from $ip:$port (portChanged=${result.portChanged}, pwdChanged=${result.passwordChanged}, seedsChanged=${result.seedsChanged})")
                         sendBeacon()
@@ -266,11 +268,13 @@ class MeshDiscoveryManager(
 
     suspend fun pushConfigToPeer(ip: String, port: Int, configJson: JSONObject = SettingsStore.exportConfigJson(context)) = withContext(Dispatchers.IO) {
         try {
+            if (!SettingsStore.isFleetTrusted(context)) return@withContext
             val url = "http://$ip:$port/api/mesh/sync-config"
             val mediaType = "application/json; charset=utf-8".toMediaType()
-            val req = Request.Builder()
+            val envelope = SettingsStore.sealForFleet(context, JSONObject().put("config", SettingsStore.exportFleetConfigJson(context)))
+            val req = fleetPostRequest(url, "/api/mesh/sync-config")
                 .url(url)
-                .post(configJson.toString().toRequestBody(mediaType))
+                .post(envelope.toString().toRequestBody(mediaType))
                 .header("User-Agent", "DroidMesh-ConfigSync")
                 .build()
             httpClient.newCall(req).execute().use { res ->
@@ -373,10 +377,41 @@ class MeshDiscoveryManager(
         }
     }
 
+    /** Adds a short-lived authenticated fleet identity to an encrypted control-plane request. */
+    private fun fleetRequest(url: String, path: String): Request.Builder {
+        val timestamp = System.currentTimeMillis().toString()
+        val nonce = UUID.randomUUID().toString()
+        val trust = SettingsStore.getFleetTrust(context)
+            ?: throw IllegalStateException("Fleet trust has not been paired")
+        val mac = SettingsStore.fleetRequestMac(context, "GET", path, timestamp, nonce)
+            ?: throw IllegalStateException("Fleet request signing unavailable")
+        // Request method is corrected below for POST requests by [fleetPostRequest].
+        return Request.Builder().url(url)
+            .header("X-DroidMesh-Fleet-Id", trust.id)
+            .header("X-DroidMesh-Fleet-Time", timestamp)
+            .header("X-DroidMesh-Fleet-Nonce", nonce)
+            .header("X-DroidMesh-Fleet-Mac", mac)
+    }
+
+    private fun fleetPostRequest(url: String, path: String): Request.Builder {
+        val timestamp = System.currentTimeMillis().toString()
+        val nonce = UUID.randomUUID().toString()
+        val trust = SettingsStore.getFleetTrust(context)
+            ?: throw IllegalStateException("Fleet trust has not been paired")
+        val mac = SettingsStore.fleetRequestMac(context, "POST", path, timestamp, nonce)
+            ?: throw IllegalStateException("Fleet request signing unavailable")
+        return Request.Builder().url(url)
+            .header("X-DroidMesh-Fleet-Id", trust.id)
+            .header("X-DroidMesh-Fleet-Time", timestamp)
+            .header("X-DroidMesh-Fleet-Nonce", nonce)
+            .header("X-DroidMesh-Fleet-Mac", mac)
+    }
+
     suspend fun syncWithPersistentConnection(connection: String) = withContext(Dispatchers.IO) {
+        if (!SettingsStore.isFleetTrusted(context)) return@withContext
         val normalized = normalizeConnectionAddress(connection)
         val url = "http://$normalized/api/mesh"
-        val request = Request.Builder()
+        val request = fleetRequest(url, "/api/mesh")
             .url(url)
             .header("Accept", "application/json")
             .header("User-Agent", "DroidMesh-Discovery")
@@ -387,7 +422,8 @@ class MeshDiscoveryManager(
                 throw IllegalStateException("HTTP ${response.code} from connection $connection")
             }
             val body = response.body?.string() ?: return@use
-            val json = JSONObject(body)
+            val json = SettingsStore.openFromFleet(context, JSONObject(body))
+                ?: throw IllegalStateException("Invalid fleet response from connection $connection")
             val peersArray = json.optJSONArray("peers")
             if (peersArray != null) {
                 ingestRemotePeers(peersArray, connection)
@@ -435,6 +471,10 @@ class MeshDiscoveryManager(
     fun addCrossVlanSeed(rawIp: String, reciprocal: Boolean = true): Result<String> = addPersistentConnection(rawIp, reciprocal)
 
     private suspend fun performDiscoveryHandshake(connection: String, reciprocal: Boolean) = withContext(Dispatchers.IO) {
+        if (!SettingsStore.isFleetTrusted(context)) {
+            Logger.w("Pair fleet trust before connecting to $connection")
+            return@withContext
+        }
         val normalized = normalizeConnectionAddress(connection)
         val localIp = getLocalIpAddress() ?: "127.0.0.1"
         val handshakeUrl = "http://$normalized/api/mesh/handshake"
@@ -448,14 +488,15 @@ class MeshDiscoveryManager(
             put("device_id", deviceId)
             put("device_model", deviceModel)
             put("config_version", SettingsStore.getConfigVersion(context))
-            put("config", SettingsStore.exportConfigJson(context))
+            put("config", SettingsStore.exportFleetConfigJson(context))
             put("reciprocal", reciprocal)
         }
 
         val mediaType = "application/json; charset=utf-8".toMediaType()
-        val request = Request.Builder()
+        val envelope = SettingsStore.sealForFleet(context, payload)
+        val request = fleetPostRequest(handshakeUrl, "/api/mesh/handshake")
             .url(handshakeUrl)
-            .post(payload.toString().toRequestBody(mediaType))
+            .post(envelope.toString().toRequestBody(mediaType))
             .header("User-Agent", "DroidMesh-Handshake")
             .build()
 
@@ -463,14 +504,14 @@ class MeshDiscoveryManager(
             if (response.isSuccessful) {
                 val body = response.body?.string()
                 if (!body.isNullOrBlank()) {
-                    val json = JSONObject(body)
+                    val json = SettingsStore.openFromFleet(context, JSONObject(body)) ?: return@use
                     val peersArray = json.optJSONArray("peers")
                     if (peersArray != null) {
                         ingestRemotePeers(peersArray, normalized)
                     }
                     val remoteConfig = json.optJSONObject("config")
                     if (remoteConfig != null) {
-                        SettingsStore.importConfigJson(context, remoteConfig)
+                        SettingsStore.importConfigJson(context, remoteConfig, trustedFleet = true)
                     }
                 }
                 Logger.i("Successfully performed handshake with discovered device $normalized")
@@ -498,7 +539,7 @@ class MeshDiscoveryManager(
         // Import config if provided
         val incomingConfig = json.optJSONObject("config")
         if (incomingConfig != null) {
-            val result = SettingsStore.importConfigJson(context, incomingConfig)
+            val result = SettingsStore.importConfigJson(context, incomingConfig, trustedFleet = true)
             if (result.applied) {
                 Logger.i("Imported config v${result.newVersion} during incoming handshake from $remoteConnection")
             }

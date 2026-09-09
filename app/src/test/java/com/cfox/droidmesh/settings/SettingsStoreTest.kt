@@ -124,6 +124,88 @@ class SettingsStoreTest {
         assertFalse(reimportResult.applied)
     }
 
+    // [PROGRAMMATIC] FT-TEST-001: fleet trust bundles carry the password verifier and
+    // session signing secret only after explicit, locally-authorized pairing.
+    @Test
+    fun testFleetTrustBundleMakesAdminSessionsPortable() {
+        SettingsStore.setPassword(mockContext, "fleet-password")
+        val token = SettingsStore.generateToken(mockContext)
+        val pairingCode = "dm1_" + "A".repeat(43)
+        val bundle = SettingsStore.exportFleetTrustBundle(mockContext, pairingCode)
+
+        inMemoryPrefs.clear()
+        SettingsStore.importFleetTrustBundle(mockContext, bundle, pairingCode)
+
+        assertTrue(SettingsStore.isFleetTrusted(mockContext))
+        assertTrue(SettingsStore.verifyPassword(mockContext, "fleet-password"))
+        assertTrue("A session minted by a fleet peer must validate here", SettingsStore.validateToken(mockContext, token))
+    }
+
+    // [PROGRAMMATIC] FT-TEST-002: configuration gossip is encrypted and authenticated with
+    // the fleet key, so a LAN observer cannot read or alter the app library payload.
+    @Test
+    fun testFleetEnvelopeRejectsWrongKeyAndTampering() {
+        SettingsStore.setPassword(mockContext, "fleet-password")
+        SettingsStore.ensureFleetTrust(mockContext)
+        val envelope = SettingsStore.sealForFleet(mockContext, JSONObject().put("managed", true))
+        assertTrue(SettingsStore.openFromFleet(mockContext, envelope)!!.getBoolean("managed"))
+
+        val tampered = JSONObject(envelope.toString()).put("ciphertext", "AAAA")
+        assertNull(SettingsStore.openFromFleet(mockContext, tampered))
+    }
+
+    // [PROGRAMMATIC] FT-TEST-003: an authenticated fleet update owns all fields for the
+    // specified package but a partial source cannot erase another package in that mesh.
+    @Test
+    fun testTrustedFleetImportConvergesLibraryWithoutDroppingOmittedPackages() {
+        SettingsStore.setMeshAppConfig(mockContext, "kiosk", SettingsStore.MeshAppConfig("com.example.a", "A", managed = false, autoInstall = false, downloadUrl = ""))
+        SettingsStore.setMeshAppConfig(mockContext, "kiosk", SettingsStore.MeshAppConfig("com.example.b", "B", managed = true, autoInstall = true, downloadUrl = "https://old.example/b.apk"))
+        val incoming = SettingsStore.exportConfigJson(mockContext).apply {
+            put("config_version", SettingsStore.getConfigVersion(mockContext) + 1)
+            put("mesh_app_libraries", JSONObject().put("kiosk", JSONObject().put("com.example.a", SettingsStore.MeshAppConfig(
+                "com.example.a", "A", managed = true, autoInstall = true, targetVersion = "42", downloadUrl = "https://new.example/a.apk"
+            ).toJson())))
+        }
+
+        assertTrue(SettingsStore.importConfigJson(mockContext, incoming, trustedFleet = true).applied)
+        val library = SettingsStore.getMeshAppLibrary(mockContext, "kiosk")
+        assertTrue(library.getValue("com.example.a").managed)
+        assertTrue(library.getValue("com.example.a").autoInstall)
+        assertEquals("https://new.example/a.apk", library.getValue("com.example.a").downloadUrl)
+        assertEquals("https://old.example/b.apk", library.getValue("com.example.b").downloadUrl)
+    }
+
+    // [PROGRAMMATIC] FT-TEST-005: a stale peer configuration cannot resurrect a token revoked
+    // locally by rolling token_epoch backward.
+    @Test
+    fun testTrustedFleetImportCannotRollbackTokenEpoch() {
+        SettingsStore.setPassword(mockContext, "fleet-password")
+        val revokedToken = SettingsStore.generateToken(mockContext)
+        SettingsStore.bumpTokenEpoch(mockContext)
+        val staleConfig = SettingsStore.exportFleetConfigJson(mockContext).apply {
+            put("config_version", SettingsStore.getConfigVersion(mockContext) + 1)
+            put("token_epoch", 0L)
+        }
+
+        assertTrue(SettingsStore.importConfigJson(mockContext, staleConfig, trustedFleet = true).applied)
+        assertFalse(SettingsStore.validateToken(mockContext, revokedToken))
+    }
+
+    // [PROGRAMMATIC] FT-TEST-008: a new password-signing secret starts a new epoch namespace;
+    // a prior local logout must not reject sessions minted after the authenticated rotation.
+    @Test
+    fun testTrustedSecretRotationUsesIncomingEpochNamespace() {
+        SettingsStore.setPassword(mockContext, "fleet-password")
+        SettingsStore.bumpTokenEpoch(mockContext)
+        val rotated = SettingsStore.exportFleetConfigJson(mockContext).apply {
+            put("config_version", SettingsStore.getConfigVersion(mockContext) + 1)
+            put("auth_secret", "ab".repeat(32))
+            put("token_epoch", 0L)
+        }
+        assertTrue(SettingsStore.importConfigJson(mockContext, rotated, trustedFleet = true).applied)
+        assertTrue("New-secret session must validate under the imported epoch", SettingsStore.validateToken(mockContext, SettingsStore.generateToken(mockContext)))
+    }
+
     // [PROGRAMMATIC] SET-TEST-001: Password verification
     // [PROGRAMMATIC] SET-TEST-002: Token generation and validation
     // [PROGRAMMATIC] SET-TEST-007/012: credential material stays local, never syncs via config import

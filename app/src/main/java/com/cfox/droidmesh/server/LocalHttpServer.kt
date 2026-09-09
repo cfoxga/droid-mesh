@@ -157,10 +157,12 @@ class LocalHttpServer(
         // itself before it exists.
         if (!isPublicEndpoint(session)) {
             val passwordSet = SettingsStore.isPasswordSet(context)
+            val fleetAuthorized = isFleetControlEndpoint(session) && isFleetAuthorized(session)
+            val freshFleetRequest = fleetAuthorized && consumeFleetNonce(session)
             val denied = if (!passwordSet) {
-                isStateChangingEndpoint(session)
+                isStateChangingEndpoint(session) && !freshFleetRequest
             } else {
-                !isAuthorized(session)
+                !isAuthorized(session) && !freshFleetRequest
             }
             if (denied) {
                 val message = if (!passwordSet) {
@@ -226,14 +228,16 @@ class LocalHttpServer(
                 uri == "/api/system/provisioning/repair" && method == Method.POST -> handleProvisioningRepair(session)
 
                 // Peer Mesh Fleet
-                (uri == "/mesh" || uri == "/peers" || uri == "/api/mesh") && method == Method.GET -> handleMesh()
+                (uri == "/mesh" || uri == "/peers" || uri == "/api/mesh") && method == Method.GET -> handleMesh(session)
                 (uri == "/api/mesh/library" || uri == "/mesh/library") && method == Method.GET -> handleMeshLibraryGet(session)
                 (uri == "/api/mesh/library" || uri == "/mesh/library") && method == Method.POST -> handleMeshLibraryPost(session)
-                uri == "/api/mesh/config" && method == Method.GET -> handleMeshConfigGet()
+                uri == "/api/mesh/config" && method == Method.GET -> handleMeshConfigGet(session)
                 uri == "/api/mesh/sync-config" && method == Method.POST -> handleMeshConfigSync(session)
                 uri == "/api/mesh/beacon" && (method == Method.POST || method == Method.GET) -> handleMeshBeacon(session)
                 uri == "/api/mesh/connect" && method == Method.POST -> handleMeshConnect(session)
                 uri == "/api/mesh/handshake" && method == Method.POST -> handleMeshHandshake(session)
+                uri == "/api/fleet/trust/export" && method == Method.POST -> handleFleetTrustExport(session)
+                uri == "/api/fleet/trust/import" && method == Method.POST -> handleFleetTrustImport(session)
                 (uri == "/api/mesh/seeds" || uri == "/api/mesh/persistent-connections") && method == Method.GET -> handleMeshPersistentConnectionsGet()
                 (uri == "/api/mesh/seeds" || uri == "/api/mesh/seeds/remove" || uri == "/api/mesh/persistent-connections" || uri == "/api/mesh/persistent-connections/remove") && (method == Method.DELETE || method == Method.POST) -> handleMeshPersistentConnectionsModify(session)
                 uri == "/api/mesh/create" && method == Method.POST -> handleMeshCreate(session)
@@ -316,6 +320,26 @@ class LocalHttpServer(
         return SettingsStore.validateToken(context, token)
     }
 
+    private fun isFleetControlEndpoint(session: IHTTPSession): Boolean = when (session.uri) {
+        "/api/mesh", "/api/mesh/config", "/api/mesh/sync-config", "/api/mesh/handshake" -> true
+        else -> false
+    }
+
+    private fun isFleetAuthorized(session: IHTTPSession): Boolean {
+        val fleetId = session.headers["x-droidmesh-fleet-id"] ?: session.headers["X-DroidMesh-Fleet-Id"]
+        val trust = SettingsStore.getFleetTrust(context) ?: return false
+        if (fleetId != trust.id) return false
+        val timestamp = session.headers["x-droidmesh-fleet-time"] ?: session.headers["X-DroidMesh-Fleet-Time"]
+        val nonce = session.headers["x-droidmesh-fleet-nonce"] ?: session.headers["X-DroidMesh-Fleet-Nonce"]
+        val mac = session.headers["x-droidmesh-fleet-mac"] ?: session.headers["X-DroidMesh-Fleet-Mac"]
+        return SettingsStore.validateFleetRequest(context, session.method.name, session.uri, timestamp, nonce, mac)
+    }
+
+    private fun consumeFleetNonce(session: IHTTPSession): Boolean {
+        val nonce = session.headers["x-droidmesh-fleet-nonce"] ?: session.headers["X-DroidMesh-Fleet-Nonce"] ?: return false
+        return SettingsStore.consumeFleetNonce(context, nonce)
+    }
+
     private fun isPublicEndpoint(session: IHTTPSession): Boolean {
         val uri = session.uri
         val method = session.method
@@ -334,11 +358,6 @@ class LocalHttpServer(
         if (uri == "/api/auth/status" && method == Method.GET) return true
         if (uri == "/api/login" && method == Method.POST) return true
         if (uri == "/api/logout" && method == Method.POST) return true
-
-        // Mesh Gossip Protocol endpoints (API-BEHAVE-027)
-        if (uri == "/api/mesh/config" && method == Method.GET) return true
-        if (uri == "/api/mesh/sync-config" && method == Method.POST) return true
-        if (uri == "/api/mesh/handshake" && method == Method.POST) return true
 
         return false
     }
@@ -994,12 +1013,12 @@ class LocalHttpServer(
         return jsonResponse(Response.Status.OK, json)
     }
 
-    private fun handleMesh(): Response {
+    private fun handleMesh(session: IHTTPSession): Response {
         val grouped = meshManager?.getMeshesGrouped()
         if (grouped != null) {
             grouped.put("status", "ok")
             grouped.put("meshPort", MeshDiscoveryManager.MESH_PORT)
-            return jsonResponse(Response.Status.OK, grouped)
+            return fleetOrJson(session, grouped)
         }
 
         val peers = meshManager?.peersFlow?.value ?: emptyList()
@@ -1013,7 +1032,7 @@ class LocalHttpServer(
             }
             put("peers", arr)
         }
-        return jsonResponse(Response.Status.OK, json)
+        return fleetOrJson(session, json)
     }
 
     private fun handleMeshLibraryGet(session: IHTTPSession): Response {
@@ -1116,7 +1135,10 @@ class LocalHttpServer(
     }
 
     private fun handleMeshHandshake(session: IHTTPSession): Response {
-        val body = parseJsonBody(session)
+        val envelope = parseJsonBody(session)
+        val body = SettingsStore.openFromFleet(context, envelope) ?: return jsonResponse(
+            Response.Status.UNAUTHORIZED, JSONObject().put("status", "error").put("error", "Invalid fleet envelope")
+        )
         val senderIp = session.remoteIpAddress ?: "127.0.0.1"
         val responseJson = if (meshManager != null) {
             meshManager.handleIncomingHandshake(body, senderIp)
@@ -1130,21 +1152,25 @@ class LocalHttpServer(
             JSONObject()
         }
         responseJson.put("status", "ok")
-        return jsonResponse(Response.Status.OK, responseJson)
+        responseJson.put("config", SettingsStore.exportFleetConfigJson(context))
+        return fleetOrJson(session, responseJson)
     }
 
-    private fun handleMeshConfigGet(): Response {
+    private fun handleMeshConfigGet(session: IHTTPSession): Response {
         val json = JSONObject().apply {
             put("status", "ok")
-            put("config", SettingsStore.exportConfigJson(context))
+            put("config", if (isFleetAuthorized(session)) SettingsStore.exportFleetConfigJson(context) else SettingsStore.exportConfigJson(context))
         }
-        return jsonResponse(Response.Status.OK, json)
+        return fleetOrJson(session, json)
     }
 
     private fun handleMeshConfigSync(session: IHTTPSession): Response {
-        val body = parseJsonBody(session)
+        val envelope = parseJsonBody(session)
+        val body = SettingsStore.openFromFleet(context, envelope) ?: return jsonResponse(
+            Response.Status.UNAUTHORIZED, JSONObject().put("status", "error").put("error", "Invalid fleet envelope")
+        )
         val configJson = body.optJSONObject("config") ?: body
-        val result = SettingsStore.importConfigJson(context, configJson)
+        val result = SettingsStore.importConfigJson(context, configJson, trustedFleet = true)
         if (result.applied) {
             Logger.i("Applied incoming mesh config v${result.newVersion} via sync API from ${session.remoteIpAddress} (portChanged=${result.portChanged}, pwdChanged=${result.passwordChanged}, seedsChanged=${result.seedsChanged})")
             meshManager?.triggerBeacon()
@@ -1159,8 +1185,37 @@ class LocalHttpServer(
             put("seeds_changed", result.seedsChanged)
             put("config_version", SettingsStore.getConfigVersion(context))
         }
-        return jsonResponse(Response.Status.OK, json)
+        return fleetOrJson(session, json)
     }
+
+    private fun handleFleetTrustExport(session: IHTTPSession): Response {
+        if (!SettingsStore.isPasswordSet(context) || !isAuthorized(session)) return unauthorizedResponse()
+        val code = parseJsonBody(session).optString("pairing_code")
+        return try {
+            jsonResponse(Response.Status.OK, JSONObject().put("status", "ok").put("bundle", SettingsStore.exportFleetTrustBundle(context, code)))
+        } catch (e: IllegalArgumentException) {
+            jsonResponse(Response.Status.BAD_REQUEST, JSONObject().put("status", "error").put("error", e.message))
+        }
+    }
+
+    private fun handleFleetTrustImport(session: IHTTPSession): Response {
+        if (!SettingsStore.isPasswordSet(context) || !isAuthorized(session)) return unauthorizedResponse()
+        val body = parseJsonBody(session)
+        return try {
+            SettingsStore.importFleetTrustBundle(context, body.getJSONObject("bundle"), body.optString("pairing_code"))
+            jsonResponse(Response.Status.OK, JSONObject().put("status", "ok").put("message", "Joined fleet trust domain"))
+        } catch (e: Exception) {
+            jsonResponse(Response.Status.BAD_REQUEST, JSONObject().put("status", "error").put("error", "Invalid pairing bundle or code"))
+        }
+    }
+
+    private fun unauthorizedResponse(): Response = jsonResponse(
+        Response.Status.UNAUTHORIZED, JSONObject().put("status", "error").put("error", "Unauthorized")
+    )
+
+    private fun fleetOrJson(session: IHTTPSession, json: JSONObject): Response =
+        if (isFleetAuthorized(session)) jsonResponse(Response.Status.OK, SettingsStore.sealForFleet(context, json))
+        else jsonResponse(Response.Status.OK, json)
 
     private fun handleMeshPersistentConnectionsGet(): Response {
         val connections = SettingsStore.getPersistentConnections(context)
@@ -1548,4 +1603,3 @@ class LocalHttpServer(
         return res
     }
 }
-

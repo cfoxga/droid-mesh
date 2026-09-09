@@ -882,8 +882,8 @@ input:checked + .slider:before {
             <span class="settings-row-help">Pair a separately configured device once with a short code. After pairing, passwords, App Libraries, and cross-VLAN topology synchronize securely.</span>
           </div>
           <div class="settings-row-value">
-            <button type="button" class="btn btn-secondary btn-sm" onclick="exportFleetPairingBundle()">Create Pairing Bundle</button>
-            <button type="button" class="btn btn-secondary btn-sm" onclick="importFleetPairingBundle()">Join Fleet</button>
+            <button type="button" class="btn btn-secondary btn-sm" onclick="showFleetExportModal()">Create Pairing Bundle</button>
+            <button type="button" class="btn btn-secondary btn-sm" onclick="showFleetImportModal()">Join Fleet</button>
           </div>
         </div>
         <div class="settings-row">
@@ -1056,6 +1056,40 @@ input:checked + .slider:before {
         </div>
       </div>
     </section>
+
+    <!-- Password Change Modal -->
+    <div id="fleetExportModal" class="modal-backdrop hidden">
+      <div class="modal-card" style="max-width: 620px;">
+        <div style="text-align: center;">
+          <h2 style="font-size: 18px; font-weight: 600;">Create Fleet Pairing Bundle</h2>
+          <p style="color: var(--text-secondary); font-size: 13px; margin-top: 4px;">Copy both values to the device joining this fleet. The bundle is encrypted and the code is generated securely.</p>
+        </div>
+        <div id="fleetExportMsg" class="banner hidden"></div>
+        <div id="fleetExportValues" class="hidden" style="display: flex; flex-direction: column; gap: 12px;">
+          <div class="field-group"><label class="field-label" for="fleetPairingCode">Pairing Code</label><input id="fleetPairingCode" class="field" type="text" readonly></div>
+          <div class="field-group"><label class="field-label" for="fleetPairingBundle">Encrypted Bundle</label><textarea id="fleetPairingBundle" class="field" rows="7" readonly style="font-family: monospace; font-size: 11px;"></textarea></div>
+        </div>
+        <div style="display: flex; gap: 8px; justify-content: flex-end;">
+          <button type="button" class="btn btn-secondary" onclick="closeModal('fleetExportModal')">Close</button>
+          <button type="button" id="btnCreateFleetBundle" class="btn btn-primary" onclick="exportFleetPairingBundle()">Create Bundle</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="fleetImportModal" class="modal-backdrop hidden">
+      <div class="modal-card" style="max-width: 620px;">
+        <div style="text-align: center;">
+          <h2 style="font-size: 18px; font-weight: 600;">Join Fleet</h2>
+          <p style="color: var(--text-secondary); font-size: 13px; margin-top: 4px;">Paste the encrypted bundle and pairing code from the authoritative fleet.</p>
+        </div>
+        <form onsubmit="importFleetPairingBundle(event)" style="display: flex; flex-direction: column; gap: 12px;">
+          <div class="field-group"><label class="field-label" for="fleetImportCode">Pairing Code</label><input id="fleetImportCode" class="field" type="text" required></div>
+          <div class="field-group"><label class="field-label" for="fleetImportBundle">Encrypted Bundle</label><textarea id="fleetImportBundle" class="field" rows="7" style="font-family: monospace; font-size: 11px;" required></textarea></div>
+          <div id="fleetImportMsg" class="banner hidden"></div>
+          <div style="display: flex; gap: 8px; justify-content: flex-end;"><button type="button" class="btn btn-secondary" onclick="closeModal('fleetImportModal')">Cancel</button><button type="submit" class="btn btn-primary">Join Fleet</button></div>
+        </form>
+      </div>
+    </div>
 
     <!-- Password Change Modal -->
     <div id="passwordChangeModal" class="modal-backdrop hidden">
@@ -2562,17 +2596,36 @@ async function exportConfigJson() {
   }
 }
 
+function showFleetExportModal() {
+  document.getElementById('fleetExportModal').classList.remove('hidden');
+  document.getElementById('fleetExportValues').classList.add('hidden');
+  document.getElementById('fleetExportMsg').classList.add('hidden');
+}
+
+function showFleetImportModal() {
+  document.getElementById('fleetImportModal').classList.remove('hidden');
+  document.getElementById('fleetImportMsg').classList.add('hidden');
+  document.getElementById('fleetImportCode').focus();
+}
+
 async function exportFleetPairingBundle() {
   const pairingCode = generateFleetPairingCode();
+  const msg = document.getElementById('fleetExportMsg');
+  const button = document.getElementById('btnCreateFleetBundle');
+  button.disabled = true;
   try {
     const data = await apiCall('/api/fleet/trust/export', {
       method: 'POST', body: JSON.stringify({ pairing_code: pairingCode })
     });
-    const bundle = JSON.stringify(data.bundle);
-    await navigator.clipboard.writeText(bundle);
-    alert(`Encrypted pairing bundle copied. Pairing code: ${pairingCode}\n\nOpen the joining device, choose “Join Fleet”, paste the bundle, and enter this code.`);
+    document.getElementById('fleetPairingCode').value = pairingCode;
+    document.getElementById('fleetPairingBundle').value = JSON.stringify(data.bundle);
+    document.getElementById('fleetExportValues').classList.remove('hidden');
   } catch (err) {
-    alert('Failed to create pairing bundle: ' + err.message);
+    msg.className = 'banner banner-rust';
+    msg.textContent = 'Failed to create pairing bundle: ' + err.message;
+    msg.classList.remove('hidden');
+  } finally {
+    button.disabled = false;
   }
 }
 
@@ -2582,19 +2635,23 @@ function generateFleetPairingCode() {
   return 'dm1_' + btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
-async function importFleetPairingBundle() {
-  const bundleText = prompt('Paste the encrypted pairing bundle from the initiating fleet.');
-  if (!bundleText) return;
-  const pairingCode = prompt('Enter the pairing code used to create that bundle.');
-  if (!pairingCode) return;
+async function importFleetPairingBundle(e) {
+  e.preventDefault();
+  const bundleText = document.getElementById('fleetImportBundle').value.trim();
+  const pairingCode = document.getElementById('fleetImportCode').value.trim();
+  const msg = document.getElementById('fleetImportMsg');
   try {
     const data = await apiCall('/api/fleet/trust/import', {
       method: 'POST', body: JSON.stringify({ bundle: JSON.parse(bundleText), pairing_code: pairingCode })
     });
-    alert(data.message || 'Joined fleet trust domain. Refresh this page and reconnect the persistent device if needed.');
+    msg.className = 'banner banner-sage';
+    msg.textContent = data.message || 'Joined fleet trust domain. Refreshing…';
+    msg.classList.remove('hidden');
     window.location.reload();
   } catch (err) {
-    alert('Failed to join fleet: ' + err.message);
+    msg.className = 'banner banner-rust';
+    msg.textContent = 'Failed to join fleet: ' + err.message;
+    msg.classList.remove('hidden');
   }
 }
 

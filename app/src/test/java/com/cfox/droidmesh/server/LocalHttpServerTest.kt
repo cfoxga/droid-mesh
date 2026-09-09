@@ -1451,6 +1451,19 @@ class LocalHttpServerTest {
         assertTrue("Must format update available state as Update with badge-rust", fnBody.contains("badge-rust") && fnBody.contains("'Update'"))
     }
 
+    // [PROGRAMMATIC] UI-TEST-014: Portal WebView has no WebChromeClient, so fleet pairing must
+    // use in-page fields rather than prompt/alert/clipboard browser APIs.
+    @Test
+    fun testFleetPairingUsesInPageModals() {
+        val html = java.io.File("src/main/assets/web/index.html").readText()
+        assertTrue(html.contains("id=\"fleetExportModal\"") && html.contains("id=\"fleetImportModal\""))
+        val exportStart = html.indexOf("async function exportFleetPairingBundle")
+        val importStart = html.indexOf("async function importFleetPairingBundle")
+        val nextFunction = html.indexOf("\nfunction ", importStart + 1)
+        assertFalse(html.substring(exportStart, importStart).contains("navigator.clipboard"))
+        assertFalse(html.substring(importStart, nextFunction).contains("prompt(") || html.substring(importStart, nextFunction).contains("alert("))
+    }
+
     // [PROGRAMMATIC] API-TEST-040: GET /status, /logs, /mesh, /api/settings, /check, /api/mesh/library,
     // and /api/mesh/persistent-connections all return 401 when password is set and unauthenticated.
     @Test

@@ -31,7 +31,8 @@ class AutoInstallService : AccessibilityService() {
             val packageName: String,
             val appName: String,
             val createdAtMillis: Long,
-            val expiresAtMillis: Long
+            val expiresAtMillis: Long,
+            var initialWindowConsumed: Boolean = false
         )
 
         private const val PLAY_STORE_PACKAGE = "com.android.vending"
@@ -60,6 +61,28 @@ class AutoInstallService : AccessibilityService() {
             if (packageName == null || pendingPlayStoreInstall?.packageName == packageName) {
                 pendingPlayStoreInstall = null
             }
+        }
+
+        /**
+         * Claims the one Play Store window transition that may authorize a click.  Claim before
+         * reading an event source: accessibility is allowed to omit that source, and a later
+         * Store transition must never become a substitute target page for this request.
+         */
+        @Synchronized
+        internal fun claimInitialPlayStoreWindow(
+            eventType: Int,
+            nowMillis: Long
+        ): PendingPlayStoreInstall? {
+            val pending = pendingPlayStoreInstall ?: return null
+            if (pending.expiresAtMillis < nowMillis) {
+                pendingPlayStoreInstall = null
+                return null
+            }
+            if (eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED || pending.initialWindowConsumed) {
+                return null
+            }
+            pending.initialWindowConsumed = true
+            return pending
         }
 
         internal fun isEligiblePlayStoreInstallWindow(
@@ -317,18 +340,21 @@ class AutoInstallService : AccessibilityService() {
     }
 
     private fun handlePlayStoreEvent(event: AccessibilityEvent) {
-        val pending = pendingPlayStoreInstall ?: return
         val now = System.currentTimeMillis()
-        if (pending.expiresAtMillis < now) {
-            clearPendingPlayStoreInstall(pending.packageName)
-            Logger.w("Play Store auto-install request expired for ${pending.packageName}")
-            return
-        }
+        val pending = claimInitialPlayStoreWindow(event.eventType, now) ?: return
         // `event.source` belongs to the window that emitted this exact Play Store event. Do not
         // inspect rootInActiveWindow here: it can already belong to another foreground app by the
         // time this handler runs, which would turn a Play Store event into an arbitrary-app click.
-        val root = event.source ?: return
-        val rootPackage = root.packageName?.toString() ?: return
+        val root = event.source ?: run {
+            clearPendingPlayStoreInstall(pending.packageName)
+            Logger.w("Play Store auto-install target page has no accessible root for ${pending.packageName}")
+            return
+        }
+        val rootPackage = root.packageName?.toString() ?: run {
+            clearPendingPlayStoreInstall(pending.packageName)
+            Logger.w("Play Store auto-install target page has no package for ${pending.packageName}")
+            return
+        }
         val visibleLabels = collectVisibleLabels(root)
         if (!isEligiblePlayStoreInstallWindow(event.eventType, PLAY_STORE_PACKAGE, rootPackage, pending, visibleLabels.joinToString("\n"), now)) {
             // Only the initial Play Store window transition is trusted. Do not keep a pending

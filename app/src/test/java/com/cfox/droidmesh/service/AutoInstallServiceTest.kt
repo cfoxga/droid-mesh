@@ -65,6 +65,27 @@ class AutoInstallServiceTest {
         )
     }
 
+    // [PROGRAMMATIC] INST-TEST-024 (negative): the first Store window transition is consumed
+    // before its source is inspected. A source-less first event therefore cannot leave a request
+    // live for a later, same-title Store page to click.
+    @Test
+    fun testSourceLessFirstPlayStoreWindowPreventsLaterWindowFromBeingClaimed() {
+        AutoInstallService.clearPendingPlayStoreInstall()
+        assertTrue(AutoInstallService.beginPlayStoreInstall("nl.giejay.android.tv.immich", "Immich TV"))
+        val first = AutoInstallService.claimInitialPlayStoreWindow(
+            AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED,
+            System.currentTimeMillis()
+        )
+        assertTrue(first != null) // A real handler would now reject its missing event.source.
+        assertFalse(
+            AutoInstallService.claimInitialPlayStoreWindow(
+                AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED,
+                System.currentTimeMillis()
+            ) != null
+        )
+        AutoInstallService.clearPendingPlayStoreInstall()
+    }
+
     private fun fakeNode(): AccessibilityNodeInfo = mock()
 
     /** A root node whose findBy* calls return empty for everything except the given stubs. */

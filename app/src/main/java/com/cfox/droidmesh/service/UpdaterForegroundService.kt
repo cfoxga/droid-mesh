@@ -61,6 +61,14 @@ class UpdaterForegroundService : Service() {
         var activeMeshManager: MeshDiscoveryManager? = null
             private set
 
+        @Volatile
+        private var activeInstance: UpdaterForegroundService? = null
+
+        /** Re-evaluate Store installs when Android finishes binding the accessibility service. */
+        fun wakeMeshAutoActionLoop() {
+            activeInstance?.meshAutoActionTicker?.wake()
+        }
+
         fun startService(context: Context) {
             val intent = Intent(context, UpdaterForegroundService::class.java).apply {
                 action = ACTION_START
@@ -88,6 +96,7 @@ class UpdaterForegroundService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        activeInstance = this
         Logger.i("UpdaterForegroundService onCreate")
         createNotificationChannel()
 
@@ -434,6 +443,7 @@ class UpdaterForegroundService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onDestroy() {
+        if (activeInstance === this) activeInstance = null
         super.onDestroy()
         Logger.i("UpdaterForegroundService onDestroy")
         isRunning = false

@@ -268,6 +268,9 @@ class AutoInstallService : AccessibilityService() {
         super.onServiceConnected()
         isServiceRunning = true
         Logger.i("AutoInstallService connected and active")
+        // The startup auto-action pass can beat Android's asynchronous accessibility bind. Wake
+        // it again now that Store installs can safely be dispatched instead of waiting an hour.
+        UpdaterForegroundService.wakeMeshAutoActionLoop()
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {

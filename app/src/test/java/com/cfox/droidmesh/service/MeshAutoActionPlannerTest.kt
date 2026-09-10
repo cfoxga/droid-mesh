@@ -82,6 +82,23 @@ class MeshAutoActionPlannerTest {
         assertTrue(plan.installs.isEmpty())
     }
 
+    // [PROGRAMMATIC] FLT-TEST-010: Store-origin apps have no APK download URL by design. When
+    // managed + Auto Install and missing, they must still reach the service so it can launch the
+    // Play Store; a sideloaded blank-URL app above remains ineligible.
+    @Test
+    fun testStoreInstallIncludedWhenBlankDownloadUrl() {
+        val library = mapOf(
+            "nl.giejay.android.tv.immich" to cfg(
+                "nl.giejay.android.tv.immich",
+                autoInstall = true,
+                isSideloaded = false,
+                downloadUrl = ""
+            )
+        )
+        val plan = MeshAutoActionPlanner.plan(library, installedPackages = emptySet(), isExcluded = notExcluded)
+        assertEquals(listOf("nl.giejay.android.tv.immich"), plan.installs.map { it.packageName })
+    }
+
     // FLT-TEST-003 (negative): already-installed excludes from installs
     @Test
     fun testInstallExcludedWhenAlreadyInstalled() {

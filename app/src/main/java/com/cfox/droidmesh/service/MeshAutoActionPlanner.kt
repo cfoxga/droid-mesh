@@ -31,7 +31,7 @@ object MeshAutoActionPlanner {
         val installs = library.values.filter { cfg ->
             cfg.managed &&
                 cfg.autoInstall &&
-                cfg.downloadUrl.isNotBlank() &&
+                (cfg.downloadUrl.isNotBlank() || !cfg.isSideloaded) &&
                 cfg.packageName !in installedPackages &&
                 !isExcluded(cfg.packageName)
         }

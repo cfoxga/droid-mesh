@@ -1,6 +1,7 @@
 package com.cfox.droidmesh.service
 
 import android.view.accessibility.AccessibilityNodeInfo
+import android.view.accessibility.AccessibilityEvent
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -20,6 +21,49 @@ import org.mockito.kotlin.whenever
  * [AutoInstallService.isEligibleForGenericAutoClick] queries them.
  */
 class AutoInstallServiceTest {
+
+    // [PROGRAMMATIC] INST-TEST-024: Play Store windows are never fed through the generic
+    // installer auto-click path. The exact Play Store package, a non-expired pending request,
+    // and the requested app's visible title are all required.
+    @Test
+    fun testPlayStoreInstallWindowRequiresExactPendingTarget() {
+        val pending = AutoInstallService.Companion.PendingPlayStoreInstall(
+            packageName = "nl.giejay.android.tv.immich",
+            appName = "Immich TV",
+            createdAtMillis = 0L,
+            expiresAtMillis = 2_000L
+        )
+        assertTrue(
+            AutoInstallService.isEligiblePlayStoreInstallWindow(
+                AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED, "com.android.vending", "com.android.vending", pending, "Immich TV (Unofficial) Install", 1_000L
+            )
+        )
+        assertFalse(
+            AutoInstallService.isEligiblePlayStoreInstallWindow(
+                AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED, "com.android.vending", "com.android.vending", pending, "Downloader Install", 1_000L
+            )
+        )
+        assertFalse(
+            AutoInstallService.isEligiblePlayStoreInstallWindow(
+                AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED, "com.evil.vending", "com.evil.vending", pending, "Immich TV Install", 1_000L
+            )
+        )
+        assertFalse(
+            AutoInstallService.isEligiblePlayStoreInstallWindow(
+                AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED, "com.android.vending", "com.android.vending", pending, "Immich TV Install", 2_001L
+            )
+        )
+        assertFalse(
+            AutoInstallService.isEligiblePlayStoreInstallWindow(
+                AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED, "com.android.vending", "com.evil.other", pending, "Immich TV Install", 1_000L
+            )
+        )
+        assertFalse(
+            AutoInstallService.isEligiblePlayStoreInstallWindow(
+                AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED, "com.android.vending", "com.android.vending", pending, "Immich TV Install", 1_000L
+            )
+        )
+    }
 
     private fun fakeNode(): AccessibilityNodeInfo = mock()
 

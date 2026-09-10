@@ -27,6 +27,57 @@ class AutoInstallService : AccessibilityService() {
         @Volatile
         var pendingInstallPackage: String? = null
 
+        internal data class PendingPlayStoreInstall(
+            val packageName: String,
+            val appName: String,
+            val createdAtMillis: Long,
+            val expiresAtMillis: Long
+        )
+
+        private const val PLAY_STORE_PACKAGE = "com.android.vending"
+        private const val PLAY_STORE_REQUEST_TIMEOUT_MS = 60_000L
+        private const val PLAY_STORE_INITIAL_WINDOW_TIMEOUT_MS = 10_000L
+
+        @Volatile
+        internal var pendingPlayStoreInstall: PendingPlayStoreInstall? = null
+
+        @Synchronized
+        fun beginPlayStoreInstall(packageName: String, appName: String): Boolean {
+            val now = System.currentTimeMillis()
+            val existing = pendingPlayStoreInstall
+            if (existing != null && existing.expiresAtMillis > now) return false
+            pendingPlayStoreInstall = PendingPlayStoreInstall(
+                packageName = packageName,
+                appName = appName,
+                createdAtMillis = now,
+                expiresAtMillis = now + PLAY_STORE_REQUEST_TIMEOUT_MS
+            )
+            return true
+        }
+
+        @Synchronized
+        fun clearPendingPlayStoreInstall(packageName: String? = null) {
+            if (packageName == null || pendingPlayStoreInstall?.packageName == packageName) {
+                pendingPlayStoreInstall = null
+            }
+        }
+
+        internal fun isEligiblePlayStoreInstallWindow(
+            eventType: Int,
+            eventPackage: String,
+            rootPackage: String,
+            pending: PendingPlayStoreInstall?,
+            visibleText: String,
+            nowMillis: Long
+        ): Boolean = eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED &&
+            eventPackage == PLAY_STORE_PACKAGE &&
+            rootPackage == PLAY_STORE_PACKAGE &&
+            pending != null &&
+            nowMillis - pending.createdAtMillis <= PLAY_STORE_INITIAL_WINDOW_TIMEOUT_MS &&
+            pending.expiresAtMillis >= nowMillis &&
+            pending.appName.isNotBlank() &&
+            visibleText.contains(pending.appName, ignoreCase = true)
+
         private val INSTALLER_PACKAGES = setOf(
             "com.android.packageinstaller",
             "com.google.android.packageinstaller",
@@ -223,6 +274,10 @@ class AutoInstallService : AccessibilityService() {
         if (event == null) return
 
         val packageName = event.packageName?.toString() ?: return
+        if (packageName == PLAY_STORE_PACKAGE) {
+            handlePlayStoreEvent(event)
+            return
+        }
         if (!isInstallerPackage(packageName)) {
             return
         }
@@ -255,6 +310,65 @@ class AutoInstallService : AccessibilityService() {
             } catch (e: Exception) {
                 Logger.e("Error inspecting node tree", e)
             }
+        }
+    }
+
+    private fun handlePlayStoreEvent(event: AccessibilityEvent) {
+        val pending = pendingPlayStoreInstall ?: return
+        val now = System.currentTimeMillis()
+        if (pending.expiresAtMillis < now) {
+            clearPendingPlayStoreInstall(pending.packageName)
+            Logger.w("Play Store auto-install request expired for ${pending.packageName}")
+            return
+        }
+        // `event.source` belongs to the window that emitted this exact Play Store event. Do not
+        // inspect rootInActiveWindow here: it can already belong to another foreground app by the
+        // time this handler runs, which would turn a Play Store event into an arbitrary-app click.
+        val root = event.source ?: return
+        val rootPackage = root.packageName?.toString() ?: return
+        val visibleLabels = collectVisibleLabels(root)
+        if (!isEligiblePlayStoreInstallWindow(event.eventType, PLAY_STORE_PACKAGE, rootPackage, pending, visibleLabels.joinToString("\n"), now)) {
+            // Only the initial Play Store window transition is trusted. Do not keep a pending
+            // request alive into a later search, collection, or user-navigation screen that could
+            // happen to mention the same app title.
+            if (event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
+                clearPendingPlayStoreInstall(pending.packageName)
+                Logger.w("Play Store auto-install target page did not appear for ${pending.packageName}")
+            }
+            return
+        }
+        // A detail page has one exact Install node. Search/recommendation surfaces can contain
+        // several; skip those rather than guessing which app an Install button belongs to.
+        val installNode = findExactTextNodes(root, "install").singleOrNull() ?: run {
+            clearPendingPlayStoreInstall(pending.packageName)
+            Logger.w("Play Store auto-install page for ${pending.packageName} has no unique Install action")
+            return
+        }
+        // Play Store resource IDs are obfuscated on Google TV. Do not reuse the generic installer
+        // resource-ID fallback here: this path has proved a single explicit Install label on the
+        // exact Play Store event root for the pending title.
+        if (performClickOnNodeOrParent(installNode, "Play Store Install")) {
+            clearPendingPlayStoreInstall(pending.packageName)
+            Logger.i("Clicked Play Store Install for ${pending.packageName}")
+        }
+    }
+
+    private fun collectVisibleLabels(node: AccessibilityNodeInfo?): List<String> {
+        if (node == null) return emptyList()
+        return buildList {
+            node.text?.toString()?.takeIf { it.isNotBlank() }?.let(::add)
+            node.contentDescription?.toString()?.takeIf { it.isNotBlank() }?.let(::add)
+            for (i in 0 until node.childCount) addAll(collectVisibleLabels(node.getChild(i)))
+        }
+    }
+
+    private fun findExactTextNodes(node: AccessibilityNodeInfo?, target: String): List<AccessibilityNodeInfo> {
+        if (node == null) return emptyList()
+        return buildList {
+            val text = node.text?.toString()?.trim().orEmpty()
+            val contentDesc = node.contentDescription?.toString()?.trim().orEmpty()
+            if (text.equals(target, ignoreCase = true) || contentDesc.equals(target, ignoreCase = true)) add(node)
+            for (i in 0 until node.childCount) addAll(findExactTextNodes(node.getChild(i), target))
         }
     }
 
@@ -432,10 +546,12 @@ class AutoInstallService : AccessibilityService() {
     }
 
     override fun onInterrupt() {
+        clearPendingPlayStoreInstall()
         Logger.w("AutoInstallService interrupted")
     }
 
     override fun onDestroy() {
+        clearPendingPlayStoreInstall()
         super.onDestroy()
         isServiceRunning = false
         Logger.i("AutoInstallService destroyed")

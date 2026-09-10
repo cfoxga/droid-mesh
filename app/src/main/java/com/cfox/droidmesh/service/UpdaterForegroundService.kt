@@ -17,6 +17,7 @@ import com.cfox.droidmesh.mesh.MeshDiscoveryManager
 import com.cfox.droidmesh.server.LocalHttpServer
 import com.cfox.droidmesh.server.UpdateCoordinator
 import com.cfox.droidmesh.installer.AppVersionHelper
+import com.cfox.droidmesh.installer.PlayStoreInstaller
 import com.cfox.droidmesh.settings.SettingsStore
 import com.cfox.droidmesh.utils.Logger
 import com.cfox.droidmesh.utils.ProvisioningAuditor
@@ -248,6 +249,28 @@ class UpdaterForegroundService : Service() {
                         if (!isActive) break
                         val pkg = cfg.packageName
                         val downloadUrl = cfg.downloadUrl.trim()
+                        if (downloadUrl.isBlank()) {
+                            // FLT-BEHAVE-011: a Store-origin entry intentionally has no APK URL.
+                            // It reaches this branch only when !isSideloaded (the planner keeps a
+                            // sideloaded blank-URL entry ineligible), so route it through the
+                            // installed Play Store instead of attempting the APK pipeline.
+                            if (!AutoInstallService.isServiceRunning) {
+                                Logger.w("Play Store auto-install skipped for $pkg: Accessibility service is disabled")
+                                continue
+                            }
+                            if (!AutoInstallService.beginPlayStoreInstall(pkg, cfg.appName)) {
+                                Logger.w("Play Store auto-install already pending; deferring $pkg")
+                                continue
+                            }
+                            val dispatch = PlayStoreInstaller.dispatchInstall(applicationContext, pkg)
+                            if (dispatch.isSuccess) {
+                                Logger.i("Play Store auto-install: opened $pkg (${cfg.appName})")
+                            } else {
+                                AutoInstallService.clearPendingPlayStoreInstall(pkg)
+                                Logger.w("Play Store auto-install: could not open $pkg: ${dispatch.exceptionOrNull()?.message}")
+                            }
+                            continue
+                        }
                         Logger.i("Mesh auto-install: $pkg (${cfg.appName}) is missing — resolving release from $downloadUrl")
                         try {
                             // UPD-BEHAVE-012: downloadUrl is a *releases page*, not an APK. Resolve

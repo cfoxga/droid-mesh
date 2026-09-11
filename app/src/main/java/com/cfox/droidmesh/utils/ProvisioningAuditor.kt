@@ -117,7 +117,27 @@ object ProvisioningAuditor {
         } catch (e: Exception) {
             null
         } ?: return false
-        return services.split(":").any { it.trim().equals(ACCESSIBILITY_SERVICE_COMPONENT, ignoreCase = true) }
+        return services.split(":").any { componentNamesEqual(it, ACCESSIBILITY_SERVICE_COMPONENT) }
+    }
+
+    // PROV-BEHAVE-009: recognizes the relative-dot shorthand ("pkg/.Class") an operator's adb
+    // shell (or `settings put` invoked by hand, as the workstation-run externalCommand text
+    // invites) commonly writes as equal to the fully-qualified form ("pkg/pkg.Class"). Android's
+    // own ComponentName.unflattenFromString and AccessibilityManagerService bind both spellings
+    // identically, but a plain string comparison did not, which left the audit reporting a
+    // correctly-bound service as permanently "missing" and the merge appending a redundant
+    // fully-qualified duplicate on every repair (gitea#82).
+    internal fun componentNamesEqual(a: String, b: String): Boolean =
+        expandComponentName(a).equals(expandComponentName(b), ignoreCase = true)
+
+    private fun expandComponentName(raw: String): String {
+        val trimmed = raw.trim()
+        val slash = trimmed.indexOf('/')
+        if (slash < 0) return trimmed
+        val pkg = trimmed.substring(0, slash)
+        val cls = trimmed.substring(slash + 1)
+        val fullClass = if (cls.startsWith(".")) pkg + cls else cls
+        return "$pkg/$fullClass"
     }
 
     private fun isIgnoringBatteryOptimizations(context: Context): Boolean {
@@ -143,7 +163,7 @@ object ProvisioningAuditor {
         } else {
             normalized.split(":").map { it.trim() }.filter { it.isNotEmpty() }
         }
-        if (current.any { it.equals(ACCESSIBILITY_SERVICE_COMPONENT, ignoreCase = true) }) {
+        if (current.any { componentNamesEqual(it, ACCESSIBILITY_SERVICE_COMPONENT) }) {
             return current.joinToString(":")
         }
         return (current + ACCESSIBILITY_SERVICE_COMPONENT).joinToString(":")

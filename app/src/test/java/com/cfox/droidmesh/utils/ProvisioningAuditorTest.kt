@@ -160,4 +160,58 @@ class ProvisioningAuditorTest {
         assertEquals(ProvisioningAuditor.ACCESSIBILITY_SERVICE_COMPONENT, ProvisioningAuditor.mergeAccessibilityServices("null"))
         assertEquals(ProvisioningAuditor.ACCESSIBILITY_SERVICE_COMPONENT, ProvisioningAuditor.mergeAccessibilityServices(""))
     }
+
+    // PROV-TEST-010 (PROV-BEHAVE-009): the relative-dot shorthand ("pkg/.Class") an operator's adb
+    // shell typically writes is what Android's own ComponentName parser and
+    // AccessibilityManagerService treat as identical to the fully-qualified form -- the merge must
+    // recognize that too, or it appends a redundant fully-qualified duplicate for a service that is
+    // already correctly enabled under the shorthand spelling.
+    @Test
+    fun testMergeAccessibilityServices_recognizesRelativeDotFormAsAlreadyPresent() {
+        val existing = "dev.vodik7.tvquickactions.free/dev.vodik7.tvquickactions.KeyAccessibilityService:" +
+            "com.cfox.droidmesh/.service.AutoInstallService"
+        val merged = ProvisioningAuditor.mergeAccessibilityServices(existing)
+        assertEquals(
+            "the relative-dot entry already satisfies the merge; nothing should be appended",
+            existing,
+            merged
+        )
+    }
+
+    // PROV-TEST-010 (PROV-BEHAVE-009): same relative-dot recognition on the audit read path --
+    // isAccessibilityGranted's underlying component match must not report "missing" for a service
+    // that is actually bound and enabled, just spelled with the shorthand.
+    @Test
+    fun testComponentNamesEqual_recognizesRelativeDotForm() {
+        assertTrue(
+            "relative-dot shorthand must be recognized as the same component as the fully-qualified form",
+            ProvisioningAuditor.componentNamesEqual(
+                "com.cfox.droidmesh/.service.AutoInstallService",
+                ProvisioningAuditor.ACCESSIBILITY_SERVICE_COMPONENT
+            )
+        )
+    }
+
+    @Test
+    fun testComponentNamesEqual_rejectsDifferentComponents() {
+        assertFalse(
+            ProvisioningAuditor.componentNamesEqual(
+                "com.cfox.droidmesh/.service.SomeOtherService",
+                ProvisioningAuditor.ACCESSIBILITY_SERVICE_COMPONENT
+            )
+        )
+    }
+
+    // A same-simple-class-name-in-a-different-package mutant would pass every other test above
+    // (they all vary either the package or the class, never hold the class fixed while swapping
+    // the package) -- this pins the package as part of component identity, not just the class.
+    @Test
+    fun testComponentNamesEqual_rejectsSameClassNameInDifferentPackage() {
+        assertFalse(
+            ProvisioningAuditor.componentNamesEqual(
+                "com.evil.impostor/.service.AutoInstallService",
+                ProvisioningAuditor.ACCESSIBILITY_SERVICE_COMPONENT
+            )
+        )
+    }
 }

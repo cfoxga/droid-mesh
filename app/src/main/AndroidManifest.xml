@@ -19,9 +19,15 @@
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
+    <!-- GTV sticks have no touchscreen; the app is driven by d-pad there,
+         so a store/launcher must not filter or reclassify the install on
+         this implicit feature requirement (gitea#81). -->
+    <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
+
     <application
         android:name=".DroidMeshApp"
         android:allowBackup="false"
+        android:banner="@drawable/tv_banner"
         android:icon="@drawable/ic_notification"
         android:label="@string/app_name"
         android:requestLegacyExternalStorage="true"
@@ -37,6 +43,19 @@
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <!-- The Android TV entry. GTV home launchers (the stock one
+                 and third-party ones such as Projectivy) file an app
+                 under their TV row and draw its banner only when it
+                 answers to this category; without it the app files as a
+                 mobile app with the square icon (gitea#81). A second
+                 intent-filter on the same Activity, so the LAUNCHER
+                 filter above, and every phone/tablet launcher, launch
+                 intent resolution, and recovery path that depends on it,
+                 stays unchanged. -->
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
             </intent-filter>
         </activity>
 

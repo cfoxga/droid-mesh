@@ -4,6 +4,8 @@ import android.content.Context
 import android.os.PowerManager
 import android.provider.Settings
 import com.cfox.droidmesh.installer.AdbLoopbackInstaller
+import com.cfox.droidmesh.service.AutoInstallService
+import kotlinx.coroutines.delay
 
 // PROV-BEHAVE-001/002: audits the three OS-level grants DroidMesh depends on outside its own
 // package (REQUEST_INSTALL_PACKAGES appop, accessibility service enablement, battery
@@ -17,6 +19,10 @@ object ProvisioningAuditor {
     const val KEY_INSTALL_PACKAGES = "install_packages"
     const val KEY_ACCESSIBILITY = "accessibility"
     const val KEY_BATTERY_OPTIMIZATION = "battery_optimization"
+
+    // PROV-BEHAVE-008: how long to let AccessibilityManagerService rebind after an
+    // enable-off/enable-on toggle before the caller re-audits and reports post-repair state.
+    private const val ACCESSIBILITY_REBIND_SETTLE_MS = 1500L
 
     data class ProvisioningItem(
         val key: String,
@@ -35,12 +41,33 @@ object ProvisioningAuditor {
         val repairedKeys: List<String>
     )
 
-    // PROV-BEHAVE-002: pure classifier, no Android framework calls — testable without a device.
+    // PROV-BEHAVE-002/008: pure classifier, no Android framework calls — testable without a
+    // device. `accessibilityGranted` and `accessibilityServiceRunning` are checked separately:
+    // the OS setting can still say the service is enabled while the live instance has died
+    // (crash, or Doze/App Standby kill on a TV device) and not been rebound — both must hold for
+    // the accessibility item to read satisfied, or install-confirmation dialogs go unhandled
+    // while the repair banner reports all-clear.
     fun classify(
         installPackagesGranted: Boolean,
         accessibilityGranted: Boolean,
+        accessibilityServiceRunning: Boolean,
         batteryExemptionGranted: Boolean
     ): ProvisioningAuditResult {
+        val accessibilityLabel: String
+        val accessibilityCommand: String
+        if (accessibilityGranted && !accessibilityServiceRunning) {
+            // Enabled per the OS setting, but no live instance is bound — merging the component
+            // into enabled_accessibility_services again is a no-op (it's already there). The fix
+            // is to force AccessibilityManagerService to tear down and rebind every enabled
+            // service, which the plain enable command doesn't do.
+            accessibilityLabel = "Accessibility Service (enabled but not running)"
+            accessibilityCommand = "adb shell settings put secure accessibility_enabled 0 && " +
+                "adb shell settings put secure accessibility_enabled 1"
+        } else {
+            accessibilityLabel = "Accessibility Service"
+            accessibilityCommand = "adb shell settings put secure enabled_accessibility_services " +
+                "$ACCESSIBILITY_SERVICE_COMPONENT && adb shell settings put secure accessibility_enabled 1"
+        }
         val items = listOf(
             ProvisioningItem(
                 key = KEY_INSTALL_PACKAGES,
@@ -50,10 +77,9 @@ object ProvisioningAuditor {
             ),
             ProvisioningItem(
                 key = KEY_ACCESSIBILITY,
-                label = "Accessibility Service",
-                satisfied = accessibilityGranted,
-                externalCommand = "adb shell settings put secure enabled_accessibility_services " +
-                    "$ACCESSIBILITY_SERVICE_COMPONENT && adb shell settings put secure accessibility_enabled 1"
+                label = accessibilityLabel,
+                satisfied = accessibilityGranted && accessibilityServiceRunning,
+                externalCommand = accessibilityCommand
             ),
             ProvisioningItem(
                 key = KEY_BATTERY_OPTIMIZATION,
@@ -67,11 +93,14 @@ object ProvisioningAuditor {
 
     // PROV-BEHAVE-001: reads real Android state and classifies it. Called on every
     // UpdaterForegroundService start (boot and manual launch alike) and on demand via
-    // GET /api/system/provisioning.
+    // GET /api/system/provisioning. accessibilityServiceRunning reads AutoInstallService's
+    // live, in-process flag (PROV-BEHAVE-008) — separate from the OS setting isAccessibilityGranted
+    // reads, since only the live flag reflects whether a bound instance actually exists right now.
     fun audit(context: Context): ProvisioningAuditResult {
         return classify(
             installPackagesGranted = context.packageManager.canRequestPackageInstalls(),
             accessibilityGranted = isAccessibilityGranted(context),
+            accessibilityServiceRunning = AutoInstallService.isServiceRunning,
             batteryExemptionGranted = isIgnoringBatteryOptimizations(context)
         )
     }
@@ -139,7 +168,7 @@ object ProvisioningAuditor {
             val outcome = when (item.key) {
                 KEY_INSTALL_PACKAGES ->
                     AdbLoopbackInstaller.runShellCommand("appops set $PACKAGE_NAME REQUEST_INSTALL_PACKAGES allow")
-                KEY_ACCESSIBILITY -> repairAccessibility()
+                KEY_ACCESSIBILITY -> repairAccessibility(context)
                 KEY_BATTERY_OPTIMIZATION ->
                     AdbLoopbackInstaller.runShellCommand("dumpsys deviceidle whitelist +$PACKAGE_NAME")
                 else -> Result.failure(IllegalStateException("Unknown provisioning item: ${item.key}"))
@@ -154,7 +183,25 @@ object ProvisioningAuditor {
         return Result.success(ProvisioningRepairResult(audit = audit(context), repairedKeys = repaired))
     }
 
-    private suspend fun repairAccessibility(): Result<String> {
+    // PROV-BEHAVE-008: two distinct failure modes need two distinct fixes. If the OS setting
+    // already lists DroidMesh's service but the live instance isn't running, the settings string
+    // isn't the problem — merging into it again is a no-op — so toggle accessibility_enabled
+    // off/on to force AccessibilityManagerService to tear down and recreate every enabled
+    // service's binding (including ours). Note this briefly disables every other currently-
+    // enabled accessibility service on the device too, not just DroidMesh's. Otherwise, fall back
+    // to the existing enable/merge path for the "not enabled at all" case.
+    private suspend fun repairAccessibility(context: Context): Result<String> {
+        if (isAccessibilityGranted(context) && !AutoInstallService.isServiceRunning) {
+            AdbLoopbackInstaller.runShellCommand("settings put secure accessibility_enabled 0")
+                .onFailure { return Result.failure(it) }
+            val result = AdbLoopbackInstaller.runShellCommand("settings put secure accessibility_enabled 1")
+            if (result.isSuccess) {
+                // Give AccessibilityManagerService a moment to rebind before the caller re-audits.
+                delay(ACCESSIBILITY_REBIND_SETTLE_MS)
+            }
+            return result
+        }
+
         val current = AdbLoopbackInstaller.runShellCommand("settings get secure enabled_accessibility_services")
             .getOrElse { return Result.failure(it) }
         val merged = mergeAccessibilityServices(current)

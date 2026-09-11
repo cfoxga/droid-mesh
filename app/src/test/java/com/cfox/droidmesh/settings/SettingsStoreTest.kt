@@ -934,4 +934,131 @@ class SettingsStoreTest {
         assertTrue(SettingsStore.addPersistentConnection(mockContext, "192.168.40.250:2325"))
         assertTrue(SettingsStore.getPersistentConnections(mockContext).contains("192.168.40.250:2325"))
     }
+
+    // [PROGRAMMATIC] ASET-TEST-010: an App Library entry's requiredSettings survive persistence,
+    // and the decode path re-validates them (a stored requirement naming a different package is
+    // dropped, not trusted because it was already on disk).
+    @Test
+    fun testMeshAppConfigRequiredSettingsRoundTrip() {
+        val tqa = "dev.vodik7.tvquickactions.free"
+        val a11y = requireNotNull(
+            AppSettingRequirement.create(
+                tqa,
+                AppSettingRequirement.SettingType.ACCESSIBILITY_SERVICE,
+                "$tqa/dev.vodik7.tvquickactions.KeyAccessibilityService"
+            )
+        )
+        val battery = requireNotNull(
+            AppSettingRequirement.create(tqa, AppSettingRequirement.SettingType.BATTERY_OPTIMIZATION, "")
+        )
+
+        SettingsStore.setMeshAppConfig(
+            mockContext, "gtv-fleet",
+            SettingsStore.MeshAppConfig(
+                packageName = tqa,
+                appName = "TV Quick Actions",
+                requiredSettings = listOf(a11y, battery)
+            )
+        )
+
+        val stored = SettingsStore.getMeshAppLibrary(mockContext, "gtv-fleet")[tqa]
+        assertEquals(listOf(a11y, battery), stored?.requiredSettings)
+
+        // Stored JSON is re-validated on read: a cross-package requirement never comes back out.
+        val tampered = JSONObject()
+            .put("packageName", tqa)
+            .put("appName", "TV Quick Actions")
+            .put(
+                "requiredSettings",
+                JSONArray()
+                    .put(a11y.toJson())
+                    .put(JSONObject().put("type", "accessibility_service").put("value", "com.evil.app/.Svc"))
+            )
+        assertEquals(listOf(a11y), SettingsStore.MeshAppConfig.fromJson(tampered).requiredSettings)
+
+        assertEquals(
+            "an entry with no requiredSettings key decodes to an empty list, not null",
+            emptyList<AppSettingRequirement>(),
+            SettingsStore.MeshAppConfig.fromJson(
+                JSONObject().put("packageName", tqa).put("appName", "TV Quick Actions")
+            ).requiredSettings
+        )
+    }
+
+    // [PROGRAMMATIC] ASET-TEST-011 (negative): gitea#54 -- requiredSettings drive loopback ADB
+    // commands, so unauthenticated mesh gossip must not be able to plant them. An untrusted sync
+    // keeps this device's own list for a package it already knows, and seeds nothing for a package
+    // it doesn't; only an authenticated fleet envelope converges them.
+    @Test
+    fun testImportConfigJsonRequiredSettingsAdminLocalUnlessTrusted() {
+        val tqa = "dev.vodik7.tvquickactions.free"
+        val local = requireNotNull(
+            AppSettingRequirement.create(
+                tqa,
+                AppSettingRequirement.SettingType.ACCESSIBILITY_SERVICE,
+                "$tqa/dev.vodik7.tvquickactions.KeyAccessibilityService"
+            )
+        )
+        SettingsStore.setMeshAppConfig(
+            mockContext, "gtv-fleet",
+            SettingsStore.MeshAppConfig(packageName = tqa, appName = "TV Quick Actions", requiredSettings = listOf(local))
+        )
+
+        fun payload() = JSONObject().apply {
+            put("config_version", SettingsStore.getConfigVersion(mockContext) + 1000L)
+            put("mesh_app_libraries", JSONObject().apply {
+                put("gtv-fleet", JSONObject().apply {
+                    put(tqa, JSONObject().apply {
+                        put("packageName", tqa)
+                        put("appName", "TV Quick Actions (renamed)")
+                        put(
+                            "requiredSettings",
+                            JSONArray().put(
+                                JSONObject().put("type", "app_op").put("value", "SYSTEM_ALERT_WINDOW")
+                            )
+                        )
+                    })
+                    put("com.attacker.newapp", JSONObject().apply {
+                        put("packageName", "com.attacker.newapp")
+                        put("appName", "New App")
+                        put(
+                            "requiredSettings",
+                            JSONArray().put(
+                                JSONObject().put("type", "app_op").put("value", "REQUEST_INSTALL_PACKAGES")
+                            )
+                        )
+                    })
+                })
+            })
+        }
+
+        assertTrue(SettingsStore.importConfigJson(mockContext, payload()).applied)
+        val afterUntrusted = SettingsStore.getMeshAppLibrary(mockContext, "gtv-fleet")
+        assertEquals(
+            "existing entry keeps this device's own requiredSettings",
+            listOf(local),
+            afterUntrusted[tqa]?.requiredSettings
+        )
+        assertEquals(
+            "non-sensitive fields still sync",
+            "TV Quick Actions (renamed)",
+            afterUntrusted[tqa]?.appName
+        )
+        assertEquals(
+            "a brand-new entry is seeded with no requiredSettings at all",
+            emptyList<AppSettingRequirement>(),
+            afterUntrusted["com.attacker.newapp"]?.requiredSettings
+        )
+
+        assertTrue(SettingsStore.importConfigJson(mockContext, payload(), trustedFleet = true).applied)
+        val afterTrusted = SettingsStore.getMeshAppLibrary(mockContext, "gtv-fleet")
+        assertEquals(
+            listOf(AppSettingRequirement(AppSettingRequirement.SettingType.APP_OP, "SYSTEM_ALERT_WINDOW")),
+            afterTrusted[tqa]?.requiredSettings
+        )
+        assertEquals(
+            listOf(AppSettingRequirement(AppSettingRequirement.SettingType.APP_OP, "REQUEST_INSTALL_PACKAGES")),
+            afterTrusted["com.attacker.newapp"]?.requiredSettings
+        )
+    }
 }

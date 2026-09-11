@@ -74,7 +74,9 @@ object SettingsStore {
         val autoUpdate: Boolean = false,
         val isSideloaded: Boolean = false,
         /** Direct APK download URL for auto-install. Empty = no automatic download. */
-        val downloadUrl: String = ""
+        val downloadUrl: String = "",
+        /** ASET-BEHAVE-007: OS settings this app needs on every device that has it installed. */
+        val requiredSettings: List<AppSettingRequirement> = emptyList()
     ) {
         fun toJson(): JSONObject = JSONObject().apply {
             put("packageName", packageName)
@@ -85,6 +87,9 @@ object SettingsStore {
             put("autoUpdate", autoUpdate)
             put("isSideloaded", isSideloaded)
             put("downloadUrl", downloadUrl)
+            put("requiredSettings", JSONArray().also { arr ->
+                requiredSettings.forEach { arr.put(it.toJson()) }
+            })
         }
 
         companion object {
@@ -107,7 +112,10 @@ object SettingsStore {
                     targetVersion = json.optString("targetVersion", "latest"),
                     autoUpdate = json.optBoolean("autoUpdate", false),
                     isSideloaded = isSideload,
-                    downloadUrl = downloadUrl
+                    downloadUrl = downloadUrl,
+                    // ASET-BEHAVE-001/007: re-validated on every decode, so a requirement that was
+                    // stored (or synced) naming another package never comes back out.
+                    requiredSettings = AppSettingRequirement.parseList(pkg, json.optJSONArray("requiredSettings"))
                 )
             }
         }
@@ -1018,10 +1026,18 @@ object SettingsStore {
                             incoming.copy(
                                 managed = existing.managed,
                                 autoInstall = existing.autoInstall,
-                                downloadUrl = existing.downloadUrl
+                                downloadUrl = existing.downloadUrl,
+                                // ASET-BEHAVE-007: requiredSettings drive loopback ADB commands on
+                                // every device that has the package, so they join the gitea#54
+                                // admin-local set -- unauthenticated gossip can never plant one.
+                                requiredSettings = existing.requiredSettings
                             )
                         } else {
-                            incoming
+                            // A brand-new entry is still seeded from the sync for inventory, but
+                            // with no requiredSettings at all: there is no local value to protect
+                            // yet, and seeding them would hand an unauthenticated peer the very
+                            // capability the line above denies it for known packages.
+                            incoming.copy(requiredSettings = emptyList())
                         }
                         sanitizedMesh.put(pkgKey, sanitizedEntry.toJson())
                     }

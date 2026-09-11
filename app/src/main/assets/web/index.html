@@ -786,6 +786,24 @@ input:checked + .slider:before {
       </div>
     </div>
 
+    <!-- App Settings Repair Banner (ASET-BEHAVE-010) — shown when GET /api/system/app-settings
+         reports a managed app on THIS device missing an OS setting its App Library entry requires
+         (accessibility service, notification access, Doze exemption, default launcher, runtime
+         permission, special app access). Repair applies only to this device; peers report their
+         own status on their cards and are repaired from their own UI. -->
+    <div id="appSettingsRepairBanner" class="banner banner-rust hidden" style="flex-direction: column; align-items: stretch; gap: 8px;">
+      <div style="display: flex; justify-content: space-between; align-items: center; gap: 12px;">
+        <div>
+          <strong>App Settings Need Repair:</strong> <span id="appSettingsRepairSummary">--</span>
+        </div>
+        <button id="appSettingsRepairBtn" class="btn btn-primary btn-sm" onclick="repairAppSettings()">Verify &amp; Repair</button>
+      </div>
+      <div id="appSettingsRepairItems" style="font-size: 12px; opacity: 0.9;"></div>
+      <div style="font-size: 12px; opacity: 0.75;">
+        Verify &amp; Repair reads the settings that can only be checked over ADB, then applies the missing ones. The first time it runs, tap "Allow debugging from this computer?" on the device screen. Alternatively, run each command above from a workstation with ADB access.
+      </div>
+    </div>
+
     <!-- TAB: GLOBAL SETTINGS (UI-BEHAVE-008) — mesh-synced & fleet-wide configuration -->
     <section id="tab-global-settings" class="tab-pane">
       <div class="header-bar">
@@ -1194,11 +1212,12 @@ input:checked + .slider:before {
                 <th style="padding: 10px 12px;">Target Version</th>
                 <th style="padding: 10px 12px; text-align: center;">Auto Install</th>
                 <th style="padding: 10px 12px; text-align: center;">Auto Update</th>
+                <th style="padding: 10px 12px; text-align: center;">Settings</th>
               </tr>
             </thead>
             <tbody id="meshSideloadedLibraryTableBody">
               <tr>
-                <td colspan="5" style="text-align: center; color: var(--text-muted); padding: 24px;">Loading Sideloaded Apps...</td>
+                <td colspan="6" style="text-align: center; color: var(--text-muted); padding: 24px;">Loading Sideloaded Apps...</td>
               </tr>
             </tbody>
           </table>
@@ -1228,11 +1247,12 @@ input:checked + .slider:before {
                 <th style="padding: 10px 12px;">App Name</th>
                 <th style="padding: 10px 12px; text-align: center;">Managed</th>
                 <th style="padding: 10px 12px; text-align: center;">Auto Install</th>
+                <th style="padding: 10px 12px; text-align: center;">Settings</th>
               </tr>
             </thead>
             <tbody id="meshStoreLibraryTableBody">
               <tr>
-                <td colspan="3" style="text-align: center; color: var(--text-muted); padding: 24px;">Loading Store Apps...</td>
+                <td colspan="4" style="text-align: center; color: var(--text-muted); padding: 24px;">Loading Store Apps...</td>
               </tr>
             </tbody>
           </table>
@@ -1270,6 +1290,8 @@ let state = {
   logs: [],
   initialLoaded: false,
   peerAppsExpanded: {},
+  appSettings: null,
+  appSettingsEditorOpen: {},
   meshSideloadedLibraryExpanded: true,
   meshStoreLibraryExpanded: false,
   releasesByPackage: {},
@@ -1760,6 +1782,257 @@ async function repairProvisioningAutomatically() {
   }
 }
 
+// --- Per-App Required Settings (ASET-BEHAVE-010) ---------------------------------------------
+// The App Library declares which OS settings each app needs; every device audits the entries whose
+// package it actually has installed. Repair is always local to the device whose UI you're on.
+
+const APP_SETTING_TYPES = [
+  { key: 'accessibility_service', label: 'Accessibility service', placeholder: 'package/ClassName' },
+  { key: 'notification_listener', label: 'Notification access', placeholder: 'package/ClassName' },
+  { key: 'battery_optimization', label: 'Battery optimization exemption', placeholder: '(no value needed)' },
+  { key: 'app_op', label: 'Special app access', placeholder: 'SYSTEM_ALERT_WINDOW' },
+  { key: 'default_home', label: 'Default launcher', placeholder: 'package/ClassName' },
+  { key: 'runtime_permission', label: 'Permission', placeholder: 'android.permission.RECORD_AUDIO' }
+];
+
+function appSettingRequirementId(req) {
+  return req.value ? `${req.type}:${req.value}` : req.type;
+}
+
+function appSettingTypeLabel(type) {
+  const match = APP_SETTING_TYPES.find(t => t.key === type);
+  return match ? match.label : type;
+}
+
+function appSettingRequirementLabel(req) {
+  if (!req.value) return appSettingTypeLabel(req.type);
+  return `${appSettingTypeLabel(req.type)}: ${req.value}`;
+}
+
+// The audit only covers packages installed on THIS device, so a requirement with no matching item
+// is reported as such rather than silently rendered as healthy.
+function appSettingsStatusFor(packageName, req) {
+  const items = (state.appSettings && state.appSettings.items) || [];
+  const match = items.find(i =>
+    i.packageName === packageName && i.type === req.type && (i.value || '') === (req.value || ''));
+  return match ? match.status : null;
+}
+
+function renderAppSettingsBanner(audit) {
+  const banner = document.getElementById('appSettingsRepairBanner');
+  if (!banner) return;
+  const items = (audit && audit.items) || [];
+  const missing = items.filter(i => i.status === 'missing');
+  const unverified = items.filter(i => i.status === 'unverified');
+  if (missing.length === 0 && unverified.length === 0) {
+    banner.classList.add('hidden');
+    return;
+  }
+  const parts = [];
+  if (missing.length > 0) {
+    parts.push(`${missing.length} setting${missing.length === 1 ? '' : 's'} on this device ${missing.length === 1 ? 'is' : 'are'} not configured`);
+  }
+  if (unverified.length > 0) {
+    // ASET-OPEN-001: special app access can't be read in-process, so it stays unknown until a
+    // Verify & Repair opens an ADB session. Saying "unverified" beats guessing "fine".
+    parts.push(`${unverified.length} unverified (needs an ADB check)`);
+  }
+  document.getElementById('appSettingsRepairSummary').textContent = `${parts.join(', ')}.`;
+  document.getElementById('appSettingsRepairItems').innerHTML = missing
+    .map(item => `<div style="margin-bottom: 4px;"><strong>${escapeHtml(item.appName)}</strong> — ${escapeHtml(item.label)}<br><code>${escapeHtml(item.externalCommand)}</code></div>`)
+    .join('');
+  banner.classList.remove('hidden');
+}
+
+async function refreshAppSettings() {
+  try {
+    const audit = await apiCall('/api/system/app-settings');
+    state.appSettings = audit;
+    renderAppSettingsBanner(audit);
+  } catch (err) {
+    console.error('Failed to refresh app settings audit:', err);
+  }
+}
+
+async function repairAppSettings() {
+  const btn = document.getElementById('appSettingsRepairBtn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Repairing…'; }
+  try {
+    const result = await apiCall('/api/system/app-settings/repair', { method: 'POST' });
+    state.appSettings = result;
+    renderAppSettingsBanner(result);
+    const failed = result.failed || [];
+    if (failed.length > 0) {
+      alert(`Some settings could not be repaired automatically:\n${failed.map(f => `${f.id}: ${f.error}`).join('\n')}`);
+    }
+    renderCurrentMeshView();
+  } catch (err) {
+    alert(`App settings repair failed: ${err.message}`);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Verify & Repair'; }
+  }
+}
+
+function toggleAppSettingsEditor(packageName) {
+  state.appSettingsEditorOpen = state.appSettingsEditorOpen || {};
+  state.appSettingsEditorOpen[packageName] = !state.appSettingsEditorOpen[packageName];
+  renderCurrentMeshView();
+}
+
+// One expandable editor row per App Library entry. Event handlers are attached in JS rather than
+// inlined, so no on*= attribute ever carries interpolated data (UI-BEHAVE / LocalHttpServerTest).
+function renderAppSettingsEditor(currentMesh, app, colspan) {
+  const tr = document.createElement('tr');
+  tr.className = 'app-settings-editor-row';
+  const reqs = app.requiredSettings || [];
+
+  const reqRows = reqs.map(req => {
+    const status = appSettingsStatusFor(app.packageName, req);
+    let badge;
+    if (status === 'satisfied') {
+      badge = '<span class="badge badge-sage" style="font-size:10px; padding:1px 6px;">OK</span>';
+    } else if (status === 'missing') {
+      badge = '<span class="badge badge-rust" style="font-size:10px; padding:1px 6px;">Missing</span>';
+    } else if (status === 'unverified') {
+      badge = '<span class="badge badge-ochre" style="font-size:10px; padding:1px 6px;">Unverified</span>';
+    } else {
+      badge = '<span class="badge badge-gray" style="font-size:10px; padding:1px 6px;">Not installed here</span>';
+    }
+    return `<div class="req-row" data-id="${escapeHtml(appSettingRequirementId(req))}" style="display:flex; align-items:center; gap:8px; padding:3px 0;">
+        <span style="flex:1; font-size:12px;">${escapeHtml(appSettingRequirementLabel(req))}</span>
+        ${badge}
+        <button type="button" class="req-remove btn btn-sm" style="font-size:11px; padding:2px 8px;">Remove</button>
+      </div>`;
+  }).join('');
+
+  const emptyNote = '<div style="color: var(--text-muted); font-size: 12px;">No required settings declared yet. Capture them from a device where this app already works.</div>';
+  const typeOptions = APP_SETTING_TYPES
+    .map(t => `<option value="${t.key}">${escapeHtml(t.label)}</option>`)
+    .join('');
+
+  tr.innerHTML = `
+    <td colspan="${colspan}" style="padding: 8px 16px 14px 16px; background: var(--bg-surface-elevated);">
+      <div style="display:flex; flex-direction:column; gap:4px;">
+        ${reqs.length > 0 ? reqRows : emptyNote}
+        <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap; margin-top:8px;">
+          <select class="req-type field" style="padding:4px 8px; font-size:12px;">${typeOptions}</select>
+          <input type="text" class="req-value field" style="padding:4px 8px; font-size:12px; min-width:260px;" placeholder="package/ClassName, permission, or app op">
+          <button type="button" class="req-add btn btn-sm">Add</button>
+          <button type="button" class="req-capture btn btn-primary btn-sm">Capture from this device</button>
+        </div>
+        <div style="font-size:11px; color:var(--text-muted); margin-top:2px;">
+          Requirements apply on every device in this mesh that has the app installed. Status shown is for this device only.
+        </div>
+      </div>
+    </td>
+  `;
+
+  tr.querySelectorAll('.req-remove').forEach(btn => {
+    btn.onclick = function() {
+      const row = this.closest('.req-row');
+      removeAppSettingRequirement(currentMesh.id, app.packageName, row.dataset.id);
+    };
+  });
+  const addBtn = tr.querySelector('.req-add');
+  if (addBtn) {
+    addBtn.onclick = function() {
+      addAppSettingRequirement(
+        currentMesh.id,
+        app.packageName,
+        tr.querySelector('.req-type').value,
+        tr.querySelector('.req-value').value
+      );
+    };
+  }
+  const captureBtn = tr.querySelector('.req-capture');
+  if (captureBtn) {
+    captureBtn.onclick = function() {
+      captureAppSettings(currentMesh.id, app.packageName);
+    };
+  }
+  return tr;
+}
+
+function currentRequiredSettings(meshId, packageName) {
+  const currentMesh = state.meshes.find(m => m.id === meshId);
+  const existing = (currentMesh?.app_library || []).find(a => a.packageName === packageName);
+  return (existing && existing.requiredSettings) || [];
+}
+
+async function addAppSettingRequirement(meshId, packageName, type, value) {
+  const trimmed = (value || '').trim();
+  if (type !== 'battery_optimization' && !trimmed) {
+    alert('Enter a value for this requirement.');
+    return;
+  }
+  const req = { type, value: type === 'battery_optimization' ? '' : trimmed };
+  const existing = currentRequiredSettings(meshId, packageName);
+  if (existing.some(r => appSettingRequirementId(r) === appSettingRequirementId(req))) return;
+  await updateLibraryApp(meshId, packageName, { requiredSettings: [...existing, req] });
+  await refreshAppSettings();
+}
+
+async function removeAppSettingRequirement(meshId, packageName, id) {
+  const existing = currentRequiredSettings(meshId, packageName);
+  const next = existing.filter(r => appSettingRequirementId(r) !== id);
+  await updateLibraryApp(meshId, packageName, { requiredSettings: next });
+  await refreshAppSettings();
+}
+
+// ASET-BEHAVE-006: snapshot what this (known-good) device currently has for the app, then let the
+// admin trim it by hand. Capture never writes on its own — it goes through the library POST.
+async function captureAppSettings(meshId, packageName) {
+  try {
+    const data = await apiCall(`/api/system/app-settings/capture?packageName=${encodeURIComponent(packageName)}`);
+    const captured = data.requirements || [];
+    if (captured.length === 0) {
+      alert('Nothing to capture: this device has no accessibility service, notification access, Doze exemption, default-launcher role, or granted permissions recorded for this app.\n\nSpecial app access (overlay, usage stats, write settings) can only be read after a Verify & Repair.');
+      return;
+    }
+    const existing = currentRequiredSettings(meshId, packageName);
+    const merged = [...existing];
+    captured.forEach(req => {
+      if (!merged.some(r => appSettingRequirementId(r) === appSettingRequirementId(req))) merged.push(req);
+    });
+    await updateLibraryApp(meshId, packageName, { requiredSettings: merged });
+    await refreshAppSettings();
+  } catch (err) {
+    alert(`Capture failed: ${err.message}`);
+  }
+}
+
+// Row button label reflects THIS device's audit: how many requirements are declared, and a warning
+// marker if any of them is missing here. A peer's own count lives on its mesh card instead.
+function appSettingsButtonLabel(app) {
+  const reqs = app.requiredSettings || [];
+  const missing = reqs.filter(r => appSettingsStatusFor(app.packageName, r) === 'missing').length;
+  if (missing > 0) return `Settings ⚠ ${missing}`;
+  if (reqs.length > 0) return `Settings (${reqs.length})`;
+  return 'Settings';
+}
+
+// ASET-BEHAVE-009: each peer reports its own audit over the beacon. Repair is deliberately not
+// offered here — it runs on that device's own UI, over its own loopback ADB.
+function appSettingsPeerCell(peer) {
+  const missing = peer.appSettingsMissing || 0;
+  const unverified = peer.appSettingsUnverified || 0;
+  const issues = peer.appSettingsIssues || [];
+  if (missing === 0 && unverified === 0) {
+    return '<span style="color:var(--sage); font-weight:600;">OK</span>';
+  }
+  const bits = [];
+  if (missing > 0) bits.push(`<span style="color:var(--rust); font-weight:600;">${missing} need repair</span>`);
+  if (unverified > 0) bits.push(`<span style="color:var(--text-muted);">${unverified} unverified</span>`);
+  let html = bits.join(' · ');
+  if (issues.length > 0) {
+    html += `<div style="font-size:11px; color:var(--text-muted); margin-top:2px;">${issues.map(escapeHtml).join('<br>')}</div>`;
+  }
+  if (missing > 0) {
+    html += '<div style="font-size:11px; color:var(--text-muted); margin-top:2px;">Repair from that device\'s own DroidMesh UI.</div>';
+  }
+  return html;
+}
+
 // Self-Update (DroidMesh updating its own APK, distinct from managed-app updates above)
 async function refreshSelfUpdateStatus() {
   try {
@@ -2019,7 +2292,7 @@ function renderSideloadedLibraryRows(currentMesh, library) {
 
   tbody.innerHTML = '';
   if (library.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="5" style="text-align: center; color: var(--text-muted); padding: 24px;">No sideloaded apps discovered on this mesh yet.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: var(--text-muted); padding: 24px;">No sideloaded apps discovered on this mesh yet.</td></tr>`;
     return;
   }
 
@@ -2077,6 +2350,9 @@ function renderSideloadedLibraryRows(currentMesh, library) {
           ${app.autoUpdate ? 'checked' : ''}
           ${!isManaged ? 'disabled style="opacity: 0.3; cursor: not-allowed;"' : ''}>
       </td>
+      <td style="padding: 10px 12px; text-align: center;">
+        <button type="button" class="app-settings-btn btn btn-sm" style="font-size: 11px; padding: 2px 10px;">${appSettingsButtonLabel(app)}</button>
+      </td>
     `;
 
     const urlInput = tr.querySelector('.url-input');
@@ -2109,8 +2385,15 @@ function renderSideloadedLibraryRows(currentMesh, library) {
         updateLibraryApp(currentMesh.id, app.packageName, { autoUpdate: this.checked });
       };
     }
+    const settingsBtn = tr.querySelector('.app-settings-btn');
+    if (settingsBtn) {
+      settingsBtn.onclick = function() { toggleAppSettingsEditor(app.packageName); };
+    }
 
     tbody.appendChild(tr);
+    if (state.appSettingsEditorOpen && state.appSettingsEditorOpen[app.packageName]) {
+      tbody.appendChild(renderAppSettingsEditor(currentMesh, app, 6));
+    }
   });
 }
 
@@ -2127,7 +2410,7 @@ function renderStoreLibraryRows(currentMesh, library) {
 
   tbody.innerHTML = '';
   if (library.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="3" style="text-align: center; color: var(--text-muted); padding: 24px;">No store apps discovered on this mesh yet.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="4" style="text-align: center; color: var(--text-muted); padding: 24px;">No store apps discovered on this mesh yet.</td></tr>`;
     return;
   }
 
@@ -2145,6 +2428,9 @@ function renderStoreLibraryRows(currentMesh, library) {
           ${app.autoInstall ? 'checked' : ''}
           ${!app.managed ? 'disabled style="opacity: 0.3; cursor: not-allowed;"' : ''}>
       </td>
+      <td style="padding: 10px 12px; text-align: center;">
+        <button type="button" class="app-settings-btn btn btn-sm" style="font-size: 11px; padding: 2px 10px;">${appSettingsButtonLabel(app)}</button>
+      </td>
     `;
 
     const managedCb = tr.querySelector('.managed-cb');
@@ -2159,8 +2445,15 @@ function renderStoreLibraryRows(currentMesh, library) {
         updateLibraryApp(currentMesh.id, app.packageName, { autoInstall: this.checked });
       };
     }
+    const settingsBtn = tr.querySelector('.app-settings-btn');
+    if (settingsBtn) {
+      settingsBtn.onclick = function() { toggleAppSettingsEditor(app.packageName); };
+    }
 
     tbody.appendChild(tr);
+    if (state.appSettingsEditorOpen && state.appSettingsEditorOpen[app.packageName]) {
+      tbody.appendChild(renderAppSettingsEditor(currentMesh, app, 4));
+    }
   });
 }
 
@@ -2326,6 +2619,10 @@ function renderMeshPeers(peers, library) {
         <div class="kv-row">
           <span class="kv-key">Network ADB</span>
           <span class="kv-val adb-val"></span>
+        </div>
+        <div class="kv-row" style="align-items: flex-start;">
+          <span class="kv-key">App Settings</span>
+          <span class="kv-val" style="text-align: right;">${appSettingsPeerCell(peer)}</span>
         </div>
         <div class="kv-row" style="flex-direction: column; align-items: flex-start; gap: 6px; border-bottom: 1px solid rgba(255, 255, 255, 0.04); padding-bottom: 8px;">
           <div class="apps-toggle-header" style="cursor: pointer; display: flex; align-items: center; justify-content: space-between; width: 100%; user-select: none;">
@@ -2894,6 +3191,7 @@ window.addEventListener('DOMContentLoaded', () => {
   fetchMeshInfo();
   refreshSelfUpdateStatus();
   refreshProvisioning();
+  refreshAppSettings();
 
   // Background polling loop every 4s
   setInterval(() => {

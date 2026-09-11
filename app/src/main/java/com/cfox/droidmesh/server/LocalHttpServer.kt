@@ -227,6 +227,11 @@ class LocalHttpServer(
                 uri == "/api/system/provisioning" && method == Method.GET -> handleProvisioningAudit(session)
                 uri == "/api/system/provisioning/repair" && method == Method.POST -> handleProvisioningRepair(session)
 
+                // Per-App Required Settings (ASET-API-001/002/003)
+                uri == "/api/system/app-settings" && method == Method.GET -> handleAppSettingsAudit(session)
+                uri == "/api/system/app-settings/repair" && method == Method.POST -> handleAppSettingsRepair(session)
+                uri == "/api/system/app-settings/capture" && method == Method.GET -> handleAppSettingsCapture(session)
+
                 // Peer Mesh Fleet
                 (uri == "/mesh" || uri == "/peers" || uri == "/api/mesh") && method == Method.GET -> handleMesh(session)
                 (uri == "/api/mesh/library" || uri == "/mesh/library") && method == Method.GET -> handleMeshLibraryGet(session)
@@ -376,6 +381,7 @@ class LocalHttpServer(
             uri == "/adb/toggle" || uri == "/api/adb/toggle" -> true
             uri == "/api/self-update" && method == Method.POST -> true
             uri == "/api/system/provisioning/repair" && method == Method.POST -> true
+            uri == "/api/system/app-settings/repair" && method == Method.POST -> true
             uri == "/api/settings" && method == Method.POST -> true
             (uri == "/api/mesh/library" || uri == "/mesh/library") && method == Method.POST -> true
             uri == "/api/mesh/create" || uri == "/api/mesh/update" || uri == "/api/mesh/delete" -> true
@@ -1010,6 +1016,110 @@ class LocalHttpServer(
         val repairResult = result.getOrThrow()
         val json = provisioningAuditJson(repairResult.audit)
         json.put("repairedKeys", JSONArray(repairResult.repairedKeys))
+        return jsonResponse(Response.Status.OK, json)
+    }
+
+    // --- Per-App Required Settings Audit & Repair (ASET-API-001/002/003) ---
+
+    private fun appSettingsJson(
+        audit: com.cfox.droidmesh.utils.AppSettingsAuditor.AppSettingsAuditResult
+    ): JSONObject {
+        val json = JSONObject()
+        json.put("status", "ok")
+        json.put("repairNeeded", audit.repairNeeded)
+        json.put("missingCount", audit.missingCount)
+        json.put("unverifiedCount", audit.unverifiedCount)
+        json.put(
+            "appOpsVerifiedAt",
+            com.cfox.droidmesh.utils.AppSettingsAuditor.appOpsVerifiedAt() ?: JSONObject.NULL
+        )
+        val items = JSONArray()
+        audit.items.forEach { item ->
+            items.put(JSONObject().apply {
+                put("id", item.requirement.id)
+                put("packageName", item.packageName)
+                put("appName", item.appName)
+                put("type", item.requirement.type.key)
+                put("value", item.requirement.value)
+                put("label", item.label)
+                put("status", item.status.key)
+                put("externalCommand", item.externalCommand)
+            })
+        }
+        json.put("items", items)
+        return json
+    }
+
+    private fun handleAppSettingsAudit(session: IHTTPSession): Response {
+        if (!isAuthorized(session)) {
+            return jsonResponse(Response.Status.UNAUTHORIZED, JSONObject().apply {
+                put("status", "error")
+                put("error", "Unauthorized")
+            })
+        }
+        val audit = com.cfox.droidmesh.utils.AppSettingsAuditor.audit(context)
+        return jsonResponse(Response.Status.OK, appSettingsJson(audit))
+    }
+
+    private fun handleAppSettingsRepair(session: IHTTPSession): Response {
+        if (!isAuthorized(session)) {
+            return jsonResponse(Response.Status.UNAUTHORIZED, JSONObject().apply {
+                put("status", "error")
+                put("error", "Unauthorized")
+            })
+        }
+        val result = runBlocking { com.cfox.droidmesh.utils.AppSettingsAuditor.repair(context) }
+        if (result.isFailure) {
+            // ASET-BEHAVE-005: same fail-fast posture as PROV-BEHAVE-006 — ADB off means no socket
+            // is ever opened, and 409 says "current state precludes this", not "bad request".
+            return jsonResponse(Response.Status.CONFLICT, JSONObject().apply {
+                put("status", "error")
+                put("error", result.exceptionOrNull()?.message ?: "App settings repair failed")
+            })
+        }
+        val repairResult = result.getOrThrow()
+        val json = appSettingsJson(repairResult.audit)
+        json.put("repairedIds", JSONArray(repairResult.repairedIds))
+        json.put("failed", JSONArray().also { arr ->
+            repairResult.failed.forEach { failure ->
+                arr.put(JSONObject().apply {
+                    put("id", failure.id)
+                    put("error", failure.error)
+                })
+            }
+        })
+        return jsonResponse(Response.Status.OK, json)
+    }
+
+    private fun handleAppSettingsCapture(session: IHTTPSession): Response {
+        if (!isAuthorized(session)) {
+            return jsonResponse(Response.Status.UNAUTHORIZED, JSONObject().apply {
+                put("status", "error")
+                put("error", "Unauthorized")
+            })
+        }
+        val packageName = session.parms["packageName"] ?: session.parms["package"] ?: ""
+        // ASET-BEHAVE-006: a missing or malformed package is a 400, never a wildcard capture.
+        if (!com.cfox.droidmesh.settings.AppSettingRequirement.isValidPackageName(packageName)) {
+            return jsonResponse(Response.Status.BAD_REQUEST, JSONObject().apply {
+                put("status", "error")
+                put("error", "Missing or invalid packageName")
+            })
+        }
+        val capture = com.cfox.droidmesh.utils.AppSettingsAuditor.capture(context, packageName)
+        val json = JSONObject().apply {
+            put("status", "ok")
+            put("packageName", capture.packageName)
+            put("appOpsVerified", capture.appOpsVerified)
+            put("requirements", JSONArray().also { arr ->
+                capture.requirements.forEach { arr.put(it.toJson()) }
+            })
+            put("candidates", JSONObject().also { obj ->
+                capture.candidates.forEach { (type, values) ->
+                    obj.put(type.key, JSONArray(values))
+                }
+            })
+        }
         return jsonResponse(Response.Status.OK, json)
     }
 

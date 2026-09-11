@@ -335,6 +335,11 @@ class MeshDiscoveryManager(
                 put("updaterState", currentStatus.state)
                 put("updaterMessage", currentStatus.message)
                 put("adbEnabled", com.cfox.droidmesh.utils.AdbHelper.isAdbEnabled(context))
+                // ASET-BEHAVE-009: cached for 60s, so the beacon loop never re-audits per tick.
+                val appSettings = com.cfox.droidmesh.utils.AppSettingsAuditor.cachedSummary(context)
+                put("appSettingsMissing", appSettings.missing)
+                put("appSettingsUnverified", appSettings.unverified)
+                put("appSettingsIssues", JSONArray().also { arr -> appSettings.issues.forEach { arr.put(it) } })
                 put("timestamp", System.currentTimeMillis())
             }
 
@@ -668,7 +673,10 @@ class MeshDiscoveryManager(
                 isSelf = false,
                 meshId = meshId,
                 meshName = meshName,
-                isDiscoveredPeer = true
+                isDiscoveredPeer = true,
+                appSettingsMissing = peerJson.optInt("appSettingsMissing", 0),
+                appSettingsUnverified = peerJson.optInt("appSettingsUnverified", 0),
+                appSettingsIssues = PeerNode.parseAppSettingsIssues(peerJson)
             )
             peersMap[id] = remotePeer
             changed = true
@@ -718,6 +726,7 @@ class MeshDiscoveryManager(
         val installedApps = AppVersionHelper.getUserInstalledApps(context)
         val currentStatus = coordinator.statusFlow.value
         val localIp = getLocalIpAddress() ?: "127.0.0.1"
+        val appSettings = com.cfox.droidmesh.utils.AppSettingsAuditor.cachedSummary(context)
 
         val selfNode = PeerNode(
             id = deviceId,
@@ -736,7 +745,10 @@ class MeshDiscoveryManager(
             isSelf = true,
             meshId = localMeshId,
             meshName = localMeshName,
-            isDiscoveredPeer = false
+            isDiscoveredPeer = false,
+            appSettingsMissing = appSettings.missing,
+            appSettingsUnverified = appSettings.unverified,
+            appSettingsIssues = appSettings.issues
         )
 
         val remotes = peersMap.values.toList().sortedBy { it.ip }

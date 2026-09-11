@@ -327,4 +327,82 @@ class AdbLoopbackInstallerTest {
             (result.exceptionOrNull()?.message ?: "").contains("reboot -p")
         )
     }
+
+    // [PROGRAMMATIC] INST-TEST-027: the six per-app repair shapes ASET-BEHAVE-005 needs. These
+    // name a managed app's package rather than DroidMesh's own, so they can't be exact strings --
+    // they're anchored full-command regexes with a metacharacter-free charset.
+    @Test
+    fun testIsAllowedShellCommandAcceptsPerAppRepairCommands() {
+        val accepted = listOf(
+            "cmd notification allow_listener com.spocky.projengmenu/com.spocky.projengmenu.services.NotificationListener",
+            "dumpsys deviceidle whitelist +dev.vodik7.tvquickactions.free",
+            "appops set me.jxl.kiosk_satellite SYSTEM_ALERT_WINDOW allow",
+            "appops set me.jxl.kiosk_satellite GET_USAGE_STATS allow",
+            "appops set me.jxl.kiosk_satellite WRITE_SETTINGS allow",
+            "appops set me.jxl.kiosk_satellite REQUEST_INSTALL_PACKAGES allow",
+            "appops get me.jxl.kiosk_satellite SYSTEM_ALERT_WINDOW",
+            "pm set-home-activity com.spocky.projengmenu/com.spocky.projengmenu.ui.home.MainActivity",
+            "pm grant com.spocky.projengmenu android.permission.RECORD_AUDIO"
+        )
+        for (command in accepted) {
+            assertTrue("must accept: $command", AdbLoopbackInstaller.isAllowedShellCommand(command))
+        }
+        // Regression: widening the allowlist must not drop the original provisioning commands.
+        for (command in listOf(
+            "appops set com.cfox.droidmesh REQUEST_INSTALL_PACKAGES allow",
+            "dumpsys deviceidle whitelist +com.cfox.droidmesh",
+            "settings get secure enabled_accessibility_services",
+            "settings put secure accessibility_enabled 1",
+            "settings put secure enabled_accessibility_services com.cfox.droidmesh/com.cfox.droidmesh.service.AutoInstallService"
+        )) {
+            assertTrue("regression, must still accept: $command", AdbLoopbackInstaller.isAllowedShellCommand(command))
+        }
+    }
+
+    // [PROGRAMMATIC] INST-TEST-028 (negative): every new shape stays closed against injection,
+    // extra/missing arguments, off-catalog ops, and near-miss verbs.
+    @Test
+    fun testIsAllowedShellCommandRejectsInjectedPerAppRepairCommands() {
+        val rejected = listOf(
+            // Injection through each parameterized position.
+            "pm grant com.spocky.projengmenu android.permission.RECORD_AUDIO; rm -rf /data",
+            "pm grant com.spocky.projengmenu android.permission.RECORD_AUDIO && reboot",
+            "pm grant com.spocky.projengmenu android.permission.RECORD_AUDIO | sh",
+            "pm grant com.spocky.projengmenu `reboot`",
+            "pm grant com.spocky.projengmenu \$(reboot)",
+            "dumpsys deviceidle whitelist +dev.vodik7.tvquickactions.free; reboot",
+            "appops set me.jxl.kiosk_satellite SYSTEM_ALERT_WINDOW allow; reboot",
+            "cmd notification allow_listener com.spocky.projengmenu/.L;reboot",
+            "pm set-home-activity com.spocky.projengmenu/.Home && reboot",
+            // Extra or missing arguments.
+            "pm grant com.spocky.projengmenu android.permission.RECORD_AUDIO extra",
+            "pm grant --user 0 com.spocky.projengmenu android.permission.RECORD_AUDIO",
+            "pm grant com.spocky.projengmenu",
+            "appops set me.jxl.kiosk_satellite SYSTEM_ALERT_WINDOW",
+            "appops get me.jxl.kiosk_satellite SYSTEM_ALERT_WINDOW extra",
+            "cmd notification allow_listener",
+            "dumpsys deviceidle whitelist +",
+            // Off-catalog / wrong-case app ops.
+            "appops set me.jxl.kiosk_satellite RUN_IN_BACKGROUND allow",
+            "appops set me.jxl.kiosk_satellite system_alert_window allow",
+            "appops get me.jxl.kiosk_satellite RUN_ANY_IN_BACKGROUND",
+            // Metacharacters inside a package or class name.
+            "pm grant com.spocky projengmenu android.permission.RECORD_AUDIO",
+            "dumpsys deviceidle whitelist +com.a:com.b",
+            "cmd notification allow_listener com.a/b/c",
+            "cmd notification allow_listener 'com.a/b'",
+            "pm set-home-activity com.a/com.b:com.c/com.d",
+            // Near-miss verbs that would be destructive or mode-flipping.
+            "pm revoke com.spocky.projengmenu android.permission.RECORD_AUDIO",
+            "pm uninstall com.spocky.projengmenu",
+            "appops set me.jxl.kiosk_satellite SYSTEM_ALERT_WINDOW deny",
+            "appops set me.jxl.kiosk_satellite SYSTEM_ALERT_WINDOW ignore",
+            "dumpsys deviceidle whitelist -dev.vodik7.tvquickactions.free",
+            "cmd notification disallow_listener com.spocky.projengmenu/.L",
+            "cmd package install com.spocky.projengmenu"
+        )
+        for (command in rejected) {
+            assertFalse("must reject: $command", AdbLoopbackInstaller.isAllowedShellCommand(command))
+        }
+    }
 }

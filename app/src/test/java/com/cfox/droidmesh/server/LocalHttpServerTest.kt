@@ -1867,4 +1867,103 @@ class LocalHttpServerTest {
             matches.isEmpty()
         )
     }
+
+    // [PROGRAMMATIC] ASET-TEST-012: all three per-app-settings endpoints require auth when a
+    // password is configured.
+    @Test
+    fun testAppSettingsEndpointsRequireAuthWhenPasswordSet() {
+        SettingsStore.setPassword(mockContext, "secret123")
+        assertEquals(
+            NanoHTTPD.Response.Status.UNAUTHORIZED,
+            server.serve(mockSession("/api/system/app-settings")).status
+        )
+        assertEquals(
+            NanoHTTPD.Response.Status.UNAUTHORIZED,
+            server.serve(
+                mockSession("/api/system/app-settings/repair", method = NanoHTTPD.Method.POST, postBody = "{}")
+            ).status
+        )
+        assertEquals(
+            NanoHTTPD.Response.Status.UNAUTHORIZED,
+            server.serve(mockSession("/api/system/app-settings/capture?packageName=me.jxl.kiosk_satellite")).status
+        )
+    }
+
+    // [PROGRAMMATIC] ASET-TEST-012: authorized, the audit endpoint returns the documented shape.
+    @Test
+    fun testAppSettingsAuditReturnsDocumentedShape() {
+        val response = server.serve(mockSession("/api/system/app-settings"))
+        assertEquals(NanoHTTPD.Response.Status.OK, response.status)
+        val json = JSONObject(response.data?.readBytes()?.toString(Charsets.UTF_8) ?: "")
+        assertEquals("ok", json.getString("status"))
+        assertTrue(json.has("repairNeeded"))
+        assertTrue(json.has("missingCount"))
+        assertTrue(json.has("unverifiedCount"))
+        assertTrue(json.has("appOpsVerifiedAt"))
+        assertTrue(json.has("items"))
+        assertFalse("no library entries configured means nothing to repair", json.getBoolean("repairNeeded"))
+    }
+
+    // [PROGRAMMATIC] ASET-TEST-012 (negative): repair fails fast with 409 when ADB is disabled
+    // (Settings.Global.ADB_ENABLED is 0 under this project's unit-test stubbing), so no socket is
+    // ever opened -- the same fail-fast posture as PROV-TEST-005.
+    @Test
+    fun testAppSettingsRepairFailsFastWhenAdbDisabled() {
+        val response = server.serve(
+            mockSession(
+                "/api/system/app-settings/repair",
+                method = NanoHTTPD.Method.POST,
+                headers = authedHeaders(),
+                postBody = "{}"
+            )
+        )
+        assertEquals(NanoHTTPD.Response.Status.CONFLICT, response.status)
+        val json = JSONObject(response.data?.readBytes()?.toString(Charsets.UTF_8) ?: "")
+        assertEquals("error", json.getString("status"))
+        assertTrue(json.getString("error").contains("ADB"))
+    }
+
+    // [PROGRAMMATIC] ASET-TEST-012 (negative): capture rejects a missing or malformed package name
+    // rather than treating it as a wildcard.
+    @Test
+    fun testAppSettingsCaptureRejectsInvalidPackageName() {
+        assertEquals(
+            NanoHTTPD.Response.Status.BAD_REQUEST,
+            server.serve(mockSession("/api/system/app-settings/capture")).status
+        )
+        assertEquals(
+            NanoHTTPD.Response.Status.BAD_REQUEST,
+            server.serve(mockSession("/api/system/app-settings/capture?packageName=")).status
+        )
+        assertEquals(
+            NanoHTTPD.Response.Status.BAD_REQUEST,
+            server.serve(
+                mockSession(
+                    "/api/system/app-settings/capture",
+                    params = mapOf("packageName" to "me.jxl.kiosk_satellite; rm -rf /")
+                )
+            ).status
+        )
+    }
+
+    // [PROGRAMMATIC] ASET-TEST-014: index.html carries the app-settings repair banner, the App
+    // Library requirements editor with capture, and the peer-card health row (ASET-BEHAVE-010).
+    @Test
+    fun testAppSettingsAssetStructure() {
+        val assetFile = java.io.File("src/main/assets/web/index.html")
+        assertTrue("index.html asset must exist", assetFile.exists())
+        val html = assetFile.readText()
+        assertTrue("Must have appSettingsRepairBanner", html.contains("id=\"appSettingsRepairBanner\""))
+        assertTrue("Must have appSettingsRepairSummary", html.contains("id=\"appSettingsRepairSummary\""))
+        assertTrue("Must have appSettingsRepairItems", html.contains("id=\"appSettingsRepairItems\""))
+        assertTrue("Must have appSettingsRepairBtn", html.contains("id=\"appSettingsRepairBtn\""))
+        assertTrue("Must call refreshAppSettings on load", html.contains("refreshAppSettings()"))
+        assertTrue("Must define repairAppSettings", html.contains("async function repairAppSettings()"))
+        assertTrue("Must define the library requirements editor", html.contains("function renderAppSettingsEditor("))
+        assertTrue("Must define toggleAppSettingsEditor", html.contains("function toggleAppSettingsEditor("))
+        assertTrue("Must define captureAppSettings", html.contains("async function captureAppSettings("))
+        assertTrue("Must define addAppSettingRequirement", html.contains("async function addAppSettingRequirement("))
+        assertTrue("Must define removeAppSettingRequirement", html.contains("async function removeAppSettingRequirement("))
+        assertTrue("Peer card must show app settings health", html.contains("App Settings"))
+    }
 }

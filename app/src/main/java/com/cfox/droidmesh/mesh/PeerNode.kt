@@ -23,7 +23,12 @@ data class PeerNode(
     val meshId: String = "unmanaged",
     val meshName: String = "Unmanaged",
     val isDiscoveredPeer: Boolean = false,
-    val configVersion: Long = 0L
+    val configVersion: Long = 0L,
+    // ASET-BEHAVE-009: per-app required-settings health for this node, carried on the beacon so
+    // the mesh view can badge a peer without polling it.
+    val appSettingsMissing: Int = 0,
+    val appSettingsUnverified: Int = 0,
+    val appSettingsIssues: List<String> = emptyList()
 ) {
     /** Human-readable node label: prefers user-configured displayName over raw Build model string. */
     val effectiveName: String
@@ -63,6 +68,11 @@ data class PeerNode(
         put("updaterState", if (isOnline) updaterState else "OFFLINE")
         put("updaterMessage", updaterMessage ?: JSONObject.NULL)
         put("adbEnabled", adbEnabled)
+        // ASET-BEHAVE-009: per-app required-settings health, so the mesh view can badge a peer
+        // without polling it. Repair still runs on that device's own UI.
+        put("appSettingsMissing", appSettingsMissing)
+        put("appSettingsUnverified", appSettingsUnverified)
+        put("appSettingsIssues", JSONArray().also { arr -> appSettingsIssues.forEach { arr.put(it) } })
         put("lastSeenTimestamp", lastSeenTimestamp)
         put("lastSeenSecondsAgo", lastSeenSecondsAgo)
         put("isOnline", isOnline)
@@ -70,6 +80,17 @@ data class PeerNode(
     }
 
     companion object {
+        /** ASET-BEHAVE-009: shared by the beacon decode and the persistent-connection peer decode. */
+        fun parseAppSettingsIssues(json: JSONObject): List<String> {
+            val arr = json.optJSONArray("appSettingsIssues") ?: return emptyList()
+            val issues = mutableListOf<String>()
+            for (i in 0 until arr.length()) {
+                val issue = arr.optString(i, "")
+                if (issue.isNotBlank()) issues.add(issue)
+            }
+            return issues
+        }
+
         fun fromBeaconJson(json: JSONObject, senderIp: String): PeerNode? {
             return try {
                 val id = json.optString("id", senderIp)
@@ -109,6 +130,11 @@ data class PeerNode(
                 val updaterMessage = if (json.isNull("updaterMessage")) null else json.optString("updaterMessage")
                 val adbEnabled = json.optBoolean("adbEnabled", false)
                 val configVersion = json.optLong("config_version", json.optLong("configVersion", 0L))
+                // ASET-BEHAVE-009: a peer on an older build sends none of these -- decode to
+                // "nothing reported" rather than a false alarm.
+                val appSettingsMissing = json.optInt("appSettingsMissing", 0)
+                val appSettingsUnverified = json.optInt("appSettingsUnverified", 0)
+                val appSettingsIssues = parseAppSettingsIssues(json)
                 PeerNode(
                     id = id,
                     ip = ip,
@@ -127,7 +153,10 @@ data class PeerNode(
                     meshId = meshId,
                     meshName = meshName,
                     isDiscoveredPeer = isDiscovered,
-                    configVersion = configVersion
+                    configVersion = configVersion,
+                    appSettingsMissing = appSettingsMissing,
+                    appSettingsUnverified = appSettingsUnverified,
+                    appSettingsIssues = appSettingsIssues
                 )
             } catch (e: Exception) {
                 null

@@ -64,6 +64,26 @@ object AdbLoopbackInstaller {
     // metacharacter (quotes, `;`, `|`, backticks, spaces) outright rather than trying to escape them.
     private val ACCESSIBILITY_SERVICES_VALUE_REGEX = Regex("^[A-Za-z0-9_./:]+$")
 
+    // INST-BEHAVE-015 amended 2026-09-11 (REQ-ADMIN-011 / ASET-BEHAVE-005): per-app settings
+    // repair needs six more shapes, each naming a *managed app's* package rather than DroidMesh's
+    // own, so they can't be exact strings. They are full-command patterns, not a relaxation of the
+    // exact set: Kotlin's Regex.matches requires the entire string to match, the charset excludes
+    // whitespace and every shell metacharacter, and the app-op position is a literal alternation
+    // over the four-op catalog -- so no accepted command can carry a chained command, a
+    // substitution, an extra argument, or an off-catalog op.
+    private const val IDENT = "[A-Za-z0-9_.]+"
+    private const val APP_OPS =
+        "(?:SYSTEM_ALERT_WINDOW|GET_USAGE_STATS|WRITE_SETTINGS|REQUEST_INSTALL_PACKAGES)"
+
+    private val ALLOWED_COMMAND_PATTERNS = listOf(
+        Regex("cmd notification allow_listener $IDENT/$IDENT"),
+        Regex("dumpsys deviceidle whitelist \\+$IDENT"),
+        Regex("appops set $IDENT $APP_OPS allow"),
+        Regex("appops get $IDENT $APP_OPS"),
+        Regex("pm set-home-activity $IDENT/$IDENT"),
+        Regex("pm grant $IDENT $IDENT")
+    )
+
     internal fun isAllowedShellCommand(command: String): Boolean {
         if (ALLOWED_EXACT_SHELL_COMMANDS.contains(command)) {
             return true
@@ -72,7 +92,7 @@ object AdbLoopbackInstaller {
             val value = command.removePrefix(ACCESSIBILITY_SERVICES_PUT_PREFIX)
             return ACCESSIBILITY_SERVICES_VALUE_REGEX.matches(value)
         }
-        return false
+        return ALLOWED_COMMAND_PATTERNS.any { it.matches(command) }
     }
 
     // INST-BEHAVE-008: generic shell command execution over the same loopback ADB session

@@ -2113,5 +2113,41 @@ class LocalHttpServerTest {
             html.contains("\${hasReleaseSource(app) ? `\n              <button class=\"btn btn-primary btn-sm install-btn\"")
         )
     }
+
+    // [PROGRAMMATIC] UI-TEST-017 (issue #88): the inline <script> block must be parseable JS -- a
+    // missing template-literal closer is invisible to substring-only checks (UI-TEST-015/016) and
+    // silently kills every dynamic behavior on the page, leaving it stuck on "Loading Meshes..." /
+    // "Loading version..." forever. No JS engine is available in this test environment (see
+    // UI-TEST-009), so this is a structural proxy rather than a real parse: every backtick opens or
+    // closes exactly one template literal, so a valid script always has an even backtick count, and
+    // every interpolation's opening brace has a matching closer, so brace counts must balance. Both
+    // held before 3567d17 introduced the regression and both catch it.
+    @Test
+    fun testInlineScriptBackticksAndBracesBalance() {
+        val assetFile = java.io.File("src/main/assets/web/index.html")
+        assertTrue("index.html asset must exist", assetFile.exists())
+        val html = assetFile.readText()
+        val scriptStart = html.indexOf("<script>")
+        val scriptEnd = html.indexOf("</script>")
+        assertTrue("index.html must contain a <script> block", scriptStart >= 0 && scriptEnd > scriptStart)
+        val script = html.substring(scriptStart + "<script>".length, scriptEnd)
+
+        val backtickCount = script.count { it == '`' }
+        assertEquals(
+            "Inline script has an odd number of backticks -- a template literal is unterminated " +
+                "(each one opens exactly one literal and closes exactly one, so the total is always even)",
+            0,
+            backtickCount % 2
+        )
+
+        val openBraces = script.count { it == '{' }
+        val closeBraces = script.count { it == '}' }
+        assertEquals(
+            "Inline script has mismatched { vs } counts ($openBraces vs $closeBraces) -- likely a " +
+                "template-literal interpolation missing its closing brace",
+            openBraces,
+            closeBraces
+        )
+    }
 }
 

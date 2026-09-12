@@ -1,14 +1,11 @@
 #!/usr/bin/env bash
-# One-shot bootstrap for a Meta Portal device: install DroidMesh,
-# grant the minimum ADB items it needs to run, and launch it. Portal only —
-# Echo Show LineageOS ports use Device Manager mode instead and never need
-# this app.
+# One-shot bootstrap for a Meta Portal device: install DroidMesh.
+# Portal only — Echo Show LineageOS ports use Device Manager mode instead and
+# never need this app.
 #
-# This script provisions ONLY the updater (com.cfox.droidmesh).
-# It does not install or grant permissions for any managed app itself —
-# once the updater is running, trigger its own install/update via the HTTP
-# API documented in README.md, or grant that app's own ADB permissions
-# separately.
+# DroidMesh autonomously self-provisions and configures its own required
+# permissions and settings on startup. This script does NOT configure device
+# settings or grant permissions via ADB.
 #
 # Requires a USB-tethered device already visible in `adb devices` (network
 # ADB isn't set up yet on a fresh Portal — that's the point of this script).
@@ -66,26 +63,6 @@ resolve_apk() {
 APK="$(resolve_apk)"
 log "installing $APK on $SERIAL"
 "${ADB[@]}" install -r "$APK" || die "adb install failed"
-
-log "granting REQUEST_INSTALL_PACKAGES (lets the updater install managed-app APKs without a prompt)"
-"${ADB[@]}" shell appops set "$PKG" REQUEST_INSTALL_PACKAGES allow \
-  || log "WARNING: appops grant failed — check manually"
-
-# gitea#89: Android 13+/14 resets ACCESS_RESTRICTED_SETTINGS to `deny` for a sideloaded app on
-# EVERY install/update (not just the first), and while denied the OS silently strips the
-# accessibility grant back out from under the settings write below. Must run before that write,
-# not after, or this script's own accessibility setup gets reverted moments later.
-log "clearing restricted-settings app-op (Android 13+/14 sideload restriction)"
-"${ADB[@]}" shell appops set "$PKG" ACCESS_RESTRICTED_SETTINGS allow \
-  || log "WARNING: could not clear ACCESS_RESTRICTED_SETTINGS — accessibility grant below may not stick"
-
-log "enabling the auto-install accessibility service"
-"${ADB[@]}" shell settings put secure enabled_accessibility_services "$PKG/$PKG.service.AutoInstallService"
-"${ADB[@]}" shell settings put secure accessibility_enabled 1
-
-log "battery-optimization exemption (Doze whitelist) so the foreground service survives screen-off"
-"${ADB[@]}" shell dumpsys deviceidle whitelist "+$PKG" \
-  || log "WARNING: deviceidle whitelist failed — check manually"
 
 log "package replacement starts DroidMesh's management service silently; preserving the foreground app"
 

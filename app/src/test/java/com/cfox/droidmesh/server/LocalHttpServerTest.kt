@@ -996,6 +996,70 @@ class LocalHttpServerTest {
         assertTrue(json.getString("message").contains("com.example.unknown"))
     }
 
+    // [PROGRAMMATIC] API-TEST-064: a Store-origin (isSideloaded=false) entry with a blank
+    // downloadUrl must not hit the generic "No downloadUrl configured" 400 -- it's the exact
+    // shape MeshAutoActionPlanner recognizes as a Play Store install candidate (FLT-BEHAVE-011),
+    // so /update routes it through PlayStoreInstaller.beginAndDispatch() instead. This JVM unit
+    // test environment never connects AutoInstallService, so isServiceRunning is always false and
+    // the dispatch always lands on the "skipped" branch -- this test proves the *branch selection*
+    // (not the old blank-URL rejection) and the resulting 409 naming that reason; the actual
+    // Play Store intent firing is covered live on-device.
+    @Test
+    fun testUpdateForStoreOriginBlankUrlAttemptsPlayStoreDispatch() {
+        SettingsStore.setMeshAppConfig(
+            mockContext, "unmanaged",
+            SettingsStore.MeshAppConfig(
+                packageName = "com.example.storeapp",
+                appName = "Store App",
+                managed = true,
+                autoInstall = true,
+                isSideloaded = false,
+                downloadUrl = ""
+            )
+        )
+        val response = server.serve(
+            mockSession(
+                "/api/update?package=com.example.storeapp",
+                method = NanoHTTPD.Method.POST,
+                headers = authedHeaders(),
+                postBody = "{}"
+            )
+        )
+        val json = JSONObject(response.data?.readBytes()?.toString(Charsets.UTF_8) ?: "")
+        assertEquals(NanoHTTPD.Response.Status.CONFLICT, response.status)
+        assertFalse(json.optString("message").contains("No downloadUrl configured", ignoreCase = true))
+        assertTrue(json.optString("message").contains("Accessibility", ignoreCase = true))
+    }
+
+    // [PROGRAMMATIC] API-TEST-065 (negative): a sideloaded entry with a blank downloadUrl is a
+    // genuine misconfiguration with no install source at all -- it must never fall into the new
+    // Play Store branch, regression-proofing API-BEHAVE-042 against widening past Store-origin.
+    @Test
+    fun testUpdateForSideloadedBlankUrlStillReturns400() {
+        SettingsStore.setMeshAppConfig(
+            mockContext, "unmanaged",
+            SettingsStore.MeshAppConfig(
+                packageName = "com.example.misconfigured",
+                appName = "Misconfigured App",
+                managed = true,
+                autoInstall = true,
+                isSideloaded = true,
+                downloadUrl = ""
+            )
+        )
+        val response = server.serve(
+            mockSession(
+                "/api/update?package=com.example.misconfigured",
+                method = NanoHTTPD.Method.POST,
+                headers = authedHeaders(),
+                postBody = "{}"
+            )
+        )
+        val json = JSONObject(response.data?.readBytes()?.toString(Charsets.UTF_8) ?: "")
+        assertEquals(NanoHTTPD.Response.Status.BAD_REQUEST, response.status)
+        assertTrue(json.getString("message").contains("No downloadUrl configured"))
+    }
+
     // [PROGRAMMATIC] MESH-TEST-008: Deleting "unmanaged" is rejected (negative case for MESH-BEHAVE-009)
     @Test
     fun testMeshDeleteRejectsUnmanaged() {
@@ -2023,6 +2087,31 @@ class LocalHttpServerTest {
         val html = assetFile.readText()
         assertTrue("Must have sync-ui-btn rendering for com.spocky.projengmenu", html.contains("sync-ui-btn"))
         assertTrue("Must define syncProjectivyUi function", html.contains("async function syncProjectivyUi("))
+    }
+
+    // [PROGRAMMATIC] UI-TEST-016: the missing-apps row's Install button must key off
+    // canManuallyInstall(app) -- hasReleaseSource(app) OR app.isSideloaded === false -- not the
+    // bare hasReleaseSource(app) check, or a Store-origin missing app (blank downloadUrl by
+    // design) never gets a manual Install button. Structural, not behavioral, per UI-TEST-009:
+    // no JS runtime in this test environment; live verification on device covers the click-through.
+    @Test
+    fun testMissingStoreAppGetsManualInstallButton() {
+        val assetFile = java.io.File("src/main/assets/web/index.html")
+        assertTrue("index.html asset must exist", assetFile.exists())
+        val html = assetFile.readText()
+        assertTrue(
+            "Must define canManuallyInstall(app) as hasReleaseSource(app) || app.isSideloaded === false",
+            html.contains("function canManuallyInstall(app)") &&
+                html.contains("hasReleaseSource(app) || app.isSideloaded === false")
+        )
+        assertTrue(
+            "Missing-apps install-btn must be gated on canManuallyInstall(app)",
+            html.contains("\${canManuallyInstall(app) ? `")
+        )
+        assertFalse(
+            "No missing-apps install-btn should remain gated on the bare hasReleaseSource(app) check",
+            html.contains("\${hasReleaseSource(app) ? `\n              <button class=\"btn btn-primary btn-sm install-btn\"")
+        )
     }
 }
 

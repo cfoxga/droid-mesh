@@ -830,6 +830,29 @@ class LocalHttpServer(
         } else {
             val downloadUrl = entry.downloadUrl.trim()
             if (downloadUrl.isBlank()) {
+                // API-BEHAVE-042: a Store-origin entry (isSideloaded = false) intentionally has no
+                // downloadUrl -- that's how FLT-BEHAVE-011 recognizes a Play Store install
+                // candidate, and a manual trigger deserves the same recognition instead of a flat
+                // 400. A sideloaded entry with a blank downloadUrl is a real misconfiguration with
+                // no install source at all, so it keeps the 400.
+                if (!entry.isSideloaded) {
+                    return when (val outcome = com.cfox.droidmesh.installer.PlayStoreInstaller
+                        .beginAndDispatch(context, packageName, entry.appName)) {
+                        is com.cfox.droidmesh.installer.PlayStoreInstaller.DispatchOutcome.Opened ->
+                            jsonResponse(Response.Status.ACCEPTED, JSONObject().apply {
+                                put("status", "accepted")
+                                put("message", "Play Store install opened for $packageName")
+                                put("targetPackage", packageName)
+                                put("accessibilityServiceActive", AutoInstallService.isServiceRunning)
+                            })
+                        is com.cfox.droidmesh.installer.PlayStoreInstaller.DispatchOutcome.Skipped ->
+                            jsonResponse(Response.Status.CONFLICT, JSONObject().apply {
+                                put("status", "error")
+                                put("message", outcome.reason)
+                                put("targetPackage", packageName)
+                            })
+                    }
+                }
                 return jsonResponse(Response.Status.BAD_REQUEST, JSONObject().apply {
                     put("status", "error")
                     put("message", "No downloadUrl configured for $packageName")

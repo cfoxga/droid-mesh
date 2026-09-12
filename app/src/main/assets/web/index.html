@@ -2284,6 +2284,13 @@ function hasReleaseSource(app) {
   return !!(app && app.downloadUrl && app.downloadUrl.trim());
 }
 
+// UI-BEHAVE-010 (amended): a missing app can be manually installed either via the APK pipeline
+// (hasReleaseSource) or, for a Store-origin entry with no downloadUrl by design, via Play Store
+// (API-BEHAVE-042/FLT-BEHAVE-011) -- the same eligibility MeshAutoActionPlanner already uses.
+function canManuallyInstall(app) {
+  return hasReleaseSource(app) || app.isSideloaded === false;
+}
+
 // Alphabetical — origin is no longer a sort key here since it's now the card boundary itself.
 function compareLibraryEntries(a, b) {
   return (a.appName || a.packageName || '').localeCompare(b.appName || b.packageName || '', undefined, { sensitivity: 'base' });
@@ -2607,7 +2614,7 @@ function renderMeshPeers(peers, library) {
           </div>
           <div style="display: flex; align-items: center; gap: 6px;">
             <span class="badge badge-rust" style="font-size: 11px; padding: 2px 6px;">Not Installed</span>
-            ${hasReleaseSource(app) ? `
+            ${canManuallyInstall(app) ? `
               <button class="btn btn-primary btn-sm install-btn" style="font-size: 11px; padding: 2px 8px;">
                 Install
               </button>

@@ -271,21 +271,13 @@ class UpdaterForegroundService : Service() {
                             // FLT-BEHAVE-011: a Store-origin entry intentionally has no APK URL.
                             // It reaches this branch only when !isSideloaded (the planner keeps a
                             // sideloaded blank-URL entry ineligible), so route it through the
-                            // installed Play Store instead of attempting the APK pipeline.
-                            if (!AutoInstallService.isServiceRunning) {
-                                Logger.w("Play Store auto-install skipped for $pkg: Accessibility service is disabled")
-                                continue
-                            }
-                            if (!AutoInstallService.beginPlayStoreInstall(pkg, cfg.appName)) {
-                                Logger.w("Play Store auto-install already pending; deferring $pkg")
-                                continue
-                            }
-                            val dispatch = PlayStoreInstaller.dispatchInstall(applicationContext, pkg)
-                            if (dispatch.isSuccess) {
-                                Logger.i("Play Store auto-install: opened $pkg (${cfg.appName})")
-                            } else {
-                                AutoInstallService.clearPendingPlayStoreInstall(pkg)
-                                Logger.w("Play Store auto-install: could not open $pkg: ${dispatch.exceptionOrNull()?.message}")
+                            // installed Play Store instead of attempting the APK pipeline. Shared
+                            // choke point with the manual /update trigger (API-BEHAVE-042).
+                            when (val outcome = PlayStoreInstaller.beginAndDispatch(applicationContext, pkg, cfg.appName)) {
+                                is PlayStoreInstaller.DispatchOutcome.Opened ->
+                                    Logger.i("Play Store auto-install: opened $pkg (${cfg.appName})")
+                                is PlayStoreInstaller.DispatchOutcome.Skipped ->
+                                    Logger.w("Play Store auto-install skipped for $pkg: ${outcome.reason}")
                             }
                             continue
                         }

@@ -368,4 +368,104 @@ class AppSettingsAuditorTest {
         assertTrue(summary.issues.all { it.startsWith("TV Quick Actions: ") })
         assertTrue("unverified items are not listed as issues", summary.issues.none { it.contains("WRITE_SETTINGS") })
     }
+
+    // [PROGRAMMATIC] ASET-TEST-017 — repairPathFor() picks the mechanism before any I/O happens.
+    // Accessibility items go straight to the direct write whenever WRITE_SECURE_SETTINGS is held,
+    // regardless of the ADB auth gate's state, because that path never opens an ADB session at all.
+    @Test
+    fun testRepairPathForPrefersDirectWriteForAccessibilityRegardlessOfGate() {
+        assertEquals(
+            AppSettingsAuditor.RepairPath.DIRECT_WRITE,
+            AppSettingsAuditor.repairPathFor(
+                SettingType.ACCESSIBILITY_SERVICE,
+                canWriteSecureSettingsDirectly = true,
+                adbAuthGateTripped = false
+            )
+        )
+        assertEquals(
+            "direct write still wins even once the gate has tripped -- it doesn't touch ADB",
+            AppSettingsAuditor.RepairPath.DIRECT_WRITE,
+            AppSettingsAuditor.repairPathFor(
+                SettingType.ACCESSIBILITY_SERVICE,
+                canWriteSecureSettingsDirectly = true,
+                adbAuthGateTripped = true
+            )
+        )
+    }
+
+    // [PROGRAMMATIC] ASET-TEST-017 (negative) — without the permission, accessibility falls back to
+    // ADB like every other type, and is subject to the same gate.
+    @Test
+    fun testRepairPathForFallsBackToAdbWithoutPermissionAndRespectsGate() {
+        assertEquals(
+            AppSettingsAuditor.RepairPath.ADB,
+            AppSettingsAuditor.repairPathFor(
+                SettingType.ACCESSIBILITY_SERVICE,
+                canWriteSecureSettingsDirectly = false,
+                adbAuthGateTripped = false
+            )
+        )
+        assertEquals(
+            AppSettingsAuditor.RepairPath.SKIP_AUTH_PENDING,
+            AppSettingsAuditor.repairPathFor(
+                SettingType.ACCESSIBILITY_SERVICE,
+                canWriteSecureSettingsDirectly = false,
+                adbAuthGateTripped = true
+            )
+        )
+        assertEquals(
+            "a non-accessibility type has no direct-write path at all, so a tripped gate skips it too",
+            AppSettingsAuditor.RepairPath.SKIP_AUTH_PENDING,
+            AppSettingsAuditor.repairPathFor(
+                SettingType.RUNTIME_PERMISSION,
+                canWriteSecureSettingsDirectly = true,
+                adbAuthGateTripped = true
+            )
+        )
+        assertEquals(
+            AppSettingsAuditor.RepairPath.ADB,
+            AppSettingsAuditor.repairPathFor(
+                SettingType.BATTERY_OPTIMIZATION,
+                canWriteSecureSettingsDirectly = true,
+                adbAuthGateTripped = false
+            )
+        )
+    }
+
+    // [PROGRAMMATIC] ASET-TEST-018 — the gate trips only for the one failure mode that means every
+    // remaining ADB item in the batch is stuck behind the same unanswered prompt slot. Any other
+    // failure (a bounced adbd, a malformed command) says nothing about the rest of the batch.
+    @Test
+    fun testAdbAuthGateTripsOnlyOnAuthorizationPendingFailure() {
+        val gate = AppSettingsAuditor.AdbAuthGate()
+        assertFalse(gate.shouldSkip())
+
+        gate.record(Result.failure(IllegalStateException("ADB command failed: boom")))
+        assertFalse("an unrelated failure must not trip the gate", gate.shouldSkip())
+
+        gate.record(Result.success("ok"))
+        assertFalse(gate.shouldSkip())
+
+        gate.record(Result.failure(com.cfox.droidmesh.installer.AdbAuthorizationPendingException()))
+        assertTrue("an auth-pending failure trips the gate for the rest of the batch", gate.shouldSkip())
+
+        gate.record(Result.success("ok"))
+        assertTrue("once tripped, the gate stays tripped for the rest of this repair() call", gate.shouldSkip())
+    }
+
+    // [PROGRAMMATIC] ASET-TEST-019 — a skipped item's failure text must be indistinguishable from
+    // an actually-attempted item's, so the UI/repair-result consumer never has to special-case
+    // "skipped" vs "attempted and failed" -- both say exactly what a person needs to do next.
+    @Test
+    fun testSkippedAuthPendingFailureMatchesAnActuallyAttemptedFailure() {
+        val attempted = AppSettingsAuditor.describeRepairFailure(
+            "runtime_permission:android.permission.BLUETOOTH_SCAN",
+            com.cfox.droidmesh.installer.AdbAuthorizationPendingException()
+        )
+        val skipped = AppSettingsAuditor.skippedAuthPendingFailure(
+            "runtime_permission:android.permission.BLUETOOTH_SCAN"
+        )
+        assertEquals(attempted.id, skipped.id)
+        assertEquals(attempted.error, skipped.error)
+    }
 }

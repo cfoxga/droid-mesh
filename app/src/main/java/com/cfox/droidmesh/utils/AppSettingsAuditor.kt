@@ -1,11 +1,13 @@
 package com.cfox.droidmesh.utils
 
+import android.Manifest
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageInfo
 import android.content.pm.PackageManager
 import android.os.PowerManager
 import android.provider.Settings
+import com.cfox.droidmesh.installer.AdbAuthorizationPendingException
 import com.cfox.droidmesh.installer.AdbLoopbackInstaller
 import com.cfox.droidmesh.installer.AppVersionHelper
 import com.cfox.droidmesh.settings.AppSettingRequirement
@@ -53,6 +55,64 @@ object AppSettingsAuditor {
     )
 
     data class FailedRepair(val id: String, val error: String)
+
+    /** ASET-BEHAVE-011/012: which mechanism repairs one missing item. */
+    enum class RepairPath { DIRECT_WRITE, ADB, SKIP_AUTH_PENDING }
+
+    // ASET-BEHAVE-011/012: decided before any I/O happens. Accessibility items go straight to
+    // DIRECT_WRITE whenever WRITE_SECURE_SETTINGS is held, regardless of the auth gate's state --
+    // that path never opens an ADB session, so a stuck on-screen prompt on this device is
+    // irrelevant to it. Every other type (and accessibility without that permission) needs ADB:
+    // SKIP_AUTH_PENDING once the gate has already tripped this batch, since a stuck prompt slot
+    // blocks every ADB item alike (PROV-BEHAVE-010's own diagnostic text says as much), else ADB.
+    fun repairPathFor(
+        requirementType: SettingType,
+        canWriteSecureSettingsDirectly: Boolean,
+        adbAuthGateTripped: Boolean
+    ): RepairPath = when {
+        requirementType == SettingType.ACCESSIBILITY_SERVICE && canWriteSecureSettingsDirectly ->
+            RepairPath.DIRECT_WRITE
+        adbAuthGateTripped -> RepairPath.SKIP_AUTH_PENDING
+        else -> RepairPath.ADB
+    }
+
+    /** ASET-BEHAVE-012: per-repair()-call gate so a stuck ADB authorization prompt fails the rest
+     * of a batch immediately instead of spending a full read-timeout on every remaining item. The
+     * device holds only one on-screen prompt slot and does not free it when an earlier attempt
+     * gave up waiting (AdbAuthorizationPendingException's own text), so a second ADB attempt in
+     * the same batch cannot succeed where the first didn't. */
+    class AdbAuthGate {
+        var tripped: Boolean = false
+            private set
+
+        fun shouldSkip(): Boolean = tripped
+
+        // Any other failure (a bounced adbd, a malformed command) says nothing about whether the
+        // rest of the batch is stuck, so only this one exception type trips the gate.
+        fun record(outcome: Result<String>) {
+            if (outcome.exceptionOrNull() is AdbAuthorizationPendingException) {
+                tripped = true
+            }
+        }
+    }
+
+    // ASET-BEHAVE-012: mirrors ProvisioningAuditor.describeRepairFailure -- AdbAuthorizationPendingException
+    // is special-cased to its own constant rather than relying on `.message` staying wired to it.
+    fun describeRepairFailure(id: String, error: Throwable?): FailedRepair {
+        val text = when {
+            error is AdbAuthorizationPendingException -> AdbAuthorizationPendingException.MESSAGE
+            error == null -> "Repair reported no result"
+            !error.message.isNullOrBlank() -> error.message!!
+            else -> error.javaClass.simpleName
+        }
+        return FailedRepair(id, text)
+    }
+
+    // ASET-BEHAVE-012: a SKIP_AUTH_PENDING item never opens a socket, so it has no real Throwable
+    // to describe -- but its failure text must read exactly like an actually-attempted item's, so
+    // the UI never has to special-case "skipped" vs "attempted and failed".
+    fun skippedAuthPendingFailure(id: String): FailedRepair =
+        describeRepairFailure(id, AdbAuthorizationPendingException())
 
     data class AppSettingsRepairResult(
         val audit: AppSettingsAuditResult,
@@ -477,10 +537,39 @@ object AppSettingsAuditor {
         cachedSummaryAtMs = 0L
     }
 
+    // ASET-BEHAVE-011: true once WRITE_SECURE_SETTINGS has been granted (a single `adb shell pm
+    // grant com.cfox.droidmesh android.permission.WRITE_SECURE_SETTINGS`, ever, per device --
+    // mirrors ProvisioningAuditor.hasWriteSecureSettingsPermission). ENABLED_ACCESSIBILITY_SERVICES
+    // is a global Settings.Secure key, not scoped to whichever package's component is being listed,
+    // so the same permission that lets DroidMesh repair its own accessibility item without ADB
+    // (PROV-BEHAVE-013) lets it write any managed app's accessibility component the same way.
+    private fun hasWriteSecureSettingsPermission(context: Context): Boolean =
+        context.checkSelfPermission(Manifest.permission.WRITE_SECURE_SETTINGS) ==
+            PackageManager.PERMISSION_GRANTED
+
+    // ASET-BEHAVE-011: writes directly through ContentResolver -- no socket, no per-process ADB
+    // key trust, no on-screen prompt. Only reachable when hasWriteSecureSettingsPermission() is
+    // true. Not unit tested directly (a thin ContentResolver wrapper requiring a real Context,
+    // matching ProvisioningAuditor.repairAccessibilityDirect's precedent); covered by live-fleet
+    // verification instead.
+    private fun repairAccessibilityDirect(context: Context, requirement: AppSettingRequirement): Result<String> = try {
+        val current = Settings.Secure.getString(context.contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES)
+        val merged = mergeAccessibilityServices(current, requirement.value)
+        Settings.Secure.putString(context.contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES, merged)
+        Settings.Secure.putInt(context.contentResolver, Settings.Secure.ACCESSIBILITY_ENABLED, 1)
+        Result.success("Repaired directly via WRITE_SECURE_SETTINGS")
+    } catch (e: Exception) {
+        Result.failure(e)
+    }
+
     /**
-     * ASET-BEHAVE-005: verify app ops over ADB, apply every missing item's commands, re-verify,
-     * re-audit. Fails fast before opening any socket when ADB is off. One item failing never
-     * aborts the rest -- the caller gets `repairedIds` and `failed` and can see what's still wrong.
+     * ASET-BEHAVE-005/011/012: verify app ops over ADB, apply every missing item's commands,
+     * re-verify, re-audit. Fails fast before opening any socket when ADB is off. One item failing
+     * never aborts the rest -- the caller gets `repairedIds` and `failed` and can see what's still
+     * wrong. Accessibility items go through the WRITE_SECURE_SETTINGS direct-write path whenever
+     * it's available (ASET-BEHAVE-011); everything else needs ADB and is subject to
+     * [AdbAuthGate] (ASET-BEHAVE-012), so a device whose ADB key has never been authorized fails
+     * the rest of the batch immediately instead of spending a full read-timeout on each item.
      */
     suspend fun repair(context: Context): Result<AppSettingsRepairResult> {
         if (!AdbHelper.isAdbEnabled(context)) {
@@ -490,9 +579,11 @@ object AppSettingsAuditor {
         }
 
         val entries = installedLibraryEntries(context)
+        val gate = AdbAuthGate()
+        val canWriteSecureSettingsDirectly = hasWriteSecureSettingsPermission(context)
 
         // Read the app ops we can't see in-process, before deciding what's missing.
-        verifyAppOps(entries)
+        verifyAppOps(entries, gate)
 
         val before = audit(context)
         val repaired = mutableListOf<String>()
@@ -500,41 +591,63 @@ object AppSettingsAuditor {
 
         for (item in before.items) {
             if (item.status != ItemStatus.MISSING) continue
-            // Re-read the live value before each accessibility merge: an earlier item in this same
-            // loop may already have changed it, and merging against a stale value would drop
-            // whatever it just enabled.
-            val accessibilityRead = if (item.requirement.type == SettingType.ACCESSIBILITY_SERVICE) {
-                AdbLoopbackInstaller.runShellCommand("settings get secure enabled_accessibility_services")
-            } else {
-                null
-            }
 
-            var error: String? = null
-            // A read failure fails this item rather than merging against an unknown value.
-            val plan = repairCommands(item.packageName, item.requirement, accessibilityRead)
-            val commands = plan.getOrNull()
-            if (commands == null) {
-                error = plan.exceptionOrNull()?.message ?: "Could not determine the repair commands"
-            } else {
-                for (command in commands) {
-                    val outcome = AdbLoopbackInstaller.runShellCommand(command)
-                    if (outcome.isFailure) {
-                        error = outcome.exceptionOrNull()?.message ?: "Command failed: $command"
-                        break
+            when (repairPathFor(item.requirement.type, canWriteSecureSettingsDirectly, gate.shouldSkip())) {
+                RepairPath.SKIP_AUTH_PENDING -> {
+                    failed.add(skippedAuthPendingFailure(item.requirement.id))
+                }
+                RepairPath.DIRECT_WRITE -> {
+                    val outcome = repairAccessibilityDirect(context, item.requirement)
+                    if (outcome.isSuccess) {
+                        repaired.add(item.requirement.id)
+                    } else {
+                        val failure = describeRepairFailure(item.requirement.id, outcome.exceptionOrNull())
+                        failed.add(failure)
+                        Logger.w("App settings repair failed for ${item.packageName} ${item.requirement.id}: ${failure.error}")
+                    }
+                }
+                RepairPath.ADB -> {
+                    // Re-read the live value before each accessibility merge: an earlier item in
+                    // this same loop may already have changed it, and merging against a stale
+                    // value would drop whatever it just enabled.
+                    val accessibilityRead = if (item.requirement.type == SettingType.ACCESSIBILITY_SERVICE) {
+                        AdbLoopbackInstaller.runShellCommand("settings get secure enabled_accessibility_services")
+                            .also { gate.record(it) }
+                    } else {
+                        null
+                    }
+
+                    var error: Throwable? = null
+                    // A read failure fails this item rather than merging against an unknown value.
+                    val plan = repairCommands(item.packageName, item.requirement, accessibilityRead)
+                    val commands = plan.getOrNull()
+                    if (commands == null) {
+                        error = plan.exceptionOrNull() ?: IllegalStateException("Could not determine the repair commands")
+                    } else {
+                        for (command in commands) {
+                            val outcome = AdbLoopbackInstaller.runShellCommand(command)
+                            gate.record(outcome)
+                            if (outcome.isFailure) {
+                                error = outcome.exceptionOrNull() ?: IllegalStateException("Command failed: $command")
+                                break
+                            }
+                        }
+                    }
+
+                    if (error == null) {
+                        repaired.add(item.requirement.id)
+                    } else {
+                        val failure = describeRepairFailure(item.requirement.id, error)
+                        Logger.w("App settings repair failed for ${item.packageName} ${item.requirement.id}: ${failure.error}")
+                        failed.add(failure)
                     }
                 }
             }
-
-            if (error == null) {
-                repaired.add(item.requirement.id)
-            } else {
-                Logger.w("App settings repair failed for ${item.packageName} ${item.requirement.id}: $error")
-                failed.add(FailedRepair(item.requirement.id, error))
-            }
         }
 
-        // An `appops set` reporting success isn't proof the mode took -- re-read it.
-        verifyAppOps(entries)
+        // An `appops set` reporting success isn't proof the mode took -- re-read it, still subject
+        // to the same gate so a stuck auth prompt doesn't cost another round of read timeouts.
+        verifyAppOps(entries, gate)
         invalidateSummary()
 
         return Result.success(
@@ -542,13 +655,21 @@ object AppSettingsAuditor {
         )
     }
 
-    private suspend fun verifyAppOps(entries: List<SettingsStore.MeshAppConfig>) {
+    private suspend fun verifyAppOps(entries: List<SettingsStore.MeshAppConfig>, gate: AdbAuthGate) {
         for (entry in entries) {
             for (requirement in entry.requiredSettings) {
                 if (requirement.type != SettingType.APP_OP) continue
+                if (gate.shouldSkip()) {
+                    Logger.w(
+                        "Skipping app op read for ${requirement.value} on ${entry.packageName}: " +
+                            AdbAuthorizationPendingException.MESSAGE
+                    )
+                    continue
+                }
                 val outcome = AdbLoopbackInstaller.runShellCommand(
                     appOpsReadCommand(entry.packageName, requirement.value)
                 )
+                gate.record(outcome)
                 outcome
                     .onSuccess { recordAppOp(entry.packageName, requirement.value, parseAppOpsOutput(requirement.value, it)) }
                     .onFailure { Logger.w("Could not read app op ${requirement.value} for ${entry.packageName}: ${it.message}") }

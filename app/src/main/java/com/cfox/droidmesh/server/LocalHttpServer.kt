@@ -1027,6 +1027,18 @@ class LocalHttpServer(
         val repairResult = result.getOrThrow()
         val json = provisioningAuditJson(repairResult.audit)
         json.put("repairedKeys", JSONArray(repairResult.repairedKeys))
+        // PROV-BEHAVE-010: per-item reasons, so the banner can name what a person has to do
+        // (e.g. answer the device's own "Allow debugging from this computer?" prompt) instead of
+        // reporting an unexplained failure.
+        val failures = JSONArray()
+        repairResult.failures.forEach { failure ->
+            failures.put(JSONObject().apply {
+                put("key", failure.key)
+                put("label", failure.label)
+                put("error", failure.error)
+            })
+        }
+        json.put("failures", failures)
         return jsonResponse(Response.Status.OK, json)
     }
 

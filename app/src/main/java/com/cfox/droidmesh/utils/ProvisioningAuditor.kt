@@ -3,6 +3,7 @@ package com.cfox.droidmesh.utils
 import android.content.Context
 import android.os.PowerManager
 import android.provider.Settings
+import com.cfox.droidmesh.installer.AdbAuthorizationPendingException
 import com.cfox.droidmesh.installer.AdbLoopbackInstaller
 import com.cfox.droidmesh.service.AutoInstallService
 import kotlinx.coroutines.delay
@@ -38,7 +39,17 @@ object ProvisioningAuditor {
 
     data class ProvisioningRepairResult(
         val audit: ProvisioningAuditResult,
-        val repairedKeys: List<String>
+        val repairedKeys: List<String>,
+        val failures: List<ProvisioningRepairFailure>
+    )
+
+    // PROV-BEHAVE-010: what went wrong, per item. Without it the UI can only say "some items
+    // could not be repaired" and the reason lives nowhere but logcat, which is exactly how a
+    // permanently-unauthorized ADB key looked like an unexplained failure for a whole release.
+    data class ProvisioningRepairFailure(
+        val key: String,
+        val label: String,
+        val error: String
     )
 
     // PROV-BEHAVE-002/008: pure classifier, no Android framework calls — testable without a
@@ -182,6 +193,7 @@ object ProvisioningAuditor {
 
         val before = audit(context)
         val repaired = mutableListOf<String>()
+        val failures = mutableListOf<ProvisioningRepairFailure>()
 
         for (item in before.items) {
             if (item.satisfied) continue
@@ -196,11 +208,36 @@ object ProvisioningAuditor {
             if (outcome.isSuccess) {
                 repaired.add(item.key)
             } else {
-                Logger.w("Provisioning repair failed for ${item.key}: ${outcome.exceptionOrNull()?.message}")
+                val failure = describeRepairFailure(item, outcome.exceptionOrNull())
+                failures.add(failure)
+                Logger.w("Provisioning repair failed for ${item.key}: ${failure.error}")
             }
         }
 
-        return Result.success(ProvisioningRepairResult(audit = audit(context), repairedKeys = repaired))
+        return Result.success(
+            ProvisioningRepairResult(
+                audit = audit(context),
+                repairedKeys = repaired,
+                failures = failures
+            )
+        )
+    }
+
+    // PROV-BEHAVE-010: pure mapper, so the wording a caller actually sees is unit-testable.
+    // AdbAuthorizationPendingException carries its own instructions; everything else falls back to
+    // the exception message, and to the exception type when even that is absent (a bare
+    // SocketTimeoutException, for one, reports a null message on some Android versions).
+    internal fun describeRepairFailure(
+        item: ProvisioningItem,
+        error: Throwable?
+    ): ProvisioningRepairFailure {
+        val text = when {
+            error is AdbAuthorizationPendingException -> AdbAuthorizationPendingException.MESSAGE
+            error == null -> "Repair reported no result"
+            !error.message.isNullOrBlank() -> error.message!!
+            else -> error.javaClass.simpleName
+        }
+        return ProvisioningRepairFailure(key = item.key, label = item.label, error = text)
     }
 
     // PROV-BEHAVE-008: two distinct failure modes need two distinct fixes. If the OS setting

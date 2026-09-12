@@ -214,4 +214,45 @@ class ProvisioningAuditorTest {
             )
         )
     }
+
+    // [PROGRAMMATIC] PROV-TEST-011: a failed repair has to say why, per item. The wording for a
+    // pending on-screen ADB authorization is the whole point - it is the one repair failure a
+    // person can act on, and it used to reach the operator as nothing but a 60s stall.
+    @Test
+    fun `PROV-TEST-011 repair failures name the item and an actionable reason`() {
+        val battery = ProvisioningAuditor.classify(
+            installPackagesGranted = true,
+            accessibilityGranted = true,
+            accessibilityServiceRunning = true,
+            batteryExemptionGranted = false
+        ).items.first { it.key == ProvisioningAuditor.KEY_BATTERY_OPTIMIZATION }
+
+        val pending = ProvisioningAuditor.describeRepairFailure(
+            battery,
+            com.cfox.droidmesh.installer.AdbAuthorizationPendingException()
+        )
+        assertEquals(ProvisioningAuditor.KEY_BATTERY_OPTIMIZATION, pending.key)
+        assertEquals("Battery Optimization Exemption", pending.label)
+        assertTrue(
+            "expected on-screen authorization instructions, got: ${pending.error}",
+            pending.error.contains("Allow debugging from this computer?")
+        )
+        assertTrue(
+            "expected the operator to be told a retry then works, got: ${pending.error}",
+            pending.error.contains("run the repair again")
+        )
+
+        // Any other failure keeps its own message rather than being dressed up as an auth prompt.
+        val refused = ProvisioningAuditor.describeRepairFailure(
+            battery,
+            java.net.ConnectException("Connection refused")
+        )
+        assertEquals("Connection refused", refused.error)
+        assertFalse(refused.error.contains("Allow debugging"))
+
+        // A message-less exception still has to produce something legible, not "null".
+        val bare = ProvisioningAuditor.describeRepairFailure(battery, java.net.SocketTimeoutException())
+        assertEquals("SocketTimeoutException", bare.error)
+        assertTrue(ProvisioningAuditor.describeRepairFailure(battery, null).error.isNotEmpty())
+    }
 }

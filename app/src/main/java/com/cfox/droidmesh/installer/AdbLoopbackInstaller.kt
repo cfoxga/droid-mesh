@@ -21,10 +21,20 @@ object AdbLoopbackInstaller {
     private const val A_CLSE = 0x45534c43
     private const val A_WRTE = 0x45545257
 
+    private const val AUTH_SIGNATURE = 2
+    private const val AUTH_RSAPUBLICKEY = 3
+
+    // Shown by the device's "Allow debugging from this computer?" dialog as the key's owner.
+    private const val AUTH_IDENTITY = "droidmesh@localhost"
+
     private const val ADB_VERSION = 0x01000000
     private const val MAX_DATA = 4096
     private const val DEFAULT_HOST = "127.0.0.1"
     private const val DEFAULT_PORT = 5555
+
+    // Long enough to cover a streaming `pm install` and, on first use, a person walking to the TV
+    // to answer the ADB authorization prompt. Overridable so tests can exercise the timeout path.
+    internal const val DEFAULT_READ_TIMEOUT_MS = 60000
 
     suspend fun installWithAdbLoopback(
         apkFile: File,
@@ -103,7 +113,8 @@ object AdbLoopbackInstaller {
     suspend fun runShellCommand(
         command: String,
         host: String = DEFAULT_HOST,
-        port: Int = DEFAULT_PORT
+        port: Int = DEFAULT_PORT,
+        readTimeoutMs: Int = DEFAULT_READ_TIMEOUT_MS
     ): Result<String> = withContext(Dispatchers.IO) {
         if (!isAllowedShellCommand(command)) {
             val err = "Rejected non-allowlisted shell command: $command"
@@ -111,7 +122,7 @@ object AdbLoopbackInstaller {
             return@withContext Result.failure(SecurityException(err))
         }
         Logger.i("Running loopback ADB shell command on $host:$port: $command")
-        runAdbSession(host, port, command, earlyStopOnSubstring = null)
+        runAdbSession(host, port, command, earlyStopOnSubstring = null, readTimeoutMs = readTimeoutMs)
     }
 
     // Shared CNXN/AUTH/OPEN/WRTE/CLSE session: connects, authenticates if challenged, opens an
@@ -123,12 +134,16 @@ object AdbLoopbackInstaller {
         host: String,
         port: Int,
         command: String,
-        earlyStopOnSubstring: String?
+        earlyStopOnSubstring: String?,
+        readTimeoutMs: Int = DEFAULT_READ_TIMEOUT_MS
     ): Result<String> {
+        // Set once the public key is on the wire and the device is being asked to authorize it:
+        // the read that blocks next is waiting on a person, not on the network (PROV-BEHAVE-010).
+        var awaitingAuthorization = false
         return try {
             Socket().use { socket ->
                 socket.connect(InetSocketAddress(host, port), 2000)
-                socket.soTimeout = 60000 // 60s timeout for streaming exec
+                socket.soTimeout = readTimeoutMs
 
                 val input = socket.getInputStream()
                 val output = socket.getOutputStream()
@@ -144,34 +159,44 @@ object AdbLoopbackInstaller {
                     Logger.i("ADB daemon requested authentication, handling auth challenge")
                     val tokenData = if (header.dataLength > 0) readFully(input, header.dataLength) ?: ByteArray(0) else ByteArray(0)
 
-                    // Generate or get local RSA keypair
-                    val keyPair = getOrCreateKeyPair()
+                    // INST-BEHAVE-018: the persisted keypair, so a single on-screen authorization
+                    // keeps working across app restarts instead of re-prompting every process.
+                    val keyPair = AdbAuthKeys.keyPair()
 
-                    // Sign token and send SIGNATURE
+                    // INST-BEHAVE-017: PKCS#1 over DigestInfo(SHA-1, token) - the only signature
+                    // shape adbd's RSA_verify(NID_sha1, ...) accepts. Succeeds outright once the
+                    // key is in the device's adb_keys, with no prompt and no pubkey round trip.
                     try {
-                        val cipher = javax.crypto.Cipher.getInstance("RSA/ECB/PKCS1Padding")
-                        cipher.init(javax.crypto.Cipher.ENCRYPT_MODE, keyPair.private)
-                        val signature = cipher.doFinal(tokenData)
-                        writeMessage(output, A_AUTH, 2 /* AUTH_SIGNATURE */, 0, signature)
+                        val signature = AdbAuthKeys.signToken(keyPair.private, tokenData)
+                        writeMessage(output, A_AUTH, AUTH_SIGNATURE, 0, signature)
 
                         header = readHeader(input) ?: throw IllegalStateException("No response after ADB signature")
                     } catch (e: Exception) {
                         Logger.w("Could not sign ADB token: ${e.message}")
                     }
 
-                    // If still AUTH, send RSAPUBLICKEY
+                    // Still AUTH means adbd does not know this key yet: send it and let the device
+                    // ask its user. INST-BEHAVE-017: as the `android_pubkey` struct, base64'd -
+                    // an X.509 SubjectPublicKeyInfo makes adbd log "Invalid base64 key" and go
+                    // silent, which reads to the caller as an unexplained 60s timeout (gitea#85).
                     if (header.command == A_AUTH) {
                         readFully(input, header.dataLength)
-                        // java.util.Base64 (not android.util.Base64): available since API 26, well
-                        // under this app's Min SDK 28, and — unlike the android.* copy — usable
-                        // from plain JUnit tests, which is what caught this path having zero real
-                        // coverage before INST-TEST-006 (android.util.Base64 silently returns null
-                        // under the default unit-test stub, turning this into an NPE two lines down).
-                        val pubKeyBytes = java.util.Base64.getEncoder().encode(keyPair.public.encoded)
-                        val pubKeyPayload = (String(pubKeyBytes, Charsets.UTF_8) + " ksu@localhost\u0000").toByteArray(Charsets.UTF_8)
-                        writeMessage(output, A_AUTH, 3 /* AUTH_RSAPUBLICKEY */, 0, pubKeyPayload)
+                        val publicKey = keyPair.public as java.security.interfaces.RSAPublicKey
+                        writeMessage(
+                            output,
+                            A_AUTH,
+                            AUTH_RSAPUBLICKEY,
+                            0,
+                            AdbAuthKeys.publicKeyAuthPayload(publicKey, AUTH_IDENTITY)
+                        )
+                        Logger.i(
+                            "Sent ADB public key; awaiting on-screen authorization " +
+                                "(\"Allow debugging from this computer?\") on the device"
+                        )
+                        awaitingAuthorization = true
 
                         header = readHeader(input) ?: throw IllegalStateException("No response after ADB public key")
+                        awaitingAuthorization = false
                     }
                 }
 
@@ -228,6 +253,14 @@ object AdbLoopbackInstaller {
                     Result.success(resultOutput)
                 }
             }
+        } catch (e: java.net.SocketTimeoutException) {
+            if (awaitingAuthorization) {
+                Logger.w("ADB loopback session timed out awaiting on-screen authorization")
+                Result.failure(AdbAuthorizationPendingException())
+            } else {
+                Logger.w("ADB loopback session failed (${e.message})")
+                Result.failure(e)
+            }
         } catch (e: Exception) {
             Logger.w("ADB loopback session failed (${e.message})")
             Result.failure(e)
@@ -278,17 +311,6 @@ object AdbLoopbackInstaller {
             totalRead += r
         }
         return buffer
-    }
-
-    private var cachedKeyPair: java.security.KeyPair? = null
-
-    private fun getOrCreateKeyPair(): java.security.KeyPair {
-        cachedKeyPair?.let { return it }
-        val kpg = java.security.KeyPairGenerator.getInstance("RSA")
-        kpg.initialize(2048)
-        val kp = kpg.generateKeyPair()
-        cachedKeyPair = kp
-        return kp
     }
 
     private fun calculateCrc32(data: ByteArray): Int {

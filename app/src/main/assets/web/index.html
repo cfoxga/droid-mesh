@@ -782,7 +782,7 @@ input:checked + .slider:before {
       </div>
       <div id="provisioningRepairItems" style="font-size: 12px; opacity: 0.9;"></div>
       <div style="font-size: 12px; opacity: 0.75;">
-        Repair Automatically runs the missing commands over local ADB. The first time it runs, tap "Allow debugging from this computer?" on the device screen. Alternatively, run each command above from a workstation with ADB access.
+        Repair Automatically runs the missing commands over local ADB. The first time it runs, tap "Allow debugging from this computer?" on the device screen and tick "Always allow from this computer" - then press Repair Automatically again. Later repairs need no prompt. Alternatively, run each command above from a workstation with ADB access.
       </div>
     </div>
 
@@ -800,7 +800,7 @@ input:checked + .slider:before {
       </div>
       <div id="appSettingsRepairItems" style="font-size: 12px; opacity: 0.9;"></div>
       <div style="font-size: 12px; opacity: 0.75;">
-        Verify &amp; Repair reads the settings that can only be checked over ADB, then applies the missing ones. The first time it runs, tap "Allow debugging from this computer?" on the device screen. Alternatively, run each command above from a workstation with ADB access.
+        Verify &amp; Repair reads the settings that can only be checked over ADB, then applies the missing ones. The first time it runs, tap "Allow debugging from this computer?" on the device screen and tick "Always allow from this computer" - then press Verify &amp; Repair again. Later repairs need no prompt. Alternatively, run each command above from a workstation with ADB access.
       </div>
     </div>
 
@@ -1748,10 +1748,18 @@ function renderProvisioningBanner(audit) {
     return;
   }
   const missing = (audit.items || []).filter(item => !item.satisfied);
+  // PROV-BEHAVE-010: a repair response carries per-item reasons; an audit response does not.
+  const failures = {};
+  (audit.failures || []).forEach(failure => { failures[failure.key] = failure.error; });
   document.getElementById('provisioningRepairSummary').textContent =
     `${missing.map(item => item.label).join(', ')} — required for full functionality.`;
   document.getElementById('provisioningRepairItems').innerHTML = missing
-    .map(item => `<div><code>${item.externalCommand}</code></div>`)
+    .map(item => {
+      const reason = failures[item.key]
+        ? `<div style="color:var(--rust);">${escapeHtml(failures[item.key])}</div>`
+        : '';
+      return `<div><code>${item.externalCommand}</code>${reason}</div>`;
+    })
     .join('');
   banner.classList.remove('hidden');
 }
@@ -1773,7 +1781,11 @@ async function repairProvisioningAutomatically() {
     const result = await apiCall('/api/system/provisioning/repair', { method: 'POST' });
     renderProvisioningBanner(result);
     if (result.repairNeeded) {
-      alert('Some items could not be repaired automatically. See the remaining commands in the banner.');
+      const failures = result.failures || [];
+      const detail = failures.length
+        ? failures.map(failure => `${failure.label}: ${failure.error}`).join('\n\n')
+        : 'See the remaining commands in the banner.';
+      alert(`Some items could not be repaired automatically:\n\n${detail}`);
     }
   } catch (err) {
     alert(`Repair failed: ${err.message}`);

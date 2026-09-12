@@ -1,6 +1,7 @@
 package com.cfox.droidmesh.installer
 
 import kotlinx.coroutines.runBlocking
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -404,5 +405,145 @@ class AdbLoopbackInstallerTest {
         for (command in rejected) {
             assertFalse("must reject: $command", AdbLoopbackInstaller.isAllowedShellCommand(command))
         }
+    }
+
+    // --- INST-TEST-032: the AUTH handshake against a daemon that checks its inputs the way real
+    // adbd does. The pre-existing auth round-trip test above accepts any bytes at all as an
+    // RSAPUBLICKEY payload, which is precisely why a key adbd logged as "Invalid base64 key"
+    // passed the suite and failed on every device (gitea#85).
+
+    // ASN.1 DigestInfo header for SHA-1, stated here independently of the production constant.
+    private val sha1DigestInfoPrefix = byteArrayOf(
+        0x30, 0x21, 0x30, 0x09, 0x06, 0x05, 0x2b, 0x0e,
+        0x03, 0x02, 0x1a, 0x05, 0x00, 0x04, 0x14
+    )
+
+    // The same keypair the client will present: AdbAuthKeys is the single source for both.
+    private fun clientKeyPair(): java.security.KeyPair {
+        val dir = kotlin.io.path.createTempDirectory(prefix = "adbkeys-wire").toFile()
+        dir.deleteOnExit()
+        AdbAuthKeys.init(dir)
+        return AdbAuthKeys.keyPair()
+    }
+
+    @Test
+    fun testRunShellCommandAuthenticatesWithSignatureAloneWhenTheKeyIsKnown() {
+        val keyPair = clientKeyPair()
+        val publicKey = keyPair.public as java.security.interfaces.RSAPublicKey
+        val token = ByteArray(20) { (it * 7 + 3).toByte() }
+
+        var signatureAccepted = false
+        var frameAfterAuth = 0
+        var receivedCommand: String? = null
+
+        val (server, port) = startFakeDaemon { socket ->
+            val input = socket.getInputStream()
+            val output = socket.getOutputStream()
+
+            val cnxn = readFrame(input)
+            readFully(input, cnxn.dataLength)
+            writeFrame(output, Cmd.A_AUTH, 1 /* AUTH_TOKEN */, 0, token)
+
+            // Verify exactly as adbd does: RSA_verify(NID_sha1, token, ...) is PKCS#1 v1.5 over
+            // DigestInfo(SHA-1, token), so recovering the padded block must yield that DigestInfo.
+            val sigFrame = readFrame(input)
+            val signature = readFully(input, sigFrame.dataLength)
+            val recovered = javax.crypto.Cipher.getInstance("RSA/ECB/PKCS1Padding").run {
+                init(javax.crypto.Cipher.DECRYPT_MODE, publicKey)
+                doFinal(signature)
+            }
+            signatureAccepted = sigFrame.arg0 == 2 && recovered.contentEquals(sha1DigestInfoPrefix + token)
+            if (!signatureAccepted) throw IllegalStateException("signature rejected")
+
+            writeFrame(output, Cmd.A_CNXN, 0x01000000, 4096, "device::".toByteArray())
+
+            // A correctly signed token means no public key is ever sent: the next frame is OPEN.
+            val open = readFrame(input)
+            frameAfterAuth = open.command
+            val openData = readFully(input, open.dataLength)
+            receivedCommand = String(openData, Charsets.UTF_8).trimEnd('\u0000').removePrefix("exec:")
+
+            writeFrame(output, Cmd.A_OKAY, 1, open.arg0, ByteArray(0))
+            writeFrame(output, Cmd.A_WRTE, 1, open.arg0, "Added: com.cfox.droidmesh\n".toByteArray())
+            readFrame(input) // client OKAY ack
+            writeFrame(output, Cmd.A_CLSE, 1, open.arg0, ByteArray(0))
+        }
+
+        val result = runBlocking {
+            AdbLoopbackInstaller.runShellCommand(
+                "dumpsys deviceidle whitelist +com.cfox.droidmesh",
+                host = "127.0.0.1",
+                port = port
+            )
+        }
+        server.close()
+
+        assertTrue("expected success, got $result", result.isSuccess)
+        assertTrue("daemon must accept the SHA-1 DigestInfo signature", signatureAccepted)
+        assertEquals("an authorized key must not trigger a pubkey round trip", Cmd.A_OPEN, frameAfterAuth)
+        assertEquals("dumpsys deviceidle whitelist +com.cfox.droidmesh", receivedCommand)
+        assertTrue(
+            "expected the daemon output, got ${result.getOrNull()}",
+            result.getOrNull()?.contains("Added: com.cfox.droidmesh") == true
+        )
+    }
+
+    @Test
+    fun testRunShellCommandSendsAnAndroidPubkeyAndReportsPendingAuthorization() {
+        val keyPair = clientKeyPair()
+        val publicKey = keyPair.public as java.security.interfaces.RSAPublicKey
+        val token = ByteArray(20) { (it + 1).toByte() }
+
+        var payloadBlobSize = -1
+        var payloadModulusMatches = false
+        var payloadIdentity: String? = null
+
+        val (server, port) = startFakeDaemon { socket ->
+            val input = socket.getInputStream()
+            val output = socket.getOutputStream()
+
+            val cnxn = readFrame(input)
+            readFully(input, cnxn.dataLength)
+            writeFrame(output, Cmd.A_AUTH, 1 /* AUTH_TOKEN */, 0, token)
+
+            // Reject the signature (key not in adb_keys yet), forcing the RSAPUBLICKEY path.
+            val sigFrame = readFrame(input)
+            readFully(input, sigFrame.dataLength)
+            writeFrame(output, Cmd.A_AUTH, 1 /* AUTH_TOKEN */, 0, token)
+
+            val pubKeyFrame = readFrame(input)
+            val payload = readFully(input, pubKeyFrame.dataLength)
+            val text = String(payload, Charsets.UTF_8).trimEnd('\u0000')
+            payloadIdentity = text.substringAfter(' ', "")
+            val blob = java.util.Base64.getDecoder().decode(text.substringBefore(' '))
+            payloadBlobSize = blob.size
+            payloadModulusMatches = AdbAuthKeys.decodePublicKey(blob).first == publicKey.modulus
+
+            // Real adbd answers nothing until somebody taps "Allow debugging" on the device.
+            Thread.sleep(1500)
+        }
+
+        val result = runBlocking {
+            AdbLoopbackInstaller.runShellCommand(
+                "dumpsys deviceidle whitelist +com.cfox.droidmesh",
+                host = "127.0.0.1",
+                port = port,
+                readTimeoutMs = 400
+            )
+        }
+        server.close()
+
+        assertEquals("payload must be a 524-byte android_pubkey blob", 524, payloadBlobSize)
+        assertTrue("blob must carry this client's modulus", payloadModulusMatches)
+        assertEquals("droidmesh@localhost", payloadIdentity)
+        assertFalse("expected failure while authorization is pending, got $result", result.isSuccess)
+        assertTrue(
+            "a pending on-screen authorization must be reported as such, got ${result.exceptionOrNull()}",
+            result.exceptionOrNull() is AdbAuthorizationPendingException
+        )
+        assertTrue(
+            "the message must tell the operator where to look",
+            result.exceptionOrNull()?.message?.contains("Allow debugging from this computer?") == true
+        )
     }
 }

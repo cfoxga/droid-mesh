@@ -7,9 +7,14 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.database.ContentObserver
+import android.net.Uri
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import android.os.PowerManager
+import android.provider.Settings
 import androidx.core.app.NotificationCompat
 import com.cfox.droidmesh.MainActivity
 import com.cfox.droidmesh.R
@@ -28,6 +33,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import java.util.concurrent.atomic.AtomicBoolean
 
 class UpdaterForegroundService : Service() {
 
@@ -93,6 +99,97 @@ class UpdaterForegroundService : Service() {
     // autoUpdate/autoInstall flipped) wake the hourly mesh auto-action loop immediately instead
     // of leaving it asleep for the rest of AUTO_INSTALL_CHECK_MS.
     private val meshAutoActionTicker = WakeableTicker(AUTO_INSTALL_CHECK_MS)
+
+    // PROV-BEHAVE-014: Continuous accessibility monitoring while running
+    private var accessibilityContentObserver: ContentObserver? = null
+    private val isProvisioningRepairing = AtomicBoolean(false)
+    private var lastContinuousRepairTimeMs = 0L
+
+    private fun registerAccessibilityObserver() {
+        val observer = object : ContentObserver(Handler(Looper.getMainLooper())) {
+            override fun onChange(selfChange: Boolean, uri: Uri?) {
+                super.onChange(selfChange, uri)
+                checkAndTriggerContinuousRepair("ContentObserver onChange ($uri)")
+            }
+        }
+        try {
+            contentResolver.registerContentObserver(
+                Settings.Secure.getUriFor(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES),
+                false,
+                observer
+            )
+            contentResolver.registerContentObserver(
+                Settings.Secure.getUriFor(Settings.Secure.ACCESSIBILITY_ENABLED),
+                false,
+                observer
+            )
+            accessibilityContentObserver = observer
+            Logger.i("Registered ContentObserver for accessibility settings changes")
+        } catch (e: Exception) {
+            Logger.w("Could not register ContentObserver for accessibility settings: ${e.message}")
+        }
+    }
+
+    private fun unregisterAccessibilityObserver() {
+        accessibilityContentObserver?.let { observer ->
+            try {
+                contentResolver.unregisterContentObserver(observer)
+            } catch (e: Exception) {
+                Logger.w("Error unregistering accessibility ContentObserver: ${e.message}")
+            }
+            accessibilityContentObserver = null
+        }
+    }
+
+    private fun checkAndTriggerContinuousRepair(triggerReason: String) {
+        val audit = ProvisioningAuditor.audit(applicationContext)
+        val a11yItem = audit.items.firstOrNull { it.key == ProvisioningAuditor.KEY_ACCESSIBILITY }
+        val a11ySatisfied = a11yItem?.satisfied == true
+        val now = System.currentTimeMillis()
+
+        if (!ProvisioningAuditor.shouldTriggerContinuousRepair(
+                isRepairing = isProvisioningRepairing.get(),
+                lastRepairTimeMs = lastContinuousRepairTimeMs,
+                nowMs = now,
+                accessibilitySatisfied = a11ySatisfied
+            )
+        ) {
+            return
+        }
+
+        if (!isProvisioningRepairing.compareAndSet(false, true)) {
+            return
+        }
+        lastContinuousRepairTimeMs = now
+
+        Logger.w("Continuous provisioning check ($triggerReason): accessibility service disabled/cleared — triggering auto-repair")
+        if (ProvisioningAuditor.accessibilityRebindToggleWillFire(audit)) {
+            Logger.w(
+                "Provisioning auto-repair: accessibility service is enabled but not " +
+                    "running — about to force a rebind toggle, which briefly disables every " +
+                    "other enabled accessibility service on this device too (PROV-BEHAVE-008)"
+            )
+        }
+        serviceScope.launch(Dispatchers.IO) {
+            try {
+                ProvisioningAuditor.repair(applicationContext).fold(
+                    onSuccess = { result ->
+                        val outcome = ProvisioningAuditor.describeAutoRepairOutcome(result)
+                        if (result.failures.isNotEmpty()) {
+                            Logger.w("Continuous auto-repair: $outcome")
+                        } else {
+                            Logger.i("Continuous auto-repair: $outcome")
+                        }
+                    },
+                    onFailure = { error ->
+                        Logger.w("Continuous auto-repair could not run: ${error.message}")
+                    }
+                )
+            } finally {
+                isProvisioningRepairing.set(false)
+            }
+        }
+    }
 
     override fun onCreate() {
         super.onCreate()
@@ -168,6 +265,7 @@ class UpdaterForegroundService : Service() {
 
         manageHttpServer()
         SettingsStore.addConfigChangeListener(configChangeListener)
+        registerAccessibilityObserver()
 
         // Collect coordinator status updates to update notification & wake lock
         serviceScope.launch {
@@ -280,6 +378,9 @@ class UpdaterForegroundService : Service() {
         meshAutoInstallJob = serviceScope.launch(Dispatchers.IO) {
             while (isActive) {
                 try {
+                    // PROV-BEHAVE-014: Periodic continuous check in case ContentObserver was bypassed
+                    checkAndTriggerContinuousRepair("periodic auto-action loop")
+
                     val localMeshId = SettingsStore.getLocalMeshId(applicationContext)
                     val library = SettingsStore.getMeshAppLibrary(applicationContext, localMeshId)
                     val installedPackages = com.cfox.droidmesh.installer.AppVersionHelper
@@ -497,6 +598,7 @@ class UpdaterForegroundService : Service() {
             Logger.e("Error stopping HTTP server / mesh manager", e)
         }
 
+        unregisterAccessibilityObserver()
         SettingsStore.removeConfigChangeListener(configChangeListener)
         serviceScope.cancel()
     }

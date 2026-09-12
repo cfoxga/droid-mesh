@@ -418,4 +418,72 @@ class ProvisioningAuditorTest {
         assertTrue(text.contains("SocketTimeoutException"))
         assertTrue(text.contains("WRITE_SECURE_SETTINGS"))
     }
+
+    // [PROGRAMMATIC] PROV-TEST-016 (gitea#98): shouldTriggerContinuousRepair ensures continuous
+    // accessibility self-healing fires only when accessibility is unsatisfied, repair is not already
+    // in progress, and at least CONTINUOUS_REPAIR_COOLDOWN_MS has passed.
+    @Test
+    fun `PROV-TEST-016 shouldTriggerContinuousRepair enforces conditions and cooldown`() {
+        val cooldown = ProvisioningAuditor.CONTINUOUS_REPAIR_COOLDOWN_MS
+        val t0 = 100_000L
+
+        // Satisfied -> false (no repair needed)
+        assertFalse(
+            "already satisfied -> no repair needed",
+            ProvisioningAuditor.shouldTriggerContinuousRepair(
+                isRepairing = false,
+                lastRepairTimeMs = 0L,
+                nowMs = t0,
+                accessibilitySatisfied = true
+            )
+        )
+
+        // Already repairing -> false (avoid re-entrancy / loop)
+        assertFalse(
+            "already repairing -> do not re-trigger",
+            ProvisioningAuditor.shouldTriggerContinuousRepair(
+                isRepairing = true,
+                lastRepairTimeMs = 0L,
+                nowMs = t0,
+                accessibilitySatisfied = false
+            )
+        )
+
+        // Cooldown not elapsed -> false (avoid rapid busy-loop)
+        assertFalse(
+            "cooldown not elapsed -> do not re-trigger",
+            ProvisioningAuditor.shouldTriggerContinuousRepair(
+                isRepairing = false,
+                lastRepairTimeMs = t0 - cooldown + 1,
+                nowMs = t0,
+                accessibilitySatisfied = false
+            )
+        )
+
+        // Unsatisfied, not repairing, cooldown elapsed -> true
+        assertTrue(
+            "unsatisfied and cooldown elapsed -> trigger repair",
+            ProvisioningAuditor.shouldTriggerContinuousRepair(
+                isRepairing = false,
+                lastRepairTimeMs = t0 - cooldown,
+                nowMs = t0,
+                accessibilitySatisfied = false
+            )
+        )
+        assertTrue(
+            "never repaired before -> trigger repair",
+            ProvisioningAuditor.shouldTriggerContinuousRepair(
+                isRepairing = false,
+                lastRepairTimeMs = 0L,
+                nowMs = t0,
+                accessibilitySatisfied = false
+            )
+        )
+    }
+
+    // [PROGRAMMATIC] PROV-TEST-017 (gitea#98): constants and cooldown for continuous provisioning
+    @Test
+    fun `PROV-TEST-017 continuous provisioning observer constants and URIs`() {
+        assertEquals(5000L, ProvisioningAuditor.CONTINUOUS_REPAIR_COOLDOWN_MS)
+    }
 }

@@ -27,6 +27,22 @@ object ProvisioningAuditor {
     // enable-off/enable-on toggle before the caller re-audits and reports post-repair state.
     private const val ACCESSIBILITY_REBIND_SETTLE_MS = 1500L
 
+    // PROV-BEHAVE-014 (gitea#98): minimum cooldown between continuous repair attempts
+    const val CONTINUOUS_REPAIR_COOLDOWN_MS = 5000L
+
+    // PROV-BEHAVE-014 (gitea#98): rate limiter and safety gate for continuous accessibility repair
+    fun shouldTriggerContinuousRepair(
+        isRepairing: Boolean,
+        lastRepairTimeMs: Long,
+        nowMs: Long,
+        accessibilitySatisfied: Boolean
+    ): Boolean {
+        if (accessibilitySatisfied) return false
+        if (isRepairing) return false
+        if (nowMs - lastRepairTimeMs < CONTINUOUS_REPAIR_COOLDOWN_MS) return false
+        return true
+    }
+
     data class ProvisioningItem(
         val key: String,
         val label: String,

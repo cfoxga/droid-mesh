@@ -13,19 +13,24 @@ import com.cfox.droidmesh.settings.SettingsStore
 import com.cfox.droidmesh.utils.AdbHelper
 import com.cfox.droidmesh.utils.CpuStatsHelper
 import com.cfox.droidmesh.utils.Logger
+import com.cfox.droidmesh.utils.ProjectivyBackupHelper
 import com.cfox.droidmesh.utils.ProvisioningAuditor
 import fi.iki.elonen.NanoHTTPD
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
+
 import org.json.JSONObject
+import java.io.File
 import java.io.InputStream
 import java.net.URLEncoder
+
 import java.util.concurrent.TimeUnit
 
 class LocalHttpServer(
@@ -250,6 +255,9 @@ class LocalHttpServer(
                 uri == "/api/mesh/delete" && method == Method.POST -> handleMeshDelete(session)
                 uri == "/api/peers/update" && method == Method.POST -> handlePeerUpdate(session)
                 uri == "/api/peers/adb/toggle" && method == Method.POST -> handlePeerAdbToggle(session)
+                uri == "/api/apps/com.spocky.projengmenu/sync-ui" && method == Method.POST -> handleProjectivySyncUi(session)
+                uri == "/api/apps/com.spocky.projengmenu/restore-ui" && method == Method.POST -> handleProjectivyRestoreUi(session)
+
 
                 // Runtime Logs
                 (uri == "/logs" || uri == "/api/logs") && method == Method.GET -> handleLogs()
@@ -394,7 +402,10 @@ class LocalHttpServer(
             uri == "/api/logs/clear" && method == Method.POST -> true
             uri == "/api/system/open-accessibility-settings" && method == Method.POST -> true
             uri == "/api/system/open-install-settings" && method == Method.POST -> true
+            uri == "/api/apps/com.spocky.projengmenu/sync-ui" && method == Method.POST -> true
+            uri == "/api/apps/com.spocky.projengmenu/restore-ui" && method == Method.POST -> true
             else -> false
+
         }
     }
 
@@ -1665,6 +1676,158 @@ class LocalHttpServer(
         }
         return jsonResponse(Response.Status.ACCEPTED, json)
     }
+
+    private fun handleProjectivySyncUi(session: IHTTPSession): Response {
+        if (!isAuthorized(session)) {
+            return jsonResponse(Response.Status.UNAUTHORIZED, JSONObject().apply {
+                put("status", "error")
+                put("error", "Unauthorized")
+            })
+        }
+
+        val backupFile = ProjectivyBackupHelper.findLatestBackup(context)
+        if (backupFile == null || !backupFile.exists() || backupFile.length() == 0L) {
+            return jsonResponse(Response.Status.NOT_FOUND, JSONObject().apply {
+                put("status", "error")
+                put("error", "No Projectivy backup file found on this device")
+            })
+        }
+
+        val fileBytes = backupFile.readBytes()
+        val base64Data = java.util.Base64.getEncoder().encodeToString(fileBytes)
+
+        val allPeers = meshManager?.peersFlow?.value ?: emptyList()
+        val targetPeers = allPeers.filter { peer ->
+            peer.isOnline && peer.installedApps.any { it.packageName == ProjectivyBackupHelper.PROJECTIVY_PACKAGE }
+        }
+
+
+        val resultsArray = JSONArray()
+        var syncedCount = 0
+
+        val requestPayload = JSONObject().apply {
+            put("fileName", backupFile.name)
+            put("backupData", base64Data)
+        }.toString()
+
+        for (peer in targetPeers) {
+            val peerResult = JSONObject().apply {
+                put("ip", peer.ip)
+                put("port", peer.port)
+                put("name", peer.displayName.ifBlank { peer.deviceModel })
+            }
+            try {
+                val restoreUrl = "http://${peer.ip}:${peer.port}/api/apps/${ProjectivyBackupHelper.PROJECTIVY_PACKAGE}/restore-ui"
+                val reqBuilder = Request.Builder()
+                    .url(restoreUrl)
+                    .post(requestPayload.toRequestBody("application/json".toMediaTypeOrNull()))
+
+                if (SettingsStore.isPasswordSet(context)) {
+                    reqBuilder.header("Authorization", "Bearer ${SettingsStore.generateToken(context, ttlSeconds = 60)}")
+                }
+                httpClient.newCall(reqBuilder.build()).execute().use { resp ->
+                    if (resp.isSuccessful) {
+                        peerResult.put("success", true)
+                        syncedCount++
+                    } else {
+                        peerResult.put("success", false)
+                        peerResult.put("httpCode", resp.code)
+                    }
+                }
+            } catch (e: Exception) {
+                Logger.e("Failed to sync Projectivy UI to ${peer.ip}:${peer.port}", e)
+                peerResult.put("success", false)
+                peerResult.put("error", e.message ?: "Connection failed")
+            }
+            resultsArray.put(peerResult)
+        }
+
+        val responseJson = JSONObject().apply {
+            put("status", "ok")
+            put("backupFile", backupFile.name)
+            put("totalPeers", targetPeers.size)
+            put("syncedPeers", syncedCount)
+            put("results", resultsArray)
+        }
+        return jsonResponse(Response.Status.OK, responseJson)
+    }
+
+    private fun handleProjectivyRestoreUi(session: IHTTPSession): Response {
+        if (!isAuthorized(session)) {
+            return jsonResponse(Response.Status.UNAUTHORIZED, JSONObject().apply {
+                put("status", "error")
+                put("error", "Unauthorized")
+            })
+        }
+
+        val body = parseJsonBody(session)
+        val base64Data = body.optString("backupData", "")
+        if (base64Data.isBlank()) {
+            return jsonResponse(Response.Status.BAD_REQUEST, JSONObject().apply {
+                put("status", "error")
+                put("error", "backupData is required")
+            })
+        }
+
+        val bytes = try {
+            java.util.Base64.getDecoder().decode(base64Data)
+        } catch (e: Exception) {
+            ByteArray(0)
+        }
+
+        if (bytes.isEmpty()) {
+            return jsonResponse(Response.Status.BAD_REQUEST, JSONObject().apply {
+                put("status", "error")
+                put("error", "Invalid or empty backupData")
+            })
+        }
+
+        val downloadDir = context.getExternalFilesDir(android.os.Environment.DIRECTORY_DOWNLOADS)
+            ?: context.filesDir
+            ?: File(System.getProperty("java.io.tmpdir"), "droidmesh-downloads")
+        downloadDir.mkdirs()
+        val destFile = File(downloadDir, "mesh-synced-projectivy.plbackup")
+
+
+        try {
+            destFile.writeBytes(bytes)
+        } catch (e: Exception) {
+            Logger.e("Failed to write Projectivy restore backup file", e)
+            return jsonResponse(Response.Status.INTERNAL_ERROR, JSONObject().apply {
+                put("status", "error")
+                put("error", "Failed to write backup file: ${e.message}")
+            })
+        }
+
+        AutoInstallService.beginProjectivyRestore()
+
+        try {
+            val contentUri = androidx.core.content.FileProvider.getUriForFile(
+                context,
+                "${context.packageName}.fileprovider",
+                destFile
+            )
+            val intent = Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(contentUri, "application/octet-stream")
+                setClassName(
+                    ProjectivyBackupHelper.PROJECTIVY_PACKAGE,
+                    "${ProjectivyBackupHelper.PROJECTIVY_PACKAGE}.ui.launcherActivities.ImportSettingsActivity"
+                )
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            context.startActivity(intent)
+            Logger.i("Dispatched Projectivy ImportSettingsActivity intent with uri: $contentUri")
+        } catch (e: Exception) {
+            Logger.w("Failed to dispatch Projectivy ImportSettingsActivity via FileProvider: ${e.message}")
+        }
+
+        val responseJson = JSONObject().apply {
+            put("status", "ok")
+            put("message", "Projectivy restore initiated")
+        }
+        return jsonResponse(Response.Status.OK, responseJson)
+    }
+
 
     private fun handleLogs(): Response {
         val logs = Logger.getRecentLogs()

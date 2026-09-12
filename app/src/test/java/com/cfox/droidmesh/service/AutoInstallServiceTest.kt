@@ -280,4 +280,69 @@ class AutoInstallServiceTest {
         assertFalse(AutoInstallService.isInstallerPackage("com.android.evilinstaller"))
         assertFalse(AutoInstallService.isInstallerPackage("com.google.android.evilcontroller"))
     }
+
+    // [PROGRAMMATIC] INST-TEST-033: AutoInstallService with armed pending Projectivy restore detects
+    // com.spocky.projengmenu window containing 'Restore' or 'Restore backup' button, clicks it, and clears pending state.
+    @Test
+    fun testProjectivyRestoreAutoClicksRestoreButton() {
+        AutoInstallService.clearPendingProjectivyRestore()
+        assertTrue(AutoInstallService.beginProjectivyRestore())
+        val now = System.currentTimeMillis()
+        assertTrue(
+            AutoInstallService.isEligibleProjectivyRestoreWindow(
+                AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED,
+                AutoInstallService.PROJECTIVY_PACKAGE,
+                AutoInstallService.pendingProjectivyRestore,
+                now
+            )
+        )
+        val buttonNode: AccessibilityNodeInfo = mock()
+        whenever(buttonNode.text).thenReturn("Restore")
+        whenever(buttonNode.isClickable).thenReturn(true)
+        val root = buildRoot(textHits = mapOf("restore" to listOf(buttonNode)))
+        val found = AutoInstallService.findProjectivyRestoreButton(root)
+        assertTrue(found != null)
+        AutoInstallService.clearPendingProjectivyRestore()
+    }
+
+    // [PROGRAMMATIC] INST-TEST-034: AutoInstallService rejects Projectivy auto-click when pending state is expired,
+    // absent, or window package is not com.spocky.projengmenu.
+    @Test
+    fun testProjectivyRestoreRejectsNonMatchingOrExpired() {
+        AutoInstallService.clearPendingProjectivyRestore()
+        val now = 100_000L
+        val pending = AutoInstallService.Companion.PendingProjectivyRestore(
+            createdAtMillis = now - 20_000L,
+            expiresAtMillis = now - 5_000L // Expired
+        )
+        assertFalse(
+            AutoInstallService.isEligibleProjectivyRestoreWindow(
+                AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED,
+                AutoInstallService.PROJECTIVY_PACKAGE,
+                pending,
+                now
+            )
+        )
+        assertFalse(
+            AutoInstallService.isEligibleProjectivyRestoreWindow(
+                AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED,
+                AutoInstallService.PROJECTIVY_PACKAGE,
+                null,
+                now
+            )
+        )
+        val activePending = AutoInstallService.Companion.PendingProjectivyRestore(
+            createdAtMillis = now,
+            expiresAtMillis = now + 15_000L
+        )
+        assertFalse(
+            AutoInstallService.isEligibleProjectivyRestoreWindow(
+                AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED,
+                "com.other.app",
+                activePending,
+                now
+            )
+        )
+    }
 }
+

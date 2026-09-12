@@ -2566,6 +2566,10 @@ function renderMeshPeers(peers, library) {
                   Update
                 </button>
               ` : ''}
+            ${app.packageName === 'com.spocky.projengmenu' ? `
+              <button class="btn btn-secondary btn-sm sync-ui-btn" style="font-size: 11px; padding: 2px 8px; border: 1px solid var(--border-subtle);" title="Sync Projectivy UI layout to other mesh devices">
+                Sync UI
+              </button>
             ` : ''}
           </div>
         `;
@@ -2573,8 +2577,13 @@ function renderMeshPeers(peers, library) {
         if (updateBtn) {
           updateBtn.onclick = () => triggerAppUpdate(peer.ip, peer.port, app.packageName, resolveTargetTag(cfg) || '');
         }
+        const syncUiBtn = rowEl.querySelector('.sync-ui-btn');
+        if (syncUiBtn) {
+          syncUiBtn.onclick = () => syncProjectivyUi(peer.ip, peer.port, syncUiBtn);
+        }
         return rowEl;
       });
+
 
       const missingRows = missingApps.map(app => {
         const rowEl = document.createElement('div');
@@ -2688,7 +2697,35 @@ async function triggerAppUpdate(ip, port, packageName, targetVersion) {
   }
 }
 
+async function syncProjectivyUi(ip, port, btnEl) {
+  if (!confirm(`Sync Projectivy UI layout from ${ip}:${port} to all other mesh devices?`)) return;
+  const origText = btnEl ? btnEl.textContent : 'Sync UI';
+  if (btnEl) {
+    btnEl.disabled = true;
+    btnEl.textContent = 'Syncing...';
+  }
+  try {
+    const targetUrl = (ip && ip !== state.localIp)
+      ? `http://${ip}:${port}/api/apps/com.spocky.projengmenu/sync-ui`
+      : '/api/apps/com.spocky.projengmenu/sync-ui';
+    const res = await apiCall(targetUrl, { method: 'POST' });
+    if (res.status === 'ok') {
+      alert(`Projectivy UI synced! ${res.syncedPeers || 0} of ${res.totalPeers || 0} peer device(s) restored.`);
+    } else {
+      alert(res.error || 'Failed to sync Projectivy UI');
+    }
+  } catch (e) {
+    alert('Projectivy UI sync failed: ' + e.message);
+  } finally {
+    if (btnEl) {
+      btnEl.disabled = false;
+      btnEl.textContent = origText;
+    }
+  }
+}
+
 async function handleDeleteMesh(targetId) {
+
   const meshId = targetId || state.selectedMeshId;
   const meshObj = (state.meshes || []).find(m => m.id === meshId);
   const meshName = meshObj ? meshObj.name : (state.selectedMeshName || meshId);

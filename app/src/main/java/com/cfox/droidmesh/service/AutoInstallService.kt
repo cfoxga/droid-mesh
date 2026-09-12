@@ -101,7 +101,63 @@ class AutoInstallService : AccessibilityService() {
             pending.appName.isNotBlank() &&
             visibleText.contains(pending.appName, ignoreCase = true)
 
+        const val PROJECTIVY_PACKAGE = "com.spocky.projengmenu"
+        private const val PROJECTIVY_RESTORE_TIMEOUT_MS = 15_000L
+
+        internal data class PendingProjectivyRestore(
+            val createdAtMillis: Long,
+            val expiresAtMillis: Long
+        )
+
+        @Volatile
+        internal var pendingProjectivyRestore: PendingProjectivyRestore? = null
+
+        @Synchronized
+        fun beginProjectivyRestore(): Boolean {
+            val now = System.currentTimeMillis()
+            pendingProjectivyRestore = PendingProjectivyRestore(
+                createdAtMillis = now,
+                expiresAtMillis = now + PROJECTIVY_RESTORE_TIMEOUT_MS
+            )
+            return true
+        }
+
+        @Synchronized
+        fun clearPendingProjectivyRestore() {
+            pendingProjectivyRestore = null
+        }
+
+        internal fun isEligibleProjectivyRestoreWindow(
+            eventType: Int,
+            eventPackage: String,
+            pending: PendingProjectivyRestore?,
+            nowMillis: Long
+        ): Boolean = (eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED ||
+                     eventType == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED) &&
+            eventPackage == PROJECTIVY_PACKAGE &&
+            pending != null &&
+            pending.expiresAtMillis >= nowMillis
+
+        internal fun findProjectivyRestoreButton(root: AccessibilityNodeInfo): AccessibilityNodeInfo? {
+            val targets = listOf("restore backup", "restore")
+            for (target in targets) {
+                val nodes = root.findAccessibilityNodeInfosByText(target) ?: emptyList()
+                for (node in nodes) {
+                    val text = node.text?.toString()?.trim()?.lowercase() ?: ""
+                    if (text == target || text.contains(target)) {
+                        var cur: AccessibilityNodeInfo? = node
+                        while (cur != null) {
+                            if (cur.isClickable) return cur
+                            cur = cur.parent
+                        }
+                    }
+                }
+            }
+            return null
+        }
+
         private val INSTALLER_PACKAGES = setOf(
+
             "com.android.packageinstaller",
             "com.google.android.packageinstaller",
             "com.android.permissioncontroller",
@@ -304,7 +360,12 @@ class AutoInstallService : AccessibilityService() {
             handlePlayStoreEvent(event)
             return
         }
+        if (packageName == PROJECTIVY_PACKAGE) {
+            handleProjectivyEvent(event)
+            return
+        }
         if (!isInstallerPackage(packageName)) {
+
             return
         }
 
@@ -381,6 +442,23 @@ class AutoInstallService : AccessibilityService() {
             Logger.i("Clicked Play Store Install for ${pending.packageName}")
         }
     }
+
+    private fun handleProjectivyEvent(event: AccessibilityEvent) {
+        val now = System.currentTimeMillis()
+        val pending = pendingProjectivyRestore ?: return
+        if (!isEligibleProjectivyRestoreWindow(event.eventType, event.packageName?.toString() ?: "", pending, now)) {
+            return
+        }
+        val root = rootInActiveWindow ?: event.source ?: return
+        val restoreButton = findProjectivyRestoreButton(root)
+        if (restoreButton != null) {
+            Logger.i("AutoInstallService: clicking Projectivy restore button")
+            if (performClickOnNodeOrParent(restoreButton, "Projectivy Restore")) {
+                clearPendingProjectivyRestore()
+            }
+        }
+    }
+
 
     private fun collectVisibleLabels(node: AccessibilityNodeInfo?): List<String> {
         if (node == null) return emptyList()

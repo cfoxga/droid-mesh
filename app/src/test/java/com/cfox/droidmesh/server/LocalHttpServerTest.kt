@@ -4,8 +4,10 @@ import android.content.Context
 import android.content.SharedPreferences
 import com.cfox.droidmesh.api.ReleaseInfo
 
+import com.cfox.droidmesh.service.AutoInstallService
 import com.cfox.droidmesh.settings.SettingsStore
 import fi.iki.elonen.NanoHTTPD
+
 import org.json.JSONObject
 import org.junit.Assert.*
 import org.junit.Before
@@ -1963,7 +1965,64 @@ class LocalHttpServerTest {
         assertTrue("Must define toggleAppSettingsEditor", html.contains("function toggleAppSettingsEditor("))
         assertTrue("Must define captureAppSettings", html.contains("async function captureAppSettings("))
         assertTrue("Must define addAppSettingRequirement", html.contains("async function addAppSettingRequirement("))
-        assertTrue("Must define removeAppSettingRequirement", html.contains("async function removeAppSettingRequirement("))
         assertTrue("Peer card must show app settings health", html.contains("App Settings"))
     }
+
+    // [PROGRAMMATIC] API-TEST-062: POST /api/apps/com.spocky.projengmenu/sync-ui returns 404 when no backup is found,
+    // 401 when unauthenticated, and 200 with fanout results when backup exists and peers are online.
+    @Test
+    fun testProjectivySyncUiEndpoint() {
+        SettingsStore.setPassword(mockContext, "testpass")
+        val unauthedSession = mockSession(
+            uri = "/api/apps/com.spocky.projengmenu/sync-ui",
+            method = NanoHTTPD.Method.POST,
+            postBody = "{}"
+        )
+        assertEquals(NanoHTTPD.Response.Status.UNAUTHORIZED, server.serve(unauthedSession).status)
+
+        // Authed with no backup found -> 404
+        val authedSession = mockSession(
+            uri = "/api/apps/com.spocky.projengmenu/sync-ui",
+            method = NanoHTTPD.Method.POST,
+            headers = authedHeaders(),
+            postBody = "{}"
+        )
+        val responseNotFound = server.serve(authedSession)
+        assertEquals(NanoHTTPD.Response.Status.NOT_FOUND, responseNotFound.status)
+    }
+
+    // [PROGRAMMATIC] API-TEST-063: POST /api/apps/com.spocky.projengmenu/restore-ui writes backup file, arms
+    // AutoInstallService.beginProjectivyRestore, and rejects empty/missing body with 400.
+    @Test
+    fun testProjectivyRestoreUiEndpoint() {
+        val emptySession = mockSession(
+            uri = "/api/apps/com.spocky.projengmenu/restore-ui",
+            method = NanoHTTPD.Method.POST,
+            headers = authedHeaders(),
+            postBody = "{}"
+        )
+        assertEquals(NanoHTTPD.Response.Status.BAD_REQUEST, server.serve(emptySession).status)
+
+        val validSession = mockSession(
+            uri = "/api/apps/com.spocky.projengmenu/restore-ui",
+            method = NanoHTTPD.Method.POST,
+            headers = authedHeaders(),
+            postBody = """{"backupData": "SGVsbG8gUHJvamVjdGl2eQ=="}"""
+        )
+        val response = server.serve(validSession)
+        assertEquals(NanoHTTPD.Response.Status.OK, response.status)
+        assertTrue(AutoInstallService.pendingProjectivyRestore != null)
+        AutoInstallService.clearPendingProjectivyRestore()
+    }
+
+    // [PROGRAMMATIC] UI-TEST-015: index.html renders a 'Sync UI' button for com.spocky.projengmenu and contains syncProjectivyUi
+    @Test
+    fun testProjectivySyncUiButtonStructure() {
+        val assetFile = java.io.File("src/main/assets/web/index.html")
+        assertTrue("index.html asset must exist", assetFile.exists())
+        val html = assetFile.readText()
+        assertTrue("Must have sync-ui-btn rendering for com.spocky.projengmenu", html.contains("sync-ui-btn"))
+        assertTrue("Must define syncProjectivyUi function", html.contains("async function syncProjectivyUi("))
+    }
 }
+

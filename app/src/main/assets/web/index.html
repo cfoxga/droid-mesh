@@ -2533,8 +2533,8 @@ function renderMeshPeers(peers, library) {
     const stateText = isOnline ? (peer.updaterState || 'ONLINE') : 'OFFLINE';
 
     const rawApps = (peer.installedApps || []).filter(app => !isExcludedApp(app.packageName));
-    // Only show apps that have been marked as managed in the library
-    const managedApps = rawApps.filter(app => libraryMap[app.packageName]?.managed);
+    // Only show apps that have been marked as managed in the library (always show Projectivy if installed)
+    const managedApps = rawApps.filter(app => libraryMap[app.packageName]?.managed || app.packageName === 'com.spocky.projengmenu');
 
     // Calculate out of date apps and missing auto-install apps
     const outOfDateApps = managedApps.filter(app =>
@@ -2576,20 +2576,18 @@ function renderMeshPeers(peers, library) {
             <span style="font-size: 11px; color: var(--text-muted); font-family: monospace;">${escapeHtml(app.packageName)}</span>
           </div>
           <div style="display: flex; align-items: center; gap: 6px;">
-            ${isTracked ? `
-              <span class="badge ${needsUpdate ? 'badge-rust' : 'badge-teal'}" style="font-size: 11px; padding: 2px 6px;">
-                ${app.versionName ? `v${escapeHtml(app.versionName)}` : (app.versionCode ? `build ${escapeHtml(String(app.versionCode))}` : 'Installed')}
-              </span>
-              ${needsUpdate ? `
-                <button class="btn btn-primary btn-sm update-btn" style="font-size: 11px; padding: 2px 8px;">
-                  Update
-                </button>
-              ` : ''}
+            <span class="badge ${needsUpdate ? 'badge-rust' : 'badge-teal'}" style="font-size: 11px; padding: 2px 6px;">
+              ${app.versionName ? `v${escapeHtml(app.versionName)}` : (app.versionCode ? `build ${escapeHtml(String(app.versionCode))}` : 'Installed')}
+            </span>
+            ${isTracked && needsUpdate ? `
+              <button class="btn btn-primary btn-sm update-btn" style="font-size: 11px; padding: 2px 8px;">
+                Update
+              </button>
+            ` : ''}
             ${app.packageName === 'com.spocky.projengmenu' ? `
               <button class="btn btn-secondary btn-sm sync-ui-btn" style="font-size: 11px; padding: 2px 8px; border: 1px solid var(--border-subtle);" title="Sync Projectivy UI layout to other mesh devices">
                 Sync UI
               </button>
-            ` : ''}
             ` : ''}
           </div>
         `;

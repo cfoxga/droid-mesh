@@ -2087,6 +2087,10 @@ class LocalHttpServerTest {
         val html = assetFile.readText()
         assertTrue("Must have sync-ui-btn rendering for com.spocky.projengmenu", html.contains("sync-ui-btn"))
         assertTrue("Must define syncProjectivyUi function", html.contains("async function syncProjectivyUi("))
+        assertTrue("managedApps must include com.spocky.projengmenu so it is never filtered out",
+            html.contains("libraryMap[app.packageName]?.managed || app.packageName === 'com.spocky.projengmenu'"))
+        assertFalse("sync-ui-btn must not be nested inside isTracked check",
+            html.contains("\${isTracked ? `\n              <span class=\"badge"))
     }
 
     // [PROGRAMMATIC] UI-TEST-016: the missing-apps row's Install button must key off

@@ -241,6 +241,15 @@ class ProvisioningAuditorTest {
             "expected the operator to be told a retry then works, got: ${pending.error}",
             pending.error.contains("run the repair again")
         )
+        // PROV-OPEN-003: adbd only dispatches one authorization prompt at a time and never clears
+        // that slot when a client gives up, so on a device that already saw a timed-out attempt no
+        // dialog appears at all and only a reboot un-wedges it. Observed twice on the Theater GTV
+        // while verifying this fix - the reason text has to say so or the operator waits forever
+        // for a prompt that cannot come.
+        assertTrue(
+            "expected a way out when no prompt ever appears, got: ${pending.error}",
+            pending.error.contains("restart the device")
+        )
 
         // Any other failure keeps its own message rather than being dressed up as an auth prompt.
         val refused = ProvisioningAuditor.describeRepairFailure(

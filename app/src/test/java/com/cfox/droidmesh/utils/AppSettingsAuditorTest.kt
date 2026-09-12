@@ -468,4 +468,50 @@ class AppSettingsAuditorTest {
         assertEquals(attempted.id, skipped.id)
         assertEquals(attempted.error, skipped.error)
     }
+
+    // [PROGRAMMATIC] ASET-TEST-020 (gitea#95) — a repair whose every declared requirement resolves
+    // to DIRECT_WRITE never needs to touch ADB at all, so the pre-flight auth probe (ASET-BEHAVE-013)
+    // must not run and cost a round trip for nothing.
+    @Test
+    fun testNeedsAdbProbeIsFalseWhenEveryRequirementIsDirectWriteCovered() {
+        val entries = listOf(
+            entry(tqa, "tvQuickActions", req(tqa, SettingType.ACCESSIBILITY_SERVICE, tqaA11y)),
+            entry(kiosk, "Kiosk Satellite", req(kiosk, SettingType.ACCESSIBILITY_SERVICE, "$kiosk/x.KioskAccessibilityService"))
+        )
+        assertFalse(
+            AppSettingsAuditor.needsAdbProbe(entries, canWriteSecureSettingsDirectly = true)
+        )
+    }
+
+    // [PROGRAMMATIC] ASET-TEST-021 (gitea#95, negative) — any requirement that repairPathFor would
+    // ever route to ADB (a non-accessibility type, or accessibility without the permission) means
+    // this repair can hit ADB, so the probe must run.
+    @Test
+    fun testNeedsAdbProbeIsTrueWhenAnyRequirementCanReachAdb() {
+        val onlyAccessibilityButNoPermission = listOf(
+            entry(tqa, "tvQuickActions", req(tqa, SettingType.ACCESSIBILITY_SERVICE, tqaA11y))
+        )
+        assertTrue(
+            "without WRITE_SECURE_SETTINGS, accessibility itself falls back to ADB",
+            AppSettingsAuditor.needsAdbProbe(onlyAccessibilityButNoPermission, canWriteSecureSettingsDirectly = false)
+        )
+
+        val mixedWithBatteryOptimization = listOf(
+            entry(kiosk, "Kiosk Satellite",
+                req(kiosk, SettingType.ACCESSIBILITY_SERVICE, "$kiosk/x.KioskAccessibilityService"),
+                req(kiosk, SettingType.BATTERY_OPTIMIZATION)
+            )
+        )
+        assertTrue(
+            "battery optimization has no direct-write path regardless of the accessibility item",
+            AppSettingsAuditor.needsAdbProbe(mixedWithBatteryOptimization, canWriteSecureSettingsDirectly = true)
+        )
+
+        val runtimePermission = listOf(
+            entry(kiosk, "Kiosk Satellite", req(kiosk, SettingType.RUNTIME_PERMISSION, "android.permission.BLUETOOTH_SCAN"))
+        )
+        assertTrue(
+            AppSettingsAuditor.needsAdbProbe(runtimePermission, canWriteSecureSettingsDirectly = true)
+        )
+    }
 }

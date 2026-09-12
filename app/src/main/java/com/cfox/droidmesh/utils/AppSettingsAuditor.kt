@@ -114,6 +114,21 @@ object AppSettingsAuditor {
     fun skippedAuthPendingFailure(id: String): FailedRepair =
         describeRepairFailure(id, AdbAuthorizationPendingException())
 
+    // ASET-BEHAVE-013 (gitea#95): purely declarative -- every requirement any installed entry
+    // could ever need, independent of current missing/satisfied status, because computing "missing"
+    // here would need the app-op reads this probe exists to guard in the first place. True the
+    // moment any requirement would ever route through repairPathFor's ADB branch, so a repair whose
+    // every requirement is DIRECT_WRITE-covered skips the probe's round trip entirely.
+    fun needsAdbProbe(
+        entries: List<SettingsStore.MeshAppConfig>,
+        canWriteSecureSettingsDirectly: Boolean
+    ): Boolean = entries.any { entry ->
+        entry.requiredSettings.any { requirement ->
+            repairPathFor(requirement.type, canWriteSecureSettingsDirectly, adbAuthGateTripped = false) !=
+                RepairPath.DIRECT_WRITE
+        }
+    }
+
     data class AppSettingsRepairResult(
         val audit: AppSettingsAuditResult,
         val repairedIds: List<String>,
@@ -562,14 +577,30 @@ object AppSettingsAuditor {
         Result.failure(e)
     }
 
+    // ASET-BEHAVE-013 (gitea#95): a never-authorized loopback key must not cost the batch's first
+    // real item -- and the HTTP request that triggered this repair -- the full 60s
+    // AdbLoopbackInstaller.DEFAULT_READ_TIMEOUT_MS. A short, read-only round trip up front trips
+    // AdbAuthGate in a few seconds instead, so every item (including the first) takes the
+    // SKIP_AUTH_PENDING path when the device's on-screen prompt is stuck.
+    private const val ADB_AUTH_PROBE_TIMEOUT_MS = 5_000
+
+    private suspend fun probeAdbAuthorization(gate: AdbAuthGate) {
+        val outcome = AdbLoopbackInstaller.runShellCommand(
+            "settings get secure enabled_accessibility_services",
+            readTimeoutMs = ADB_AUTH_PROBE_TIMEOUT_MS
+        )
+        gate.record(outcome)
+    }
+
     /**
-     * ASET-BEHAVE-005/011/012: verify app ops over ADB, apply every missing item's commands,
+     * ASET-BEHAVE-005/011/012/013: verify app ops over ADB, apply every missing item's commands,
      * re-verify, re-audit. Fails fast before opening any socket when ADB is off. One item failing
      * never aborts the rest -- the caller gets `repairedIds` and `failed` and can see what's still
      * wrong. Accessibility items go through the WRITE_SECURE_SETTINGS direct-write path whenever
      * it's available (ASET-BEHAVE-011); everything else needs ADB and is subject to
-     * [AdbAuthGate] (ASET-BEHAVE-012), so a device whose ADB key has never been authorized fails
-     * the rest of the batch immediately instead of spending a full read-timeout on each item.
+     * [AdbAuthGate] (ASET-BEHAVE-012), primed by a short probe (ASET-BEHAVE-013) so a device whose
+     * ADB key has never been authorized fails the whole batch, including the first item, in a few
+     * seconds instead of spending a full read-timeout on each item in turn.
      */
     suspend fun repair(context: Context): Result<AppSettingsRepairResult> {
         if (!AdbHelper.isAdbEnabled(context)) {
@@ -581,6 +612,10 @@ object AppSettingsAuditor {
         val entries = installedLibraryEntries(context)
         val gate = AdbAuthGate()
         val canWriteSecureSettingsDirectly = hasWriteSecureSettingsPermission(context)
+
+        if (needsAdbProbe(entries, canWriteSecureSettingsDirectly)) {
+            probeAdbAuthorization(gate)
+        }
 
         // Read the app ops we can't see in-process, before deciding what's missing.
         verifyAppOps(entries, gate)

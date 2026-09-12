@@ -124,8 +124,13 @@ object AppSettingsAuditor {
         canWriteSecureSettingsDirectly: Boolean
     ): Boolean = entries.any { entry ->
         entry.requiredSettings.any { requirement ->
-            repairPathFor(requirement.type, canWriteSecureSettingsDirectly, adbAuthGateTripped = false) !=
-                RepairPath.DIRECT_WRITE
+            // ASET-BEHAVE-014 (gitea#100): an ACCESSIBILITY_SERVICE requirement now clears
+            // ACCESS_RESTRICTED_SETTINGS over ADB before its write, DIRECT_WRITE path included --
+            // there is no longer a fully ADB-free path for this type, so it always needs the probe,
+            // regardless of what repairPathFor would otherwise pick for the write itself.
+            requirement.type == SettingType.ACCESSIBILITY_SERVICE ||
+                repairPathFor(requirement.type, canWriteSecureSettingsDirectly, adbAuthGateTripped = false) !=
+                    RepairPath.DIRECT_WRITE
         }
     }
 
@@ -279,7 +284,15 @@ object AppSettingsAuditor {
         requirement: AppSettingRequirement,
         currentAccessibilityServices: String?
     ): List<String> = when (requirement.type) {
+        // ASET-BEHAVE-014 (gitea#100): clear this managed app's own Restricted Settings block
+        // first, before the write below can be silently stripped back out by it -- Android 13+/14
+        // resets ACCESS_RESTRICTED_SETTINGS to deny for a sideloaded app on every install/update.
+        // Mirrors ProvisioningAuditor.repairAccessibility()'s treatment of DroidMesh's own package
+        // (PROV-BEHAVE-011), now extended to the App Library: Chris decided (2026-09-12) DroidMesh
+        // should auto-configure managed apps' accessibility grants the same way, reversing
+        // INST-BEHAVE-020/INST-TEST-035's prior DroidMesh-only scoping (see INST-BEHAVE-022).
         SettingType.ACCESSIBILITY_SERVICE -> listOf(
+            "appops set $packageName ACCESS_RESTRICTED_SETTINGS allow",
             "settings put secure enabled_accessibility_services " +
                 mergeAccessibilityServices(currentAccessibilityServices, requirement.value),
             "settings put secure accessibility_enabled 1"
@@ -632,6 +645,25 @@ object AppSettingsAuditor {
                     failed.add(skippedAuthPendingFailure(item.requirement.id))
                 }
                 RepairPath.DIRECT_WRITE -> {
+                    // ASET-BEHAVE-014 (gitea#100): clear this managed app's own Restricted
+                    // Settings block over ADB first, best-effort -- WRITE_SECURE_SETTINGS doesn't
+                    // cover another package's AppOpsManager mode, so this still needs shell/ADB
+                    // even though the write itself doesn't. Always proceeds to the direct write
+                    // regardless of outcome: repairPathFor only reaches DIRECT_WRITE when
+                    // canWriteSecureSettingsDirectly is true, so
+                    // ProvisioningAuditor.shouldAbortAccessibilityRepair would never abort here
+                    // anyway (PROV-BEHAVE-013's identical tolerance for DroidMesh's own package).
+                    // Skipped once the gate's already tripped, so a stuck prompt doesn't cost every
+                    // remaining DIRECT_WRITE item its own read-timeout.
+                    if (!gate.shouldSkip()) {
+                        val restrictedSettingsClear = AdbLoopbackInstaller.runShellCommand(
+                            "appops set ${item.packageName} ACCESS_RESTRICTED_SETTINGS allow"
+                        )
+                        gate.record(restrictedSettingsClear)
+                        restrictedSettingsClear.onFailure {
+                            Logger.w(ProvisioningAuditor.describeRestrictedSettingsClearBypass(it.javaClass.simpleName))
+                        }
+                    }
                     val outcome = repairAccessibilityDirect(context, item.requirement)
                     if (outcome.isSuccess) {
                         repaired.add(item.requirement.id)

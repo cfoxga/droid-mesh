@@ -238,13 +238,16 @@ class AppSettingsAuditorTest {
         }
     }
 
-    // [PROGRAMMATIC] ASET-TEST-007
+    // [PROGRAMMATIC] ASET-TEST-007 (amended ASET-BEHAVE-014, gitea#100): an accessibility item's
+    // command list now leads with the managed app's own ACCESS_RESTRICTED_SETTINGS clear, exactly
+    // like ProvisioningAuditor.classify() already does for DroidMesh's own package (PROV-TEST-012).
     @Test
     fun testShellCommandsPerTypeAreExactAndAllowlisted() {
         val a11yReq = req(tqa, SettingType.ACCESSIBILITY_SERVICE, tqaA11y)
         val merged = AppSettingsAuditor.shellCommands(tqa, a11yReq, droidMeshA11y)
         assertEquals(
             listOf(
+                "appops set $tqa ACCESS_RESTRICTED_SETTINGS allow",
                 "settings put secure enabled_accessibility_services $droidMeshA11y:$tqaA11y",
                 "settings put secure accessibility_enabled 1"
             ),
@@ -253,13 +256,13 @@ class AppSettingsAuditorTest {
         // Master Bedroom GTV: `settings get` prints the literal "null".
         assertEquals(
             "settings put secure enabled_accessibility_services $tqaA11y",
-            AppSettingsAuditor.shellCommands(tqa, a11yReq, "null").first()
+            AppSettingsAuditor.shellCommands(tqa, a11yReq, "null")[1]
         )
         val projectivyA11y = req(projectivy, SettingType.ACCESSIBILITY_SERVICE, "$projectivy/.services.ProjectivyAccessibilityService")
         assertEquals(
             "already present in short form: not duplicated, order preserved",
             "settings put secure enabled_accessibility_services $projectivy/.services.ProjectivyAccessibilityService:$droidMeshA11y",
-            AppSettingsAuditor.shellCommands(projectivy, projectivyA11y, "$projectivy/.services.ProjectivyAccessibilityService:$droidMeshA11y").first()
+            AppSettingsAuditor.shellCommands(projectivy, projectivyA11y, "$projectivy/.services.ProjectivyAccessibilityService:$droidMeshA11y")[1]
         )
 
         val listener = req(projectivy, SettingType.NOTIFICATION_LISTENER, "$projectivy/.services.NotificationListener")
@@ -294,7 +297,9 @@ class AppSettingsAuditorTest {
             AppSettingsAuditor.externalCommand(kiosk, battery, null)
         )
         assertEquals(
-            "adb shell settings put secure enabled_accessibility_services $droidMeshA11y:$tqaA11y && adb shell settings put secure accessibility_enabled 1",
+            "adb shell appops set $tqa ACCESS_RESTRICTED_SETTINGS allow && " +
+                "adb shell settings put secure enabled_accessibility_services $droidMeshA11y:$tqaA11y && " +
+                "adb shell settings put secure accessibility_enabled 1",
             AppSettingsAuditor.externalCommand(tqa, a11yReq, droidMeshA11y)
         )
     }
@@ -469,16 +474,19 @@ class AppSettingsAuditorTest {
         assertEquals(attempted.error, skipped.error)
     }
 
-    // [PROGRAMMATIC] ASET-TEST-020 (gitea#95) — a repair whose every declared requirement resolves
-    // to DIRECT_WRITE never needs to touch ADB at all, so the pre-flight auth probe (ASET-BEHAVE-013)
-    // must not run and cost a round trip for nothing.
+    // [PROGRAMMATIC] ASET-TEST-022 (ASET-BEHAVE-014, gitea#100): DEPRECATED ASET-TEST-020's claim
+    // that a fully DIRECT_WRITE-covered repair never touches ADB -- it no longer holds. Every
+    // accessibility item now clears ACCESS_RESTRICTED_SETTINGS for its own package over ADB before
+    // the direct write (best-effort, same tolerance as ProvisioningAuditor's own package), so the
+    // pre-flight probe (ASET-BEHAVE-013) must still run even when WRITE_SECURE_SETTINGS is held.
     @Test
-    fun testNeedsAdbProbeIsFalseWhenEveryRequirementIsDirectWriteCovered() {
+    fun testNeedsAdbProbeIsTrueEvenWhenEveryRequirementIsDirectWriteCovered() {
         val entries = listOf(
             entry(tqa, "tvQuickActions", req(tqa, SettingType.ACCESSIBILITY_SERVICE, tqaA11y)),
             entry(kiosk, "Kiosk Satellite", req(kiosk, SettingType.ACCESSIBILITY_SERVICE, "$kiosk/x.KioskAccessibilityService"))
         )
-        assertFalse(
+        assertTrue(
+            "an accessibility requirement always needs the probe now, DIRECT_WRITE included",
             AppSettingsAuditor.needsAdbProbe(entries, canWriteSecureSettingsDirectly = true)
         )
     }

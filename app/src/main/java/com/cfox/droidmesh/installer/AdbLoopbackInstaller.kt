@@ -62,12 +62,15 @@ object AdbLoopbackInstaller {
     // INST-BEHAVE-020 (gitea#89): Android 13+/14 resets ACCESS_RESTRICTED_SETTINGS to `deny` for a
     // sideloaded app on every install/update, which silently strips DroidMesh's own accessibility
     // grant back out even when it was written correctly -- see
-    // android14-restricted-settings-sideload memory. Exact string, not the generic per-app
-    // APP_OPS regex below: it must only ever apply to DroidMesh's own package, never a managed
-    // app's (see INST-TEST-035's negative case).
+    // android14-restricted-settings-sideload memory.
+    // INST-BEHAVE-022 (gitea#100): this app-op no longer lives here as an exact, DroidMesh-only
+    // string -- Chris decided the same auto-clear must work for managed apps in the App Library
+    // too, so it moved into the generic per-app APP_OPS catalog below (reversing INST-TEST-035's
+    // prior negative case) alongside SYSTEM_ALERT_WINDOW/WRITE_SETTINGS/GET_USAGE_STATS/
+    // REQUEST_INSTALL_PACKAGES. DroidMesh's own package still matches that catalog fine (it's a
+    // valid $IDENT like any other), so no separate exact entry is needed for it anymore.
     private val ALLOWED_EXACT_SHELL_COMMANDS = setOf(
         "appops set com.cfox.droidmesh REQUEST_INSTALL_PACKAGES allow",
-        "appops set com.cfox.droidmesh ACCESS_RESTRICTED_SETTINGS allow",
         "dumpsys deviceidle whitelist +com.cfox.droidmesh",
         "settings get secure enabled_accessibility_services",
         "settings put secure accessibility_enabled 1"
@@ -89,8 +92,11 @@ object AdbLoopbackInstaller {
     // over the four-op catalog -- so no accepted command can carry a chained command, a
     // substitution, an extra argument, or an off-catalog op.
     private const val IDENT = "[A-Za-z0-9_.]+"
+    // INST-BEHAVE-022 (gitea#100): ACCESS_RESTRICTED_SETTINGS joins this catalog so
+    // AppSettingsAuditor can clear a managed app's own Restricted Settings block the same way
+    // ProvisioningAuditor already clears DroidMesh's -- see ASET-BEHAVE-014.
     private const val APP_OPS =
-        "(?:SYSTEM_ALERT_WINDOW|GET_USAGE_STATS|WRITE_SETTINGS|REQUEST_INSTALL_PACKAGES)"
+        "(?:SYSTEM_ALERT_WINDOW|GET_USAGE_STATS|WRITE_SETTINGS|REQUEST_INSTALL_PACKAGES|ACCESS_RESTRICTED_SETTINGS)"
 
     private val ALLOWED_COMMAND_PATTERNS = listOf(
         Regex("cmd notification allow_listener $IDENT/$IDENT"),

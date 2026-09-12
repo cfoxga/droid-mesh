@@ -267,6 +267,51 @@ class AdbLoopbackInstallerTest {
         )
     }
 
+    // [PROGRAMMATIC] INST-TEST-038 (INST-BEHAVE-022, gitea#100): Chris decided DroidMesh's
+    // ACCESS_RESTRICTED_SETTINGS auto-clear (INST-BEHAVE-020) should widen to managed-app packages
+    // too, not just DroidMesh's own -- reverses INST-TEST-035's prior negative case. The op joins
+    // the generic per-app APP_OPS catalog instead of staying an exact string, exactly like
+    // SYSTEM_ALERT_WINDOW/WRITE_SETTINGS/GET_USAGE_STATS/REQUEST_INSTALL_PACKAGES already do.
+    @Test
+    fun testIsAllowedShellCommandAcceptsAccessRestrictedSettingsClearForManagedApp() {
+        assertTrue(
+            AdbLoopbackInstaller.isAllowedShellCommand(
+                "appops set me.jxl.kiosk_satellite ACCESS_RESTRICTED_SETTINGS allow"
+            )
+        )
+        assertTrue(
+            "DroidMesh's own package must still be accepted now that it's the generic catalog, " +
+                "not the retired exact string",
+            AdbLoopbackInstaller.isAllowedShellCommand(
+                "appops set com.cfox.droidmesh ACCESS_RESTRICTED_SETTINGS allow"
+            )
+        )
+    }
+
+    // [PROGRAMMATIC] INST-TEST-039 (INST-BEHAVE-022, negative, gitea#100): widening the catalog
+    // must not widen the charset or the fixed "allow" mode -- only the op name itself is new.
+    @Test
+    fun testIsAllowedShellCommandRejectsMalformedAccessRestrictedSettingsForManagedApp() {
+        assertFalse(
+            "deny is not allow -- the generic APP_OPS pattern is allow-only",
+            AdbLoopbackInstaller.isAllowedShellCommand(
+                "appops set me.jxl.kiosk_satellite ACCESS_RESTRICTED_SETTINGS deny"
+            )
+        )
+        assertFalse(
+            "an injected command after an otherwise-valid managed-app clear must still be rejected",
+            AdbLoopbackInstaller.isAllowedShellCommand(
+                "appops set me.jxl.kiosk_satellite ACCESS_RESTRICTED_SETTINGS allow; rm -rf /data"
+            )
+        )
+        assertFalse(
+            "a package name carrying a shell metacharacter must still be rejected",
+            AdbLoopbackInstaller.isAllowedShellCommand(
+                "appops set me.jxl.kiosk_satellite; reboot ACCESS_RESTRICTED_SETTINGS allow"
+            )
+        )
+    }
+
     // [PROGRAMMATIC] INST-TEST-020 (negative): gitea#70 -- anything not on the allowlist, and the
     // one prefix pattern with an unsafe (shell-metacharacter-bearing) value, must be rejected.
     // Without this test, deleting isAllowedShellCommand entirely (or making it always return true)
@@ -316,15 +361,10 @@ class AdbLoopbackInstallerTest {
                 "settings get secure enabled_accessibility_services && reboot"
             )
         )
-        // INST-TEST-035 negative: ACCESS_RESTRICTED_SETTINGS is only ever cleared for DroidMesh's
-        // own package (an exact string) -- it must not also slip through the generic per-app
-        // APP_OPS catalog for an arbitrary managed-app package, which would let anything reachable
-        // through that path re-enable a restricted-settings bypass for someone else's app.
-        assertFalse(
-            AdbLoopbackInstaller.isAllowedShellCommand(
-                "appops set me.jxl.kiosk_satellite ACCESS_RESTRICTED_SETTINGS allow"
-            )
-        )
+        // DEPRECATED (INST-TEST-035's negative half, superseded by INST-TEST-038, gitea#100):
+        // ACCESS_RESTRICTED_SETTINGS clearing for a managed-app package used to be rejected here on
+        // purpose. Chris (2026-09-12) decided DroidMesh should auto-clear this for the App Library
+        // too -- see INST-BEHAVE-022 -- so this case is now a positive assertion, not a negative one.
     }
 
     // [PROGRAMMATIC] INST-TEST-021: gitea#70 -- runShellCommand rejects a disallowed command

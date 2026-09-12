@@ -24,6 +24,80 @@ class GitHubReleaseFetcher(
         .readTimeout(20, TimeUnit.SECONDS)
         .build()
 ) {
+    companion object {
+        /**
+         * [ISSUE-91]: pure JSON-parsing extracted out of [fetchReleases] so it's testable without
+         * a live network call. Draft releases and releases with no `.apk` asset attached (empty
+         * `assets: []`, or an assets list with no `.apk` file) are skipped -- they can't be
+         * installed -- but a non-draft release skipped for a missing/unusable asset is reported
+         * via [onSkippedRelease] by tag name. Previously this was entirely silent: a release
+         * tagged and published on GitHub but never given an APK asset (the actual state of
+         * `v0.2.0` when this was found) vanished from the list with zero log trace, and
+         * self-update fell back to reporting the next release down as "latest" with no hint
+         * anything was wrong.
+         */
+        fun parseReleasesJson(
+            bodyString: String,
+            count: Int,
+            onSkippedRelease: (String) -> Unit = {}
+        ): List<ReleaseInfo> {
+            val jsonArray = JSONArray(bodyString)
+            val releases = mutableListOf<ReleaseInfo>()
+
+            for (i in 0 until jsonArray.length()) {
+                val json = jsonArray.getJSONObject(i)
+                val tagName = json.optString("tag_name", "").trim()
+                val name = json.optString("name", tagName).trim()
+                val publishedAt = json.optString("published_at", "")
+                val isDraft = json.optBoolean("draft", false)
+
+                if (isDraft || tagName.isEmpty()) continue
+
+                val assets = json.optJSONArray("assets")
+                if (assets == null || assets.length() == 0) {
+                    onSkippedRelease("Release '$tagName' has no assets attached; skipping as an update candidate")
+                    continue
+                }
+
+                var apkDownloadUrl: String? = null
+                var apkFileName: String? = null
+                var apkSize: Long = 0L
+
+                for (j in 0 until assets.length()) {
+                    val asset = assets.getJSONObject(j)
+                    val assetName = asset.optString("name", "")
+                    val downloadUrl = asset.optString("browser_download_url", "")
+                    val size = asset.optLong("size", 0L)
+
+                    if (assetName.endsWith(".apk", ignoreCase = true)) {
+                        apkDownloadUrl = downloadUrl
+                        apkFileName = assetName
+                        apkSize = size
+                        break
+                    }
+                }
+
+                if (apkDownloadUrl.isNullOrEmpty() || apkFileName.isNullOrEmpty()) {
+                    onSkippedRelease("Release '$tagName' has ${assets.length()} asset(s) but none is a .apk; skipping as an update candidate")
+                    continue
+                }
+
+                releases.add(
+                    ReleaseInfo(
+                        tagName = tagName,
+                        name = if (name.isNotEmpty()) name else tagName,
+                        publishedAt = publishedAt,
+                        apkAssetUrl = apkDownloadUrl,
+                        apkFileName = apkFileName,
+                        apkSize = apkSize
+                    )
+                )
+                if (releases.size >= count) break
+            }
+
+            return releases
+        }
+    }
 
     suspend fun fetchLatestRelease(githubReleasesUrl: String): Result<ReleaseInfo> =
         withContext(Dispatchers.IO) {
@@ -68,51 +142,8 @@ class GitHubReleaseFetcher(
 
                 val bodyString = response.body?.string()
                     ?: throw IOException("Empty response body from GitHub")
-                val jsonArray = JSONArray(bodyString)
-                val releases = mutableListOf<ReleaseInfo>()
-
-                for (i in 0 until jsonArray.length()) {
-                    val json = jsonArray.getJSONObject(i)
-                    val tagName = json.optString("tag_name", "").trim()
-                    val name = json.optString("name", tagName).trim()
-                    val publishedAt = json.optString("published_at", "")
-                    val isDraft = json.optBoolean("draft", false)
-
-                    if (isDraft || tagName.isEmpty()) continue
-
-                    val assets = json.optJSONArray("assets") ?: continue
-
-                    var apkDownloadUrl: String? = null
-                    var apkFileName: String? = null
-                    var apkSize: Long = 0L
-
-                    for (j in 0 until assets.length()) {
-                        val asset = assets.getJSONObject(j)
-                        val assetName = asset.optString("name", "")
-                        val downloadUrl = asset.optString("browser_download_url", "")
-                        val size = asset.optLong("size", 0L)
-
-                        if (assetName.endsWith(".apk", ignoreCase = true)) {
-                            apkDownloadUrl = downloadUrl
-                            apkFileName = assetName
-                            apkSize = size
-                            break
-                        }
-                    }
-
-                    if (!apkDownloadUrl.isNullOrEmpty() && !apkFileName.isNullOrEmpty()) {
-                        releases.add(
-                            ReleaseInfo(
-                                tagName = tagName,
-                                name = if (name.isNotEmpty()) name else tagName,
-                                publishedAt = publishedAt,
-                                apkAssetUrl = apkDownloadUrl,
-                                apkFileName = apkFileName,
-                                apkSize = apkSize
-                            )
-                        )
-                        if (releases.size >= count) break
-                    }
+                val releases = parseReleasesJson(bodyString, count) { skipped ->
+                    Logger.w(skipped)
                 }
 
                 if (releases.isEmpty()) {

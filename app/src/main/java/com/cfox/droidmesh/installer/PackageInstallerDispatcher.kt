@@ -17,6 +17,9 @@ object PackageInstallerDispatcher {
      */
     fun dispatchInstall(context: Context, apkFile: File): Result<Boolean> {
         return try {
+            check(!GoogleTvUpdatePolicy.suppressInteractiveUpdateUi(context)) {
+                GoogleTvUpdatePolicy.deferredReason("APK installation")
+            }
             if (!apkFile.exists() || apkFile.length() == 0L) {
                 Logger.e("Cannot install: APK file does not exist or is empty (${apkFile.absolutePath})")
                 return Result.failure(IllegalArgumentException("APK file invalid or empty"))
@@ -66,6 +69,9 @@ object PackageInstallerDispatcher {
      */
     fun dispatchUninstall(context: Context, packageName: String): Result<Boolean> {
         return try {
+            check(!GoogleTvUpdatePolicy.suppressInteractiveUpdateUi(context)) {
+                GoogleTvUpdatePolicy.deferredReason("uninstall of $packageName")
+            }
             Logger.i("Dispatching uninstallation for $packageName")
             val pendingIntent = PendingIntent.getBroadcast(
                 context,

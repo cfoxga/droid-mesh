@@ -13,6 +13,7 @@ import com.cfox.droidmesh.installer.AdbLoopbackInstaller
 import com.cfox.droidmesh.installer.InstallVerification
 import com.cfox.droidmesh.installer.AppVersionHelper
 import com.cfox.droidmesh.installer.PackageInstallerDispatcher
+import com.cfox.droidmesh.installer.GoogleTvUpdatePolicy
 import com.cfox.droidmesh.security.TrustedReleaseHosts
 import com.cfox.droidmesh.utils.Logger
 import kotlinx.coroutines.CoroutineScope
@@ -315,14 +316,24 @@ class UpdateCoordinator(
                     message = successMsg,
                     progressPercent = 100
                 )
-                // Relaunch app
-                try {
-                    val launchIntent = context.packageManager.getLaunchIntentForPackage(packageName)
-                    launchIntent?.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
-                    if (launchIntent != null) context.startActivity(launchIntent)
-                } catch (ignored: Exception) {}
+                if (GoogleTvUpdatePolicy.suppressPostInstallLaunch(context)) {
+                    Logger.i("Google TV update completed for $packageName without foreground launch")
+                } else {
+                    try {
+                        val launchIntent = context.packageManager.getLaunchIntentForPackage(packageName)
+                        launchIntent?.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                        if (launchIntent != null) context.startActivity(launchIntent)
+                    } catch (ignored: Exception) {}
+                }
 
                 return Result.success(release)
+            }
+
+            if (GoogleTvUpdatePolicy.suppressInteractiveUpdateUi(context)) {
+                val err = GoogleTvUpdatePolicy.deferredReason(packageName)
+                Logger.w("Local ADB loopback failed; $err")
+                _statusFlow.value = UpdateStatus(state = "DEFERRED", message = err, error = err)
+                return Result.failure(IllegalStateException(err))
             }
 
             Logger.i("Local ADB loopback not available or failed; using PackageInstaller dispatcher")

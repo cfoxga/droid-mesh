@@ -44,6 +44,9 @@ object PlayStoreInstaller {
      * dead accessibility service or an in-flight request are expected, recoverable states, not bugs.
      */
     fun beginAndDispatch(context: Context, packageName: String, appName: String): DispatchOutcome {
+        if (GoogleTvUpdatePolicy.suppressInteractiveUpdateUi(context)) {
+            return DispatchOutcome.Skipped(GoogleTvUpdatePolicy.deferredReason(packageName))
+        }
         if (!AutoInstallService.isServiceRunning) {
             return DispatchOutcome.Skipped("Accessibility service is disabled")
         }

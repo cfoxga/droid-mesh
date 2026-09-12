@@ -7,6 +7,7 @@ import android.os.Handler
 import android.os.Looper
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
+import com.cfox.droidmesh.installer.GoogleTvUpdatePolicy
 import com.cfox.droidmesh.utils.Logger
 
 class AutoInstallService : AccessibilityService() {
@@ -641,6 +642,10 @@ class AutoInstallService : AccessibilityService() {
     }
 
     private fun launchUpdatedApp(targetPkg: String) {
+        if (GoogleTvUpdatePolicy.suppressPostInstallLaunch(this)) {
+            Logger.i("Google TV install completed for $targetPkg without foreground launch")
+            return
+        }
         Logger.i("Bringing $targetPkg to foreground post-installation")
         val launchIntent = packageManager.getLaunchIntentForPackage(targetPkg)
         if (launchIntent != null) {

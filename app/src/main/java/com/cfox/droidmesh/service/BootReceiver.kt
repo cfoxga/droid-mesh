@@ -10,8 +10,12 @@ class BootReceiver : BroadcastReceiver() {
         val action = intent.action
         Logger.i("BootReceiver received action: $action")
 
-        if (Intent.ACTION_BOOT_COMPLETED == action || "android.intent.action.QUICKBOOT_POWERON" == action) {
-            Logger.i("Auto-starting UpdaterForegroundService on boot")
+        if (
+            Intent.ACTION_BOOT_COMPLETED == action ||
+            "android.intent.action.QUICKBOOT_POWERON" == action ||
+            Intent.ACTION_MY_PACKAGE_REPLACED == action
+        ) {
+            Logger.i("Auto-starting UpdaterForegroundService after $action")
             UpdaterForegroundService.startService(context)
         }
     }

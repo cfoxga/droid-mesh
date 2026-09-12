@@ -87,8 +87,7 @@ log "battery-optimization exemption (Doze whitelist) so the foreground service s
 "${ADB[@]}" shell dumpsys deviceidle whitelist "+$PKG" \
   || log "WARNING: deviceidle whitelist failed — check manually"
 
-log "launching DroidMesh (starts the foreground service + HTTP trigger on :2325)"
-"${ADB[@]}" shell am start -n "$PKG/.MainActivity" || die "am start failed"
+log "package replacement starts DroidMesh's management service silently; preserving the foreground app"
 
 sleep 2
 if "${ADB[@]}" shell pidof "$PKG" >/dev/null 2>&1; then

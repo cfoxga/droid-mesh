@@ -65,7 +65,7 @@ A lightweight, native Android P2P mesh network, headless package updater, and lo
 
 `scripts/droid-mesh-portal-setup.sh <serial>` runs this whole sequence in one shot against a
 USB-connected Portal device: installs the latest release APK, applies the four grants below, and
-launches the app. With auto-update on by default, that alone ends up with any Managed app (one
+silently starts DroidMesh's management service through package replacement. With auto-update on by default, that alone ends up with any Managed app (one
 with a `downloadUrl` configured) installed within one check cycle — no manual `/update` call
 required. The manual steps, for reference or a non-standard install:
 
@@ -83,8 +83,6 @@ adb shell settings put secure accessibility_enabled 1
 # 4. Whitelist from battery optimizations (Doze mode)
 adb shell dumpsys deviceidle whitelist +com.cfox.droidmesh
 
-# 5. Launch the app (starts the foreground service + HTTP server on :2325)
-adb shell am start -n com.cfox.droidmesh/.MainActivity
 ```
 
 ---
@@ -186,4 +184,3 @@ curl -X GET http://<portal-ip>:2325/logs
 **DroidMesh** is an independent, open-source companion utility and fleet manager.
 
 This project is licensed under the [MIT License](LICENSE).
-

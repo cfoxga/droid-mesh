@@ -295,4 +295,80 @@ class ProvisioningAuditorTest {
         assertEquals("SocketTimeoutException", bare.error)
         assertTrue(ProvisioningAuditor.describeRepairFailure(battery, null).error.isNotEmpty())
     }
+
+    // [PROGRAMMATIC] PROV-TEST-013 (gitea#90): UpdaterForegroundService decides whether to warn
+    // about PROV-BEHAVE-008's rebind-toggle side effect from the audit alone, before repair() has
+    // run — this pins that decision to the exact "enabled but not running" sub-case and no other.
+    @Test
+    fun `PROV-TEST-013 accessibilityRebindToggleWillFire fires only for the enabled-but-not-running case`() {
+        val rebindCase = ProvisioningAuditor.classify(
+            installPackagesGranted = true,
+            accessibilityGranted = true,
+            accessibilityServiceRunning = false,
+            batteryExemptionGranted = true
+        )
+        assertTrue(
+            "expected the rebind-toggle warning for the enabled-but-not-running case",
+            ProvisioningAuditor.accessibilityRebindToggleWillFire(rebindCase)
+        )
+
+        val notEnabledAtAllCase = ProvisioningAuditor.classify(
+            installPackagesGranted = true,
+            accessibilityGranted = false,
+            accessibilityServiceRunning = false,
+            batteryExemptionGranted = true
+        )
+        assertFalse(
+            "the plain enable/merge path doesn't toggle anything off, so no warning is needed",
+            ProvisioningAuditor.accessibilityRebindToggleWillFire(notEnabledAtAllCase)
+        )
+
+        val allSatisfiedCase = ProvisioningAuditor.classify(
+            installPackagesGranted = true,
+            accessibilityGranted = true,
+            accessibilityServiceRunning = true,
+            batteryExemptionGranted = true
+        )
+        assertFalse(
+            "nothing to repair means no toggle can fire",
+            ProvisioningAuditor.accessibilityRebindToggleWillFire(allSatisfiedCase)
+        )
+    }
+
+    // [PROGRAMMATIC] PROV-TEST-013 (gitea#90): the auto-repair log line has to actually say what
+    // happened — this is the only unit-testable part of the auto-repair path, since repair()
+    // itself needs a live ADB session and Context that no unit test here provides.
+    @Test
+    fun `PROV-TEST-013 describeAutoRepairOutcome names what was repaired and what still fails`() {
+        val onlyRepaired = ProvisioningAuditor.ProvisioningRepairResult(
+            audit = ProvisioningAuditor.classify(true, true, true, true),
+            repairedKeys = listOf(ProvisioningAuditor.KEY_ACCESSIBILITY),
+            failures = emptyList()
+        )
+        val repairedText = ProvisioningAuditor.describeAutoRepairOutcome(onlyRepaired)
+        assertTrue(repairedText.contains(ProvisioningAuditor.KEY_ACCESSIBILITY))
+        assertFalse("nothing failed, so no failure wording should appear", repairedText.contains("fail"))
+
+        val onlyFailed = ProvisioningAuditor.ProvisioningRepairResult(
+            audit = ProvisioningAuditor.classify(true, true, true, true),
+            repairedKeys = emptyList(),
+            failures = listOf(
+                ProvisioningAuditor.ProvisioningRepairFailure(
+                    key = ProvisioningAuditor.KEY_BATTERY_OPTIMIZATION,
+                    label = "Battery Optimization Exemption",
+                    error = "ADB is not enabled"
+                )
+            )
+        )
+        val failedText = ProvisioningAuditor.describeAutoRepairOutcome(onlyFailed)
+        assertTrue(failedText.contains("Battery Optimization Exemption"))
+        assertTrue(failedText.contains("ADB is not enabled"))
+
+        val nothingToDo = ProvisioningAuditor.ProvisioningRepairResult(
+            audit = ProvisioningAuditor.classify(true, true, true, true),
+            repairedKeys = emptyList(),
+            failures = emptyList()
+        )
+        assertTrue(ProvisioningAuditor.describeAutoRepairOutcome(nothingToDo).isNotEmpty())
+    }
 }

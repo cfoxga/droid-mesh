@@ -124,12 +124,44 @@ class UpdaterForegroundService : Service() {
 
         // PROV-BEHAVE-001: audit the three OS-level grants DroidMesh depends on outside its own
         // package on every service start (covers real boot via BootReceiver and manual app
-        // launch alike). GET /api/system/provisioning re-audits live on every call — this pass
-        // only logs, so a cleared grant is visible in /logs without waiting for a poll.
+        // launch alike). GET /api/system/provisioning re-audits live on every call.
         val provisioningAudit = ProvisioningAuditor.audit(applicationContext)
         if (provisioningAudit.repairNeeded) {
             val missing = provisioningAudit.items.filter { !it.satisfied }.joinToString(", ") { it.label }
             Logger.w("Provisioning audit: repair needed — missing: $missing")
+
+            // PROV-BEHAVE-012 (gitea#90): repair automatically instead of only logging and
+            // waiting for a human to notice the Web UI banner and click "Repair Automatically".
+            // The whole point is that DroidMesh has to heal itself without depending on an
+            // external deploy script or a person watching for the banner — a manual APK update,
+            // or this app running outside this harness entirely, has neither. Never silent:
+            // every attempt logs what it repaired, what it couldn't, and why, so it's visible in
+            // /api/logs and the Web UI's Runtime Logs modal without needing a special UI for it.
+            if (ProvisioningAuditor.accessibilityRebindToggleWillFire(provisioningAudit)) {
+                Logger.w(
+                    "Provisioning auto-repair: accessibility service is enabled but not " +
+                        "running — about to force a rebind toggle, which briefly disables every " +
+                        "other enabled accessibility service on this device too (PROV-BEHAVE-008)"
+                )
+            }
+            serviceScope.launch(Dispatchers.IO) {
+                ProvisioningAuditor.repair(applicationContext).fold(
+                    onSuccess = { result ->
+                        val outcome = ProvisioningAuditor.describeAutoRepairOutcome(result)
+                        if (result.failures.isNotEmpty()) {
+                            Logger.w("Provisioning auto-repair: $outcome")
+                        } else {
+                            Logger.i("Provisioning auto-repair: $outcome")
+                        }
+                    },
+                    onFailure = { error ->
+                        // PROV-BEHAVE-006's fail-fast case (ADB not enabled at all) lands here —
+                        // must not crash or hang the service; the manual banner/button in the Web
+                        // UI remains the fallback for an admin who needs to enable it by hand.
+                        Logger.w("Provisioning auto-repair could not run: ${error.message}")
+                    }
+                )
+            }
         } else {
             Logger.i("Provisioning audit: all grants satisfied")
         }

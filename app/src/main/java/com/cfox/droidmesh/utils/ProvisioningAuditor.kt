@@ -229,6 +229,31 @@ object ProvisioningAuditor {
         )
     }
 
+    // PROV-BEHAVE-012 (gitea#90): pure predicate so UpdaterForegroundService can log the
+    // PROV-BEHAVE-008 side-effect warning (every other enabled accessibility service on the
+    // device briefly disables too) BEFORE calling repair(), not after — an admin reading /logs
+    // chronologically needs the warning to precede the event it explains. Mirrors classify()'s own
+    // "enabled but not running" label check rather than re-deriving it from raw booleans, so this
+    // stays in sync if that sub-case's detection ever changes.
+    fun accessibilityRebindToggleWillFire(audit: ProvisioningAuditResult): Boolean {
+        val item = audit.items.firstOrNull { it.key == KEY_ACCESSIBILITY } ?: return false
+        return !item.satisfied && item.label == "Accessibility Service (enabled but not running)"
+    }
+
+    // PROV-BEHAVE-012 (gitea#90): pure formatter for the auto-repair log line, so its wording is
+    // unit-testable without a live ADB session — mirrors describeRepairFailure's precedent.
+    fun describeAutoRepairOutcome(result: ProvisioningRepairResult): String {
+        val repairedText = if (result.repairedKeys.isNotEmpty()) {
+            "repaired ${result.repairedKeys.joinToString(", ")}"
+        } else null
+        val failuresText = if (result.failures.isNotEmpty()) {
+            "still failing: " + result.failures.joinToString("; ") { "${it.label}: ${it.error}" }
+        } else null
+        return listOfNotNull(repairedText, failuresText).joinToString("; ").ifEmpty {
+            "nothing left to repair"
+        }
+    }
+
     // PROV-BEHAVE-010: pure mapper, so the wording a caller actually sees is unit-testable.
     // AdbAuthorizationPendingException carries its own instructions; everything else falls back to
     // the exception message, and to the exception type when even that is absent (a bare

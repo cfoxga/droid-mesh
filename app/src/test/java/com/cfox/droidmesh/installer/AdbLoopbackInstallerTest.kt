@@ -252,6 +252,21 @@ class AdbLoopbackInstallerTest {
         )
     }
 
+    // [PROGRAMMATIC] INST-TEST-035 (gitea#89): Android 13+/14 resets the ACCESS_RESTRICTED_SETTINGS
+    // app-op to `deny` for a sideloaded app on every install/update, which silently undoes the
+    // accessibility grant even when it was written correctly -- see
+    // android14-restricted-settings-sideload memory. ProvisioningAuditor.repairAccessibility() now
+    // clears that app-op for DroidMesh's own package before writing the accessibility settings, so
+    // the exact command needs a spot on the allowlist.
+    @Test
+    fun testIsAllowedShellCommandAcceptsAccessRestrictedSettingsClear() {
+        assertTrue(
+            AdbLoopbackInstaller.isAllowedShellCommand(
+                "appops set com.cfox.droidmesh ACCESS_RESTRICTED_SETTINGS allow"
+            )
+        )
+    }
+
     // [PROGRAMMATIC] INST-TEST-020 (negative): gitea#70 -- anything not on the allowlist, and the
     // one prefix pattern with an unsafe (shell-metacharacter-bearing) value, must be rejected.
     // Without this test, deleting isAllowedShellCommand entirely (or making it always return true)
@@ -299,6 +314,15 @@ class AdbLoopbackInstallerTest {
         assertFalse(
             AdbLoopbackInstaller.isAllowedShellCommand(
                 "settings get secure enabled_accessibility_services && reboot"
+            )
+        )
+        // INST-TEST-035 negative: ACCESS_RESTRICTED_SETTINGS is only ever cleared for DroidMesh's
+        // own package (an exact string) -- it must not also slip through the generic per-app
+        // APP_OPS catalog for an arbitrary managed-app package, which would let anything reachable
+        // through that path re-enable a restricted-settings bypass for someone else's app.
+        assertFalse(
+            AdbLoopbackInstaller.isAllowedShellCommand(
+                "appops set me.jxl.kiosk_satellite ACCESS_RESTRICTED_SETTINGS allow"
             )
         )
     }

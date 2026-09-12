@@ -71,6 +71,14 @@ log "granting REQUEST_INSTALL_PACKAGES (lets the updater install managed-app APK
 "${ADB[@]}" shell appops set "$PKG" REQUEST_INSTALL_PACKAGES allow \
   || log "WARNING: appops grant failed — check manually"
 
+# gitea#89: Android 13+/14 resets ACCESS_RESTRICTED_SETTINGS to `deny` for a sideloaded app on
+# EVERY install/update (not just the first), and while denied the OS silently strips the
+# accessibility grant back out from under the settings write below. Must run before that write,
+# not after, or this script's own accessibility setup gets reverted moments later.
+log "clearing restricted-settings app-op (Android 13+/14 sideload restriction)"
+"${ADB[@]}" shell appops set "$PKG" ACCESS_RESTRICTED_SETTINGS allow \
+  || log "WARNING: could not clear ACCESS_RESTRICTED_SETTINGS — accessibility grant below may not stick"
+
 log "enabling the auto-install accessibility service"
 "${ADB[@]}" shell settings put secure enabled_accessibility_services "$PKG/$PKG.service.AutoInstallService"
 "${ADB[@]}" shell settings put secure accessibility_enabled 1

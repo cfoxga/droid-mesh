@@ -75,8 +75,14 @@ object ProvisioningAuditor {
             accessibilityCommand = "adb shell settings put secure accessibility_enabled 0 && " +
                 "adb shell settings put secure accessibility_enabled 1"
         } else {
+            // PROV-BEHAVE-011 (gitea#89): Android 13+/14 resets ACCESS_RESTRICTED_SETTINGS to
+            // `deny` for a sideloaded app on every install/update, and while denied the OS
+            // silently strips the accessibility grant back out even when the settings write below
+            // succeeds -- so an admin following this command by hand needs the app-op cleared
+            // first, or they hit the exact same silent-revert loop repairAccessibility() used to.
             accessibilityLabel = "Accessibility Service"
-            accessibilityCommand = "adb shell settings put secure enabled_accessibility_services " +
+            accessibilityCommand = "adb shell appops set $PACKAGE_NAME ACCESS_RESTRICTED_SETTINGS allow && " +
+                "adb shell settings put secure enabled_accessibility_services " +
                 "$ACCESSIBILITY_SERVICE_COMPONENT && adb shell settings put secure accessibility_enabled 1"
         }
         val items = listOf(
@@ -248,6 +254,16 @@ object ProvisioningAuditor {
     // enabled accessibility service on the device too, not just DroidMesh's. Otherwise, fall back
     // to the existing enable/merge path for the "not enabled at all" case.
     private suspend fun repairAccessibility(context: Context): Result<String> {
+        // PROV-BEHAVE-011 (gitea#89): clear ACCESS_RESTRICTED_SETTINGS first, unconditionally --
+        // Android 13+/14 resets it to `deny` for a sideloaded app on every install/update, and
+        // while denied the OS silently strips whatever this function writes below back out. This
+        // is what makes in-app Repair Automatically self-sufficient instead of appearing to
+        // succeed and then silently reverting. Idempotent when already allowed; failure here is
+        // reported like any other repair failure rather than skipped, since a write that follows a
+        // failed clear is not trustworthy.
+        AdbLoopbackInstaller.runShellCommand("appops set $PACKAGE_NAME ACCESS_RESTRICTED_SETTINGS allow")
+            .onFailure { return Result.failure(it) }
+
         if (isAccessibilityGranted(context) && !AutoInstallService.isServiceRunning) {
             AdbLoopbackInstaller.runShellCommand("settings put secure accessibility_enabled 0")
                 .onFailure { return Result.failure(it) }

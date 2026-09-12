@@ -59,8 +59,15 @@ object AdbLoopbackInstaller {
     // one call site whose content varies at runtime (repairAccessibility()'s re-merged
     // enabled_accessibility_services value) -- a fixed prefix followed by a charset-restricted
     // value, mirroring ApkDownloader.isSafeApkFileName's whitelist-regex style (gitea#53).
+    // INST-BEHAVE-020 (gitea#89): Android 13+/14 resets ACCESS_RESTRICTED_SETTINGS to `deny` for a
+    // sideloaded app on every install/update, which silently strips DroidMesh's own accessibility
+    // grant back out even when it was written correctly -- see
+    // android14-restricted-settings-sideload memory. Exact string, not the generic per-app
+    // APP_OPS regex below: it must only ever apply to DroidMesh's own package, never a managed
+    // app's (see INST-TEST-035's negative case).
     private val ALLOWED_EXACT_SHELL_COMMANDS = setOf(
         "appops set com.cfox.droidmesh REQUEST_INSTALL_PACKAGES allow",
+        "appops set com.cfox.droidmesh ACCESS_RESTRICTED_SETTINGS allow",
         "dumpsys deviceidle whitelist +com.cfox.droidmesh",
         "settings get secure enabled_accessibility_services",
         "settings put secure accessibility_enabled 1"

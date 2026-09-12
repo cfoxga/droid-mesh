@@ -127,6 +127,37 @@ class ProvisioningAuditorTest {
         )
     }
 
+    // [PROGRAMMATIC] PROV-TEST-012 (PROV-BEHAVE-011, gitea#89): Android 13+/14 resets the
+    // ACCESS_RESTRICTED_SETTINGS app-op to `deny` for a sideloaded app on every install/update,
+    // which silently strips the accessibility grant back out even when it had been written
+    // correctly before. The manual externalCommand shown in the Repair Needed banner has to clear
+    // that app-op before writing the accessibility settings, or an admin following it by hand hits
+    // the exact same silent-revert loop the in-app repair used to.
+    @Test
+    fun testClassifyAccessibilityCommandClearsRestrictedSettingsFirst() {
+        val notEnabled = ProvisioningAuditor.classify(
+            installPackagesGranted = true,
+            accessibilityGranted = false,
+            accessibilityServiceRunning = false,
+            batteryExemptionGranted = true
+        ).items.first { it.key == ProvisioningAuditor.KEY_ACCESSIBILITY }
+
+        assertTrue(
+            "expected the restricted-settings app-op to be cleared before the accessibility " +
+                "settings are written, got: ${notEnabled.externalCommand}",
+            notEnabled.externalCommand.contains(
+                "appops set com.cfox.droidmesh ACCESS_RESTRICTED_SETTINGS allow"
+            )
+        )
+        val restrictedSettingsIndex = notEnabled.externalCommand.indexOf("ACCESS_RESTRICTED_SETTINGS")
+        val enabledServicesIndex = notEnabled.externalCommand.indexOf("enabled_accessibility_services")
+        assertTrue(
+            "the restricted-settings clear must run before the settings write, not after -- " +
+                "otherwise the OS can strip the write back out before the clear ever lands",
+            restrictedSettingsIndex in 0 until enabledServicesIndex
+        )
+    }
+
     private fun assertItemSatisfied(
         result: ProvisioningAuditor.ProvisioningAuditResult,
         key: String,

@@ -283,6 +283,13 @@ class UpdateCoordinator(
 
             val apkFile = downloadResult.getOrThrow()
 
+            // Prune older downloaded APKs to retain maximum 2 versions per app (UPD-BEHAVE-017)
+            try {
+                com.cfox.droidmesh.downloader.ApkRetentionManager.prune(context)
+            } catch (e: Exception) {
+                Logger.e("Failed to prune APKs after download", e)
+            }
+
             // Verify package integrity and signing certificate before attempting any installation (INST-BEHAVE-011)
             val verifyResult = com.cfox.droidmesh.installer.ApkSignatureVerifier.verifyApk(context, apkFile, packageName)
             if (verifyResult.isFailure) {

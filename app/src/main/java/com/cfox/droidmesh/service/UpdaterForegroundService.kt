@@ -100,6 +100,15 @@ class UpdaterForegroundService : Service() {
         Logger.i("UpdaterForegroundService onCreate")
         createNotificationChannel()
 
+        // Enforce APK retention policy on service startup (UPD-BEHAVE-017)
+        serviceScope.launch(Dispatchers.IO) {
+            try {
+                com.cfox.droidmesh.downloader.ApkRetentionManager.prune(applicationContext)
+            } catch (e: Exception) {
+                Logger.e("Failed to prune APKs on service startup", e)
+            }
+        }
+
         val coordinator = UpdateCoordinator(applicationContext)
         updateCoordinator = coordinator
         activeCoordinator = coordinator
@@ -299,6 +308,9 @@ class UpdaterForegroundService : Service() {
                             val apkResult = downloader.downloadApk(release.apkAssetUrl, fileName)
                             if (apkResult.isSuccess) {
                                 val apkFile = apkResult.getOrThrow()
+                                try {
+                                    com.cfox.droidmesh.downloader.ApkRetentionManager.prune(applicationContext)
+                                } catch (ignored: Exception) {}
                                 val verifyResult = com.cfox.droidmesh.installer.ApkSignatureVerifier.verifyApk(applicationContext, apkFile, pkg)
                                 if (verifyResult.isSuccess) {
                                     com.cfox.droidmesh.service.AutoInstallService.pendingInstallPackage = pkg

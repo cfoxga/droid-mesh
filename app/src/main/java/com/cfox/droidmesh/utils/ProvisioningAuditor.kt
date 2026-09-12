@@ -1,6 +1,8 @@
 package com.cfox.droidmesh.utils
 
+import android.Manifest
 import android.content.Context
+import android.content.pm.PackageManager
 import android.os.PowerManager
 import android.provider.Settings
 import com.cfox.droidmesh.installer.AdbAuthorizationPendingException
@@ -271,6 +273,35 @@ object ProvisioningAuditor {
         return ProvisioningRepairFailure(key = item.key, label = item.label, error = text)
     }
 
+    // PROV-BEHAVE-013 (gitea#92): true once WRITE_SECURE_SETTINGS has been granted (a single
+    // `adb shell pm grant com.cfox.droidmesh android.permission.WRITE_SECURE_SETTINGS`, ever, per
+    // device -- like the REQUEST_INSTALL_PACKAGES/ACCESS_RESTRICTED_SETTINGS app-ops already
+    // observed in this project, a `pm grant` persists across every future app update with no
+    // re-prompt). When held, the two Settings.Secure writes below no longer need the in-app
+    // loopback ADB client at all -- eliminating the exact failure mode that stalled Great Room
+    // GTV's repair indefinitely: that client's own RSA keypair needs a fresh on-screen "Allow
+    // debugging from this computer?" tap the first time adbd sees it, which nobody driving this
+    // repair from the Web UI or an automatic boot-time call can ever answer.
+    private fun hasWriteSecureSettingsPermission(context: Context): Boolean =
+        context.checkSelfPermission(Manifest.permission.WRITE_SECURE_SETTINGS) ==
+            PackageManager.PERMISSION_GRANTED
+
+    // PROV-TEST-014: ACCESS_RESTRICTED_SETTINGS is an AppOpsManager mode, not a Settings.Secure
+    // key -- WRITE_SECURE_SETTINGS does not cover it, and clearing it still requires ADB/shell.
+    // But that app-op persists across updates independent of this ADB key's trust state, so a
+    // device that already has it allowed from a prior repair must not have today's repair
+    // blocked just because the current process's loopback key happens to be unauthorized right
+    // now: only abort when there is no WRITE_SECURE_SETTINGS fallback to fall back on either.
+    internal fun shouldAbortAccessibilityRepair(
+        restrictedSettingsClearSucceeded: Boolean,
+        canWriteSecureSettingsDirectly: Boolean
+    ): Boolean = !restrictedSettingsClearSucceeded && !canWriteSecureSettingsDirectly
+
+    // PROV-TEST-015: explains, in /api/logs, why an ADB error didn't actually stop the repair.
+    internal fun describeRestrictedSettingsClearBypass(errorClassName: String): String =
+        "Could not clear ACCESS_RESTRICTED_SETTINGS over ADB ($errorClassName); proceeding via " +
+            "WRITE_SECURE_SETTINGS since it's already held"
+
     // PROV-BEHAVE-008: two distinct failure modes need two distinct fixes. If the OS setting
     // already lists DroidMesh's service but the live instance isn't running, the settings string
     // isn't the problem — merging into it again is a no-op — so toggle accessibility_enabled
@@ -279,15 +310,30 @@ object ProvisioningAuditor {
     // enabled accessibility service on the device too, not just DroidMesh's. Otherwise, fall back
     // to the existing enable/merge path for the "not enabled at all" case.
     private suspend fun repairAccessibility(context: Context): Result<String> {
-        // PROV-BEHAVE-011 (gitea#89): clear ACCESS_RESTRICTED_SETTINGS first, unconditionally --
+        val canWriteSecureSettingsDirectly = hasWriteSecureSettingsPermission(context)
+
+        // PROV-BEHAVE-011 (gitea#89): clear ACCESS_RESTRICTED_SETTINGS first, best-effort --
         // Android 13+/14 resets it to `deny` for a sideloaded app on every install/update, and
-        // while denied the OS silently strips whatever this function writes below back out. This
-        // is what makes in-app Repair Automatically self-sufficient instead of appearing to
-        // succeed and then silently reverting. Idempotent when already allowed; failure here is
-        // reported like any other repair failure rather than skipped, since a write that follows a
-        // failed clear is not trustworthy.
-        AdbLoopbackInstaller.runShellCommand("appops set $PACKAGE_NAME ACCESS_RESTRICTED_SETTINGS allow")
-            .onFailure { return Result.failure(it) }
+        // while denied the OS silently strips whatever this function writes below back out.
+        // Idempotent when already allowed. PROV-BEHAVE-013: a failure here only aborts the whole
+        // item when there is no WRITE_SECURE_SETTINGS fallback for the writes that follow --
+        // otherwise it's logged and repair proceeds via the direct-write path instead.
+        val restrictedSettingsClear =
+            AdbLoopbackInstaller.runShellCommand("appops set $PACKAGE_NAME ACCESS_RESTRICTED_SETTINGS allow")
+        if (restrictedSettingsClear.isFailure) {
+            if (shouldAbortAccessibilityRepair(restrictedSettingsClearSucceeded = false, canWriteSecureSettingsDirectly)) {
+                return Result.failure(restrictedSettingsClear.exceptionOrNull()!!)
+            }
+            Logger.w(
+                describeRestrictedSettingsClearBypass(
+                    restrictedSettingsClear.exceptionOrNull()?.javaClass?.simpleName ?: "unknown error"
+                )
+            )
+        }
+
+        if (canWriteSecureSettingsDirectly) {
+            return repairAccessibilityDirect(context)
+        }
 
         if (isAccessibilityGranted(context) && !AutoInstallService.isServiceRunning) {
             AdbLoopbackInstaller.runShellCommand("settings put secure accessibility_enabled 0")
@@ -308,5 +354,26 @@ object ProvisioningAuditor {
             .onFailure { return Result.failure(it) }
 
         return AdbLoopbackInstaller.runShellCommand("settings put secure accessibility_enabled 1")
+    }
+
+    // PROV-BEHAVE-013: same two sub-cases as the ADB path above, written directly through
+    // ContentResolver instead — no socket, no per-process key trust, no on-screen prompt. Only
+    // reachable when hasWriteSecureSettingsPermission() is true. Not unit tested directly (it's a
+    // thin ContentResolver wrapper requiring a real Context, matching the existing precedent for
+    // PROV-BEHAVE-001/004/006); covered by live-fleet verification instead.
+    private suspend fun repairAccessibilityDirect(context: Context): Result<String> = try {
+        if (isAccessibilityGranted(context) && !AutoInstallService.isServiceRunning) {
+            Settings.Secure.putInt(context.contentResolver, Settings.Secure.ACCESSIBILITY_ENABLED, 0)
+            Settings.Secure.putInt(context.contentResolver, Settings.Secure.ACCESSIBILITY_ENABLED, 1)
+            delay(ACCESSIBILITY_REBIND_SETTLE_MS)
+        } else {
+            val current = Settings.Secure.getString(context.contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES)
+            val merged = mergeAccessibilityServices(current)
+            Settings.Secure.putString(context.contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES, merged)
+            Settings.Secure.putInt(context.contentResolver, Settings.Secure.ACCESSIBILITY_ENABLED, 1)
+        }
+        Result.success("Repaired directly via WRITE_SECURE_SETTINGS")
+    } catch (e: Exception) {
+        Result.failure(e)
     }
 }

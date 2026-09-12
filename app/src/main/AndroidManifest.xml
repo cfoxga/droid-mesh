@@ -19,6 +19,16 @@
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
+    <!-- PROV-BEHAVE-013 (gitea#92): not granted at install time (signature/privileged level),
+         but grantable to a normal app with a single one-time
+         `adb shell pm grant com.cfox.droidmesh android.permission.WRITE_SECURE_SETTINGS` that
+         persists across every future app update. Once held, ProvisioningAuditor writes
+         accessibility Settings.Secure keys directly instead of through the fragile in-app
+         loopback ADB client, which needs a fresh on-screen auth tap for every new/lost key. -->
+    <uses-permission
+        android:name="android.permission.WRITE_SECURE_SETTINGS"
+        tools:ignore="ProtectedPermissions" />
+
     <!-- GTV sticks have no touchscreen; the app is driven by d-pad there,
          so a store/launcher must not filter or reclassify the install on
          this implicit feature requirement (gitea#81). -->

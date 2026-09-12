@@ -371,4 +371,51 @@ class ProvisioningAuditorTest {
         )
         assertTrue(ProvisioningAuditor.describeAutoRepairOutcome(nothingToDo).isNotEmpty())
     }
+
+    // [PROGRAMMATIC] PROV-TEST-014 (gitea#92): a device that already has ACCESS_RESTRICTED_SETTINGS
+    // allowed (app-ops persist across updates, independent of this ADB key's trust state) must not
+    // have its accessibility repair blocked just because the current process's loopback ADB key
+    // happens to be unauthorized right now -- as long as WRITE_SECURE_SETTINGS is held, the actual
+    // Settings.Secure writes don't need that ADB session at all. Only abort when neither path works.
+    @Test
+    fun `PROV-TEST-014 accessibility repair only aborts on a restricted-settings clear failure when no direct-write fallback exists`() {
+        assertFalse(
+            "WRITE_SECURE_SETTINGS held -> proceed via direct write despite the ADB clear failing",
+            ProvisioningAuditor.shouldAbortAccessibilityRepair(
+                restrictedSettingsClearSucceeded = false,
+                canWriteSecureSettingsDirectly = true
+            )
+        )
+        assertTrue(
+            "no WRITE_SECURE_SETTINGS and the ADB clear failed -> nothing left to try, abort",
+            ProvisioningAuditor.shouldAbortAccessibilityRepair(
+                restrictedSettingsClearSucceeded = false,
+                canWriteSecureSettingsDirectly = false
+            )
+        )
+        assertFalse(
+            "the ADB clear succeeding is always fine regardless of WRITE_SECURE_SETTINGS",
+            ProvisioningAuditor.shouldAbortAccessibilityRepair(
+                restrictedSettingsClearSucceeded = true,
+                canWriteSecureSettingsDirectly = false
+            )
+        )
+        assertFalse(
+            ProvisioningAuditor.shouldAbortAccessibilityRepair(
+                restrictedSettingsClearSucceeded = true,
+                canWriteSecureSettingsDirectly = true
+            )
+        )
+    }
+
+    // [PROGRAMMATIC] PROV-TEST-015 (gitea#92): when the ADB clear fails but repair proceeds anyway
+    // via WRITE_SECURE_SETTINGS, /api/logs needs to say why an "ADB error" didn't actually stop
+    // the repair -- otherwise a failed ADB clear reads as an unexplained inconsistency next to a
+    // successful outcome.
+    @Test
+    fun `PROV-TEST-015 describeRestrictedSettingsClearBypass names the ADB error it proceeded past`() {
+        val text = ProvisioningAuditor.describeRestrictedSettingsClearBypass("SocketTimeoutException")
+        assertTrue(text.contains("SocketTimeoutException"))
+        assertTrue(text.contains("WRITE_SECURE_SETTINGS"))
+    }
 }

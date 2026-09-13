@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- INST-BEHAVE-023: intentionally empty <uses-policies>. Device Owner package installation
+     privileges (INST-BEHAVE-024) come from the Device Owner role itself, checked at runtime via
+     DevicePolicyManager.isDeviceOwnerApp, not from any specific admin policy such as password
+     quality or camera disable, so none is declared here. -->
+<device-admin xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-policies>
+    </uses-policies>
+</device-admin>

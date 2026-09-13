@@ -89,6 +89,25 @@
                 android:resource="@xml/accessibility_service_config" />
         </service>
 
+        <!-- INST-BEHAVE-023 (gitea#101): registers DroidMesh as a Device Admin so it can be
+             promoted to Device Owner via `dpm set-device-owner` during provisioning, letting
+             DeviceOwnerInstaller (INST-BEHAVE-024) commit PackageInstaller.Session installs with
+             zero prompts and zero ADB dependency. exported="true" + the BIND_DEVICE_ADMIN
+             signature-level permission is the OS-mandated shape for a device admin receiver:
+             the system only ever binds one it declared this way, and no third-party app can hold
+             that permission to start/bind it directly. -->
+        <receiver
+            android:name=".admin.DroidMeshDeviceAdminReceiver"
+            android:exported="true"
+            android:permission="android.permission.BIND_DEVICE_ADMIN">
+            <meta-data
+                android:name="android.app.device_admin"
+                android:resource="@xml/device_admin" />
+            <intent-filter>
+                <action android:name="android.app.action.DEVICE_ADMIN_ENABLED" />
+            </intent-filter>
+        </receiver>
+
         <!-- Persistent Foreground Service (HTTP Trigger Server on :2325).
              Not exported: DroidMesh always starts this itself from its own
              process; the HTTP API on :2325 is the only supported external

@@ -307,6 +307,42 @@ class UpdateCoordinator(
                 progressPercent = 100
             )
 
+            // 0. INST-BEHAVE-024: a Device Owner-provisioned node installs silently via
+            // PackageInstaller.Session -- zero prompts, zero ADB dependency -- so try that before
+            // ever touching the ADB loopback socket. Not Device Owner, or a failed attempt, falls
+            // through to the existing chain unchanged (DeviceOwnerInstallDecision.primaryPath is
+            // the same pure decision DeviceOwnerInstallDecisionTest exercises directly).
+            val isDeviceOwner = com.cfox.droidmesh.installer.DeviceOwnerInstaller.isDeviceOwner(context)
+            if (com.cfox.droidmesh.installer.DeviceOwnerInstallDecision.primaryPath(isDeviceOwner)
+                is com.cfox.droidmesh.installer.DeviceOwnerInstallDecision.Path.DeviceOwner
+            ) {
+                val deviceOwnerResult = com.cfox.droidmesh.installer.DeviceOwnerInstaller
+                    .installSilently(context, apkFile, packageName)
+                if (deviceOwnerResult.isSuccess) {
+                    val successMsg = "Installed ${release.tagName} via Device Owner (silent, no ADB)."
+                    Logger.i(successMsg)
+                    _statusFlow.value = UpdateStatus(
+                        state = "COMPLETED",
+                        message = successMsg,
+                        progressPercent = 100
+                    )
+                    if (GoogleTvUpdatePolicy.suppressPostInstallLaunch(context)) {
+                        Logger.i("Google TV update completed for $packageName without foreground launch")
+                    } else {
+                        try {
+                            val launchIntent = context.packageManager.getLaunchIntentForPackage(packageName)
+                            launchIntent?.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                            if (launchIntent != null) context.startActivity(launchIntent)
+                        } catch (ignored: Exception) {}
+                    }
+                    return Result.success(release)
+                }
+                Logger.w(
+                    "Device Owner install failed (${deviceOwnerResult.exceptionOrNull()?.message}); " +
+                        "falling back to ADB loopback / PackageInstaller chain"
+                )
+            }
+
             val adbResult = AdbLoopbackInstaller.installWithAdbLoopback(apkFile)
             if (adbResult.isSuccess) {
                 val successMsg = "Installed ${release.tagName} via local ADB with data preserved."

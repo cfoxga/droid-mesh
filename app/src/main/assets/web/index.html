@@ -2910,7 +2910,7 @@ function renderGlobalSettings(settingsData = {}, meshData = {}, selfUpdateData =
             <span class="badge ${peerCount > 0 ? 'badge-sage' : 'badge-gray'}" style="font-size: 11px;">${peerCount} node${peerCount === 1 ? '' : 's'}</span>
           </div>
           <div class="actions" style="display: flex; gap: 8px;">
-            <button class="btn btn-secondary btn-sm rename-btn">Rename</button>
+            <button class="btn btn-secondary btn-sm rename-btn">Configure</button>
             ${!isUnmanaged && peerCount === 0 ? '<button class="btn btn-danger btn-sm delete-btn">Delete</button>' : ''}
           </div>
         `;

@@ -6,6 +6,7 @@ import com.cfox.droidmesh.api.ReleaseInfo
 
 import com.cfox.droidmesh.service.AutoInstallService
 import com.cfox.droidmesh.settings.SettingsStore
+import com.cfox.droidmesh.utils.ProvisioningAuditor
 import fi.iki.elonen.NanoHTTPD
 
 import org.json.JSONObject
@@ -2210,6 +2211,139 @@ class LocalHttpServerTest {
             openBraces,
             closeBraces
         )
+    }
+
+    // [PROGRAMMATIC] PROV-TEST-022 (gitea#111): the audit endpoint has to carry both new fields.
+    // Without `operatorOnly` per item the Web UI cannot tell an item the "Repair Automatically"
+    // button will fix from one it can only print instructions for, and it would offer the button
+    // for a Device Owner row that no in-app mechanism can ever satisfy.
+    @Test
+    fun testProvisioningAuditSerializesOperatorOnlyFields() {
+        // A mesh that requires Device Owner, with this device in it — the only configuration in
+        // which PROV-BEHAVE-015 emits the row at all.
+        SettingsStore.addKnownMesh(mockContext, "theater", "Theater", true)
+        SettingsStore.setLocalMeshId(mockContext, "theater")
+
+        val headers = authedHeaders()
+        val response = server.serve(mockSession("/api/system/provisioning", headers = headers))
+        assertEquals(NanoHTTPD.Response.Status.OK, response.status)
+
+        val body = JSONObject(response.data.bufferedReader().readText())
+        assertTrue("top-level operatorActionNeeded must be present", body.has("operatorActionNeeded"))
+        assertTrue(
+            "mock context is not a Device Owner, so operator action is outstanding",
+            body.getBoolean("operatorActionNeeded")
+        )
+
+        val items = body.getJSONArray("items")
+        var sawDeviceOwner = false
+        var sawAppRepairable = false
+        for (i in 0 until items.length()) {
+            val item = items.getJSONObject(i)
+            assertTrue("every item carries operatorOnly", item.has("operatorOnly"))
+            if (item.getString("key") == ProvisioningAuditor.KEY_DEVICE_OWNER) {
+                sawDeviceOwner = true
+                assertTrue("device_owner is operator-only", item.getBoolean("operatorOnly"))
+                assertTrue(
+                    "the serialized command must carry the real steps, not a label",
+                    item.getString("externalCommand").contains("dpm set-device-owner")
+                )
+            } else {
+                sawAppRepairable = true
+                // Control: the pre-existing items must NOT have been flipped to operator-only,
+                // or the Repair button disappears for the grants the app really can fix.
+                assertFalse(
+                    "${item.getString("key")} is still app-repairable",
+                    item.getBoolean("operatorOnly")
+                )
+            }
+        }
+        assertTrue("device_owner row must be serialized", sawDeviceOwner)
+        assertTrue("the ordinary grants must still be serialized", sawAppRepairable)
+    }
+
+    // [PROGRAMMATIC] PROV-TEST-023 (gitea#111): `audit()` really asks the OS whether this package
+    // is the Device Owner. Every other test in this file runs against a context that is not a
+    // Device Owner, so hardcoding `isDeviceOwner = false` in audit() passes all of them — and a
+    // device that genuinely IS the Device Owner would then show a permanent unsatisfiable row for
+    // a requirement it already meets. This is the only test that stubs DevicePolicyManager.
+    @Test
+    fun testProvisioningAuditReportsDeviceOwnerSatisfiedOnARealDeviceOwner() {
+        SettingsStore.addKnownMesh(mockContext, "theater", "Theater", true)
+        SettingsStore.setLocalMeshId(mockContext, "theater")
+        val headers = authedHeaders()
+
+        val dpm: android.app.admin.DevicePolicyManager = mock {
+            whenever(it.isDeviceOwnerApp("com.cfox.droidmesh")).thenReturn(true)
+        }
+        whenever(mockContext.getSystemService(Context.DEVICE_POLICY_SERVICE)).thenReturn(dpm)
+
+        val body = JSONObject(
+            server.serve(mockSession("/api/system/provisioning", headers = headers))
+                .data.bufferedReader().readText()
+        )
+        val items = body.getJSONArray("items")
+        var deviceOwnerItem: JSONObject? = null
+        for (i in 0 until items.length()) {
+            val item = items.getJSONObject(i)
+            if (item.getString("key") == ProvisioningAuditor.KEY_DEVICE_OWNER) deviceOwnerItem = item
+        }
+        assertNotNull("the row is still present — the mesh requires it", deviceOwnerItem)
+        assertTrue(
+            "this device IS the Device Owner, so the requirement is met",
+            deviceOwnerItem!!.getBoolean("satisfied")
+        )
+        assertFalse(
+            "a satisfied requirement is not outstanding operator work",
+            body.getBoolean("operatorActionNeeded")
+        )
+    }
+
+    // [PROGRAMMATIC] MESH-TEST-033 (gitea#111): /api/mesh/update validates before it mutates. A
+    // body that flips requireDeviceOwner AND renames a mesh this device isn't a member of must
+    // reject whole: applying the flag and bumping the config version behind a 400 would gossip a
+    // change the caller was just told didn't happen.
+    @Test
+    fun testMeshUpdateRejectingRenameDoesNotHalfApplyRequireDeviceOwner() {
+        SettingsStore.addKnownMesh(mockContext, "theater", "Theater", false)
+        SettingsStore.setLocalMeshId(mockContext, "unmanaged")
+
+        val headers = authedHeaders()
+        // Read the version after auth bootstrap: setPassword bumps it too, and this assertion is
+        // about the rejected request specifically.
+        val versionBefore = SettingsStore.getConfigVersion(mockContext)
+        val response = server.serve(
+            mockSession(
+                "/api/mesh/update",
+                method = NanoHTTPD.Method.POST,
+                headers = headers,
+                postBody = """{"meshId":"theater","meshName":"Renamed","requireDeviceOwner":true}"""
+            )
+        )
+
+        assertEquals(NanoHTTPD.Response.Status.BAD_REQUEST, response.status)
+        assertFalse(
+            "the flag must not have been applied behind the rejection",
+            SettingsStore.meshRequiresDeviceOwner(mockContext, "theater")
+        )
+        assertEquals(
+            "a rejected request must not bump the config version",
+            versionBefore,
+            SettingsStore.getConfigVersion(mockContext)
+        )
+
+        // Control: the same flag change alone — no rename — is accepted, proving the rejection
+        // above came from the rename constraint and not from refusing the flag on a non-local mesh.
+        val okResponse = server.serve(
+            mockSession(
+                "/api/mesh/update",
+                method = NanoHTTPD.Method.POST,
+                headers = headers,
+                postBody = """{"meshId":"theater","requireDeviceOwner":true}"""
+            )
+        )
+        assertEquals(NanoHTTPD.Response.Status.OK, okResponse.status)
+        assertTrue(SettingsStore.meshRequiresDeviceOwner(mockContext, "theater"))
     }
 }
 

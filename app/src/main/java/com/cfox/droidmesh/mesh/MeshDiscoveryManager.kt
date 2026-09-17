@@ -788,6 +788,9 @@ class MeshDiscoveryManager(
                 put("name", mName)
                 put("is_local", isLocal)
                 put("peer_count", peers.size)
+                // [MESH-BEHAVE-020] Per-mesh Device Owner requirement, so the admin UI can render
+                // and edit the flag without a second round trip.
+                put("require_device_owner", knownMeshes[mId]?.requireDeviceOwner ?: false)
                 put("online_count", peers.count { it.isOnline })
                 val peersJson = JSONArray()
                 peers.forEach { peersJson.put(it.toJson()) }

@@ -227,7 +227,30 @@ object SettingsStore {
         prefs(context).edit().putString(KEY_CUSTOM_DEVICE_NAME, deviceName.trim()).apply()
     }
 
-    data class MeshTemplate(val id: String, val name: String)
+    data class MeshTemplate(
+        val id: String,
+        val name: String,
+        val requireDeviceOwner: Boolean = false
+    )
+
+    /**
+     * [MESH-BEHAVE-020] Merges one incoming `known_meshes` entry over the local entry of the same
+     * id. `requireDeviceOwner` is absence-sensitive: an incoming object that *carries* the key wins
+     * with whatever it says, but one that omits it keeps the local value. Parsing an absent key as
+     * `false` — what every other field here does — would let a peer on a build predating the field
+     * clear an operator's `true` on every sync round, fleet-wide, since the merge cannot otherwise
+     * tell "peer says false" apart from "peer has never heard of this field".
+     */
+    internal fun mergeMeshTemplate(local: MeshTemplate?, incomingObj: JSONObject): MeshTemplate =
+        MeshTemplate(
+            id = incomingObj.optString("id"),
+            name = incomingObj.optString("name"),
+            requireDeviceOwner = if (incomingObj.has("requireDeviceOwner")) {
+                incomingObj.optBoolean("requireDeviceOwner", false)
+            } else {
+                local?.requireDeviceOwner ?: false
+            }
+        )
 
     /** [MESH-BEHAVE-009/010] A record that mesh [id] was deleted at [deletedAt] (epoch ms). */
     data class MeshTombstone(val id: String, val deletedAt: Long)
@@ -269,7 +292,9 @@ object SettingsStore {
                 if (obj != null) {
                     val id = obj.optString("id")
                     val name = obj.optString("name")
-                    if (id.isNotEmpty()) MeshTemplate(id, name) else null
+                    if (id.isNotEmpty()) {
+                        MeshTemplate(id, name, obj.optBoolean("requireDeviceOwner", false))
+                    } else null
                 }
                 else null
             }
@@ -284,13 +309,42 @@ object SettingsStore {
                 put(JSONObject().apply {
                     put("id", m.id)
                     put("name", m.name)
+                    put("requireDeviceOwner", m.requireDeviceOwner)
                 })
             }
         }
         prefs(context).edit().putString(KEY_KNOWN_MESHES, json.toString()).apply()
     }
 
-    fun addKnownMesh(context: Context, meshId: String, meshName: String): Boolean {
+    /**
+     * [MESH-BEHAVE-020] Sets the per-mesh Device Owner requirement and bumps the config version so
+     * the change gossips. Returns false when no mesh with this id is known locally.
+     */
+    fun setMeshRequireDeviceOwner(context: Context, meshId: String, require: Boolean): Boolean {
+        val cleanId = meshId.trim().lowercase()
+        val current = getKnownMeshes(context)
+        if (current.none { it.id == cleanId }) return false
+        setKnownMeshes(
+            context,
+            current.map { if (it.id == cleanId) it.copy(requireDeviceOwner = require) else it }
+        )
+        updateConfigVersion(context)
+        return true
+    }
+
+    /**
+     * [MESH-BEHAVE-020] Reads the Device Owner requirement for a mesh. An unknown mesh id — a node
+     * that has not yet synced the template — is not a requirement.
+     */
+    fun meshRequiresDeviceOwner(context: Context, meshId: String): Boolean =
+        getKnownMeshes(context).firstOrNull { it.id == meshId }?.requireDeviceOwner ?: false
+
+    fun addKnownMesh(
+        context: Context,
+        meshId: String,
+        meshName: String,
+        requireDeviceOwner: Boolean = false
+    ): Boolean {
         val cleanId = meshId.trim().lowercase()
         val cleanName = meshName.trim()
         if (cleanId.isBlank() || cleanName.isBlank()) return false
@@ -299,7 +353,7 @@ object SettingsStore {
         // Check if already exists
         if (current.any { it.id == cleanId }) return false
 
-        current.add(MeshTemplate(cleanId, cleanName))
+        current.add(MeshTemplate(cleanId, cleanName, requireDeviceOwner))
         setKnownMeshes(context, current)
 
         // [MESH-BEHAVE-010] Explicit recreation wins over a stale tombstone: clear it locally so
@@ -685,6 +739,7 @@ object SettingsStore {
             meshesArr.put(JSONObject().apply {
                 put("id", m.id)
                 put("name", m.name)
+                put("requireDeviceOwner", m.requireDeviceOwner)
             })
         }
         put("known_meshes", meshesArr)
@@ -1079,14 +1134,16 @@ object SettingsStore {
         val currentMeshes = getKnownMeshes(context)
         val meshesArr = json.optJSONArray("known_meshes")
         if (meshesArr != null) {
+            val currentMeshesById = currentMeshes.associateBy { it.id }
             val incomingMeshes = mutableListOf<MeshTemplate>()
             for (i in 0 until meshesArr.length()) {
                 val meshObj = meshesArr.optJSONObject(i)
                 if (meshObj != null) {
                     val id = meshObj.optString("id")
-                    val name = meshObj.optString("name")
                     if (id.isNotEmpty()) {
-                        incomingMeshes.add(MeshTemplate(id, name))
+                        // [MESH-BEHAVE-020] Field-level merge, not wholesale replacement: an
+                        // incoming entry omitting requireDeviceOwner keeps the local value.
+                        incomingMeshes.add(mergeMeshTemplate(currentMeshesById[id], meshObj))
                     }
                 }
             }

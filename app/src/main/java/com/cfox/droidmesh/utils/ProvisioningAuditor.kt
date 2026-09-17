@@ -7,7 +7,9 @@ import android.os.PowerManager
 import android.provider.Settings
 import com.cfox.droidmesh.installer.AdbAuthorizationPendingException
 import com.cfox.droidmesh.installer.AdbLoopbackInstaller
+import com.cfox.droidmesh.installer.DeviceOwnerInstaller
 import com.cfox.droidmesh.service.AutoInstallService
+import com.cfox.droidmesh.settings.SettingsStore
 import kotlinx.coroutines.delay
 
 // PROV-BEHAVE-001/002: audits the three OS-level grants DroidMesh depends on outside its own
@@ -43,17 +45,60 @@ object ProvisioningAuditor {
         return true
     }
 
+    const val KEY_DEVICE_OWNER = "device_owner"
+
+    const val DEVICE_ADMIN_COMPONENT =
+        "com.cfox.droidmesh/com.cfox.droidmesh.admin.DroidMeshDeviceAdminReceiver"
+
+    // PROV-BEHAVE-015/016: the operator sequence for Device Owner, which nothing in the app can
+    // perform for itself. `dpm set-device-owner` is refused outright while *any* account exists on
+    // the device (enforceCanSetDeviceOwnerLocked), so the accounts have to come off first and go
+    // back on after. The account list is deliberately generic rather than enumerated: from Android
+    // 8 on, AccountManager only shows an app the accounts it owns or was granted visibility into,
+    // so a non-owner DroidMesh would print a confidently empty list, and the loopback-ADB fallback
+    // needs an on-screen "Allow debugging?" tap that nobody is standing in front of on a TV stick.
+    // Naming the screen and the dumpsys command lets the operator enumerate them accurately.
+    // Step 0 is not optional politeness. Device Owner is exclusive to one package, and
+    // `isDeviceOwnerApp` answers only "is it us?" — it returns false identically for "no Device
+    // Owner at all" and "another app already owns this device". Steps 1-2 destroy state (they sign
+    // the device out), so an operator who ran them against a device some other app already owns
+    // would lose the account for nothing: step 3 then fails outright. Check first.
+    private val DEVICE_OWNER_OPERATOR_STEPS = listOf(
+        "0. FIRST check that no other app already owns this device: " +
+            "`adb shell dumpsys device_policy | grep -i 'Device Owner'`. If it names another " +
+            "package, STOP — Device Owner is exclusive to one app and the steps below would sign " +
+            "this device out for nothing.",
+        "1. List the accounts on this device: Settings > Accounts & Sign-in on screen, " +
+            "or `adb shell dumpsys account | grep -i 'Account {'` — write down every one.",
+        "2. Remove all of them (Device Owner cannot be set while any account exists).",
+        "3. adb shell dpm set-device-owner $DEVICE_ADMIN_COMPONENT",
+        "4. Re-add the accounts from step 1 and sign back in."
+    ).joinToString("\n")
+
     data class ProvisioningItem(
         val key: String,
         val label: String,
         val satisfied: Boolean,
-        val externalCommand: String
+        val externalCommand: String,
+        // PROV-BEHAVE-016: true when no in-app mechanism can satisfy this item, so repair() must
+        // skip it. Without the flag an unsatisfied item falls through repair()'s `when` to the
+        // `else` branch and reports a fabricated "Unknown provisioning item" failure every pass.
+        val operatorOnly: Boolean = false
     )
 
     data class ProvisioningAuditResult(
         val items: List<ProvisioningItem>,
-        val repairNeeded: Boolean
+        // PROV-BEHAVE-017: app-repairable work only — this is what UpdaterForegroundService keys
+        // its automatic loopback-ADB repair session off, so an item the app can never fix must not
+        // set it or the service opens a futile ADB session on every boot, forever.
+        val repairNeeded: Boolean,
+        // PROV-BEHAVE-017: outstanding work that only a human at a workstation can do.
+        val operatorActionNeeded: Boolean = false
     )
+
+    // PROV-BEHAVE-016: exactly the set repair() iterates.
+    fun repairableItems(audit: ProvisioningAuditResult): List<ProvisioningItem> =
+        audit.items.filter { !it.satisfied && !it.operatorOnly }
 
     data class ProvisioningRepairResult(
         val audit: ProvisioningAuditResult,
@@ -80,7 +125,13 @@ object ProvisioningAuditor {
         installPackagesGranted: Boolean,
         accessibilityGranted: Boolean,
         accessibilityServiceRunning: Boolean,
-        batteryExemptionGranted: Boolean
+        batteryExemptionGranted: Boolean,
+        // PROV-BEHAVE-015: the local mesh's `requireDeviceOwner` flag (MESH-BEHAVE-020). The
+        // Device Owner row exists only when its mesh asks for it — a mesh that doesn't care must
+        // show no row at all, not a green one, or every unmanaged node grows a permanent
+        // "satisfied" item for a policy nobody set.
+        requireDeviceOwner: Boolean = false,
+        isDeviceOwner: Boolean = false
     ): ProvisioningAuditResult {
         val accessibilityLabel: String
         val accessibilityCommand: String
@@ -103,7 +154,7 @@ object ProvisioningAuditor {
                 "adb shell settings put secure enabled_accessibility_services " +
                 "$ACCESSIBILITY_SERVICE_COMPONENT && adb shell settings put secure accessibility_enabled 1"
         }
-        val items = listOf(
+        val items = listOfNotNull(
             ProvisioningItem(
                 key = KEY_INSTALL_PACKAGES,
                 label = "Install Unknown Apps",
@@ -121,9 +172,22 @@ object ProvisioningAuditor {
                 label = "Battery Optimization Exemption",
                 satisfied = batteryExemptionGranted,
                 externalCommand = "adb shell dumpsys deviceidle whitelist +$PACKAGE_NAME"
-            )
+            ),
+            if (requireDeviceOwner) {
+                ProvisioningItem(
+                    key = KEY_DEVICE_OWNER,
+                    label = "Device Owner (required by this mesh)",
+                    satisfied = isDeviceOwner,
+                    externalCommand = DEVICE_OWNER_OPERATOR_STEPS,
+                    operatorOnly = true
+                )
+            } else null
         )
-        return ProvisioningAuditResult(items = items, repairNeeded = items.any { !it.satisfied })
+        return ProvisioningAuditResult(
+            items = items,
+            repairNeeded = items.any { !it.satisfied && !it.operatorOnly },
+            operatorActionNeeded = items.any { !it.satisfied && it.operatorOnly }
+        )
     }
 
     // PROV-BEHAVE-001: reads real Android state and classifies it. Called on every
@@ -136,7 +200,12 @@ object ProvisioningAuditor {
             installPackagesGranted = context.packageManager.canRequestPackageInstalls(),
             accessibilityGranted = isAccessibilityGranted(context),
             accessibilityServiceRunning = AutoInstallService.isServiceRunning,
-            batteryExemptionGranted = isIgnoringBatteryOptimizations(context)
+            batteryExemptionGranted = isIgnoringBatteryOptimizations(context),
+            requireDeviceOwner = SettingsStore.meshRequiresDeviceOwner(
+                context,
+                SettingsStore.getLocalMeshId(context)
+            ),
+            isDeviceOwner = DeviceOwnerInstaller.isDeviceOwner(context)
         )
     }
 
@@ -219,8 +288,8 @@ object ProvisioningAuditor {
         val repaired = mutableListOf<String>()
         val failures = mutableListOf<ProvisioningRepairFailure>()
 
-        for (item in before.items) {
-            if (item.satisfied) continue
+        // PROV-BEHAVE-016: operator-only items are filtered out here, never inside the `when`.
+        for (item in repairableItems(before)) {
             val outcome = when (item.key) {
                 KEY_INSTALL_PACKAGES ->
                     AdbLoopbackInstaller.runShellCommand("appops set $PACKAGE_NAME REQUEST_INSTALL_PACKAGES allow")

@@ -224,7 +224,10 @@ class UpdaterForegroundService : Service() {
         // launch alike). GET /api/system/provisioning re-audits live on every call.
         val provisioningAudit = ProvisioningAuditor.audit(applicationContext)
         if (provisioningAudit.repairNeeded) {
-            val missing = provisioningAudit.items.filter { !it.satisfied }.joinToString(", ") { it.label }
+            // PROV-BEHAVE-017: repairableItems(), not every unsatisfied item — an operator-only
+            // item named here would read as something this auto-repair pass was going to fix.
+            val missing = ProvisioningAuditor.repairableItems(provisioningAudit)
+                .joinToString(", ") { it.label }
             Logger.w("Provisioning audit: repair needed — missing: $missing")
 
             // PROV-BEHAVE-012 (gitea#90): repair automatically instead of only logging and
@@ -260,7 +263,16 @@ class UpdaterForegroundService : Service() {
                 )
             }
         } else {
-            Logger.i("Provisioning audit: all grants satisfied")
+            Logger.i("Provisioning audit: all app-repairable grants satisfied")
+        }
+
+        // PROV-BEHAVE-017: operator-only items are deliberately outside the repair branch above —
+        // nothing here can satisfy them, and letting them drive `repairNeeded` would open a
+        // futile loopback-ADB session on every boot, forever, on a device nobody can fix remotely.
+        // Logging the full sequence puts it in /api/logs and the Runtime Logs modal, so it reaches
+        // whoever is looking without a screen to read the banner on.
+        provisioningAudit.items.filter { !it.satisfied && it.operatorOnly }.forEach { item ->
+            Logger.w("Provisioning audit: ${item.label} requires manual action:\n${item.externalCommand}")
         }
 
         manageHttpServer()

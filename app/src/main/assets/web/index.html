@@ -641,6 +641,14 @@ input:checked + .slider:before {
         <input id="createMeshId" class="field" type="text" placeholder="e.g., portal-fleet, theater-displays" pattern="^[a-z0-9-]+$" title="Alphanumeric and hyphens only" required>
         <span style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">Lowercase alphanumeric and hyphens only. Cannot be changed later.</span>
       </div>
+      <!-- [MESH-BEHAVE-020] Per-mesh Device Owner requirement. -->
+      <div class="field-group">
+        <label class="field-label" style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+          <input type="checkbox" id="createMeshRequireDeviceOwner" style="width: 16px; height: 16px; accent-color: var(--teal); cursor: pointer;">
+          Require Device Owner
+        </label>
+        <span style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">Devices in this mesh that are not the registered Device Owner show a repair banner with the steps to fix it. Setting Device Owner needs a person at a workstation — DroidMesh cannot do it itself.</span>
+      </div>
       <div id="createMeshMsg" class="banner hidden"></div>
       <div style="display: flex; gap: 8px;">
         <button type="button" class="btn btn-secondary" onclick="closeModal('createMeshModal')">Cancel</button>
@@ -668,6 +676,7 @@ input:checked + .slider:before {
       <div class="field-group">
         <label class="field-label" for="editMeshName">Mesh Name</label>
         <input id="editMeshName" class="field" type="text" required>
+        <span id="editMeshNameHelp" style="font-size: 11px; color: var(--text-muted); margin-top: 4px;"></span>
       </div>
       <div class="field-group">
         <label class="field-label">Mesh ID</label>
@@ -675,6 +684,14 @@ input:checked + .slider:before {
           <span id="editMeshIdDisplay">--</span>
         </div>
         <span style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">Mesh ID is immutable and cannot be changed.</span>
+      </div>
+      <!-- [MESH-BEHAVE-020] Per-mesh Device Owner requirement. -->
+      <div class="field-group">
+        <label class="field-label" style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+          <input type="checkbox" id="editMeshRequireDeviceOwner" style="width: 16px; height: 16px; accent-color: var(--teal); cursor: pointer;">
+          Require Device Owner
+        </label>
+        <span style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">Devices in this mesh that are not the registered Device Owner show a repair banner with the steps to fix it.</span>
       </div>
       <div id="editMeshMsg" class="banner hidden"></div>
       <div style="display: flex; gap: 8px;">
@@ -781,7 +798,7 @@ input:checked + .slider:before {
         <button id="provisioningRepairBtn" class="btn btn-primary btn-sm" onclick="repairProvisioningAutomatically()">Repair Automatically</button>
       </div>
       <div id="provisioningRepairItems" style="font-size: 12px; opacity: 0.9;"></div>
-      <div style="font-size: 12px; opacity: 0.75;">
+      <div id="provisioningRepairFooter" style="font-size: 12px; opacity: 0.75;">
         Repair Automatically runs the missing commands over local ADB. The first time it runs, tap "Allow debugging from this computer?" on the device screen and tick "Always allow from this computer" - then press Repair Automatically again. Later repairs need no prompt. Alternatively, run each command above from a workstation with ADB access.
       </div>
     </div>
@@ -1404,6 +1421,7 @@ function showCreateMeshModal() {
   modal.classList.remove('hidden');
   document.getElementById('createMeshName').value = '';
   document.getElementById('createMeshId').value = '';
+  document.getElementById('createMeshRequireDeviceOwner').checked = false;
   document.getElementById('createMeshName').focus();
 }
 
@@ -1435,9 +1453,10 @@ async function handleCreateMesh(e) {
   }
 
   try {
+    const requireDeviceOwner = document.getElementById('createMeshRequireDeviceOwner').checked;
     await apiCall('/api/mesh/create', {
       method: 'POST',
-      body: JSON.stringify({ meshId, meshName })
+      body: JSON.stringify({ meshId, meshName, requireDeviceOwner })
     });
     msgEl.className = 'banner banner-sage';
     msgEl.textContent = 'Mesh created!';
@@ -1465,9 +1484,29 @@ function showEditMeshModal(targetId) {
   const meshObj = (state.meshes || []).find(m => m.id === meshId);
   const meshName = meshObj ? meshObj.name : (state.selectedMeshName || state.localMeshName);
 
-  document.getElementById('editMeshName').value = meshName;
+  // [MESH-BEHAVE-020] Refuse to open rather than render a checkbox we can't prefill. The form
+  // always submits requireDeviceOwner, so an unchecked box built from a missing mesh record would
+  // clear an operator's `true` and gossip that clear on the very next save.
+  if (!meshObj) {
+    alert('Mesh details are still loading — reopen this dialog in a moment.');
+    fetchMeshInfo();
+    return;
+  }
+
+  const nameInput = document.getElementById('editMeshName');
+  nameInput.value = meshName;
   document.getElementById('editMeshIdDisplay').textContent = meshId;
-  document.getElementById('editMeshName').focus();
+  document.getElementById('editMeshRequireDeviceOwner').checked = !!meshObj.require_device_owner;
+
+  // The server only lets a device rename its own mesh. Leaving the field editable for someone
+  // else's mesh means an admin types a new name, sees "Mesh updated!", and nothing changed.
+  const isLocalMesh = meshId === state.localMeshId;
+  nameInput.disabled = !isLocalMesh;
+  nameInput.required = isLocalMesh;
+  document.getElementById('editMeshNameHelp').textContent = isLocalMesh
+    ? ''
+    : 'Only the device that belongs to a mesh can rename it. Device Owner can still be changed here.';
+  if (isLocalMesh) nameInput.focus();
 
   modal.classList.remove('hidden');
 }
@@ -1478,7 +1517,8 @@ async function handleEditMesh(e) {
   const meshName = document.getElementById('editMeshName').value.trim();
   const msgEl = document.getElementById('editMeshMsg');
 
-  if (!meshName) {
+  const isLocalMesh = meshId === state.localMeshId;
+  if (!meshName && isLocalMesh) {
     msgEl.className = 'banner banner-rust';
     msgEl.textContent = 'Mesh name is required';
     msgEl.classList.remove('hidden');
@@ -1486,9 +1526,16 @@ async function handleEditMesh(e) {
   }
 
   try {
+    // [MESH-BEHAVE-020] requireDeviceOwner is a fleet-wide mesh template field, settable for any
+    // known mesh; meshName is this device's own mesh identity, which the server only lets the
+    // local mesh change — so omit it entirely when editing someone else's mesh rather than
+    // sending a name that would be rejected and take the checkbox down with it.
+    const requireDeviceOwner = document.getElementById('editMeshRequireDeviceOwner').checked;
+    const payload = { meshId, requireDeviceOwner };
+    if (isLocalMesh) payload.meshName = meshName;
     await apiCall('/api/mesh/update', {
       method: 'POST',
-      body: JSON.stringify({ meshId, meshName })
+      body: JSON.stringify(payload)
     });
     msgEl.className = 'banner banner-sage';
     msgEl.textContent = 'Mesh updated!';
@@ -1743,17 +1790,31 @@ async function openInstallSettings() {
 function renderProvisioningBanner(audit) {
   const banner = document.getElementById('provisioningRepairBanner');
   if (!banner) return;
-  if (!audit || !audit.repairNeeded) {
+  // PROV-BEHAVE-017: operatorActionNeeded is tracked separately from repairNeeded, so the banner
+  // has to check both — an outstanding Device Owner requirement sets only the former.
+  if (!audit || (!audit.repairNeeded && !audit.operatorActionNeeded)) {
     banner.classList.add('hidden');
     return;
   }
   const missing = (audit.items || []).filter(item => !item.satisfied);
+  const repairable = missing.filter(item => !item.operatorOnly);
+  const operatorOnly = missing.filter(item => item.operatorOnly);
   // PROV-BEHAVE-010: a repair response carries per-item reasons; an audit response does not.
   const failures = {};
   (audit.failures || []).forEach(failure => { failures[failure.key] = failure.error; });
   document.getElementById('provisioningRepairSummary').textContent =
     `${missing.map(item => item.label).join(', ')} — required for full functionality.`;
-  document.getElementById('provisioningRepairItems').innerHTML = missing
+
+  // PROV-BEHAVE-016: nothing in the app can satisfy an operator-only item, so offering "Repair
+  // Automatically" when that's all that's left would be a button that cannot work.
+  const repairBtn = document.getElementById('provisioningRepairBtn');
+  if (repairBtn) repairBtn.style.display = repairable.length > 0 ? '' : 'none';
+  // The footer explains that button; with the button hidden it would be telling the operator to
+  // press something that isn't there.
+  const repairFooter = document.getElementById('provisioningRepairFooter');
+  if (repairFooter) repairFooter.style.display = repairable.length > 0 ? '' : 'none';
+
+  const repairableHtml = repairable
     .map(item => {
       const reason = failures[item.key]
         ? `<div style="color:var(--rust);">${escapeHtml(failures[item.key])}</div>`
@@ -1761,6 +1822,16 @@ function renderProvisioningBanner(audit) {
       return `<div><code>${item.externalCommand}</code>${reason}</div>`;
     })
     .join('');
+  // Multi-line, human-ordered steps rather than one pasteable command — escaped and pre-wrapped
+  // so the numbered sequence survives intact.
+  const operatorHtml = operatorOnly
+    .map(item => `
+      <div style="margin-top: 8px;">
+        <div style="font-weight: 600;">${escapeHtml(item.label)} — do this from a workstation:</div>
+        <div style="white-space: pre-wrap; font-family: monospace; margin-top: 4px;">${escapeHtml(item.externalCommand)}</div>
+      </div>`)
+    .join('');
+  document.getElementById('provisioningRepairItems').innerHTML = repairableHtml + operatorHtml;
   banner.classList.remove('hidden');
 }
 
@@ -3252,6 +3323,11 @@ window.addEventListener('DOMContentLoaded', () => {
   setInterval(() => {
     if (state.currentTab === 'device-settings') {
       refreshStatus(false);
+      // PROV-BEHAVE-017: the provisioning banner used to refresh only on page load and after a
+      // repair click, which was fine while every trigger was an OS state change. Require Device
+      // Owner is toggled from this same console, so without this the operator ticks the box and
+      // sees nothing until a reload.
+      refreshProvisioning();
       if (!document.getElementById('logsModal').classList.contains('hidden')) {
         fetchLogs();
       }

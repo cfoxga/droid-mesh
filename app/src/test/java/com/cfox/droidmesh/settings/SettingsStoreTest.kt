@@ -1061,4 +1061,136 @@ class SettingsStoreTest {
             afterTrusted["com.attacker.newapp"]?.requiredSettings
         )
     }
+
+    // [PROGRAMMATIC] MESH-TEST-030 (gitea#111): the per-mesh requireDeviceOwner flag persists, and
+    // a stored entry predating the field reads as false rather than throwing.
+    @Test
+    fun `MESH-TEST-030 requireDeviceOwner round-trips through known_meshes persistence`() {
+        SettingsStore.setKnownMeshes(
+            mockContext,
+            listOf(
+                SettingsStore.MeshTemplate("unmanaged", "Unmanaged"),
+                SettingsStore.MeshTemplate("gtv-fleet", "GTV Fleet", requireDeviceOwner = true)
+            )
+        )
+        val read = SettingsStore.getKnownMeshes(mockContext)
+        assertTrue(read.first { it.id == "gtv-fleet" }.requireDeviceOwner)
+        assertFalse(read.first { it.id == "unmanaged" }.requireDeviceOwner)
+
+        inMemoryPrefs["known_meshes"] = """[{"id":"legacy","name":"Legacy"}]"""
+        assertFalse(
+            "an entry written before this field existed defaults to false",
+            SettingsStore.getKnownMeshes(mockContext).first { it.id == "legacy" }.requireDeviceOwner
+        )
+    }
+
+    // [PROGRAMMATIC] MESH-TEST-031 (gitea#111): the data-loss guard. A peer on a build predating
+    // this field sends known_meshes entries without the key; parsing that as `false` would let it
+    // clear an operator's setting fleet-wide on every sync round. See MESH-BEHAVE-020.
+    @Test
+    fun `MESH-TEST-031 an incoming entry with no requireDeviceOwner key cannot clear a local true`() {
+        SettingsStore.setKnownMeshes(
+            mockContext,
+            listOf(SettingsStore.MeshTemplate("gtv-fleet", "GTV Fleet", requireDeviceOwner = true))
+        )
+        val payload = JSONObject().apply {
+            put("config_version", System.currentTimeMillis())
+            put(
+                "known_meshes",
+                JSONArray().put(
+                    JSONObject().apply {
+                        put("id", "gtv-fleet")
+                        put("name", "GTV Fleet")
+                        // deliberately no requireDeviceOwner key at all
+                    }
+                )
+            )
+        }
+        assertTrue(SettingsStore.importConfigJson(mockContext, payload).applied)
+        assertTrue(
+            "a peer that has never heard of this field must not be able to clear it",
+            SettingsStore.getKnownMeshes(mockContext).first { it.id == "gtv-fleet" }.requireDeviceOwner
+        )
+    }
+
+    // [PROGRAMMATIC] MESH-TEST-032 (gitea#111): control for MESH-TEST-031 — proves that guard is
+    // absence-sensitive, not a blanket "local always wins" that would make the flag unsettable
+    // from any other node.
+    @Test
+    fun `MESH-TEST-032 an explicit incoming false does overwrite a local true`() {
+        SettingsStore.setKnownMeshes(
+            mockContext,
+            listOf(SettingsStore.MeshTemplate("gtv-fleet", "GTV Fleet", requireDeviceOwner = true))
+        )
+        val payload = JSONObject().apply {
+            put("config_version", System.currentTimeMillis())
+            put(
+                "known_meshes",
+                JSONArray().put(
+                    JSONObject().apply {
+                        put("id", "gtv-fleet")
+                        put("name", "GTV Fleet")
+                        put("requireDeviceOwner", false)
+                    }
+                )
+            )
+        }
+        assertTrue(SettingsStore.importConfigJson(mockContext, payload).applied)
+        assertFalse(
+            "an explicit false is a real opinion and must win",
+            SettingsStore.getKnownMeshes(mockContext).first { it.id == "gtv-fleet" }.requireDeviceOwner
+        )
+    }
+
+    // [PROGRAMMATIC] MESH-TEST-034 (gitea#111): the `local == null` direction of the absent-key
+    // rule, which MESH-TEST-031/032 both miss because they pre-seed a local entry. A node hearing
+    // about a mesh for the first time from a peer that omits the key must default the requirement
+    // OFF, not ON — `local?.requireDeviceOwner ?: true` would pass both of those tests and would
+    // silently impose an unsatisfiable requirement on every newly-discovered mesh.
+    @Test
+    fun `MESH-TEST-034 a first-time mesh from a peer that omits the key defaults to false`() {
+        SettingsStore.setKnownMeshes(
+            mockContext,
+            listOf(SettingsStore.MeshTemplate("unmanaged", "Unmanaged"))
+        )
+        val payload = JSONObject().apply {
+            put("config_version", System.currentTimeMillis())
+            put(
+                "known_meshes",
+                JSONArray().put(
+                    JSONObject().apply {
+                        put("id", "brand-new")
+                        put("name", "Brand New")
+                        // No requireDeviceOwner key at all — an older build's serializer.
+                    }
+                )
+            )
+        }
+        assertTrue(SettingsStore.importConfigJson(mockContext, payload).applied)
+        val adopted = SettingsStore.getKnownMeshes(mockContext).first { it.id == "brand-new" }
+        assertFalse(
+            "no local entry and no incoming opinion means no requirement",
+            adopted.requireDeviceOwner
+        )
+
+        // Control: the same first-time adoption carrying an explicit true does turn it on, so the
+        // assertion above is about absence and not about first-time entries being ignored.
+        val withOpinion = JSONObject().apply {
+            put("config_version", System.currentTimeMillis() + 1000L)
+            put(
+                "known_meshes",
+                JSONArray().put(
+                    JSONObject().apply {
+                        put("id", "brand-new-2")
+                        put("name", "Brand New 2")
+                        put("requireDeviceOwner", true)
+                    }
+                )
+            )
+        }
+        assertTrue(SettingsStore.importConfigJson(mockContext, withOpinion).applied)
+        assertTrue(
+            SettingsStore.getKnownMeshes(mockContext).first { it.id == "brand-new-2" }.requireDeviceOwner
+        )
+    }
 }

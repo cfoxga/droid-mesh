@@ -2,6 +2,7 @@ package com.cfox.droidmesh.utils
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -485,5 +486,171 @@ class ProvisioningAuditorTest {
     @Test
     fun `PROV-TEST-017 continuous provisioning observer constants and URIs`() {
         assertEquals(5000L, ProvisioningAuditor.CONTINUOUS_REPAIR_COOLDOWN_MS)
+    }
+
+    // [PROGRAMMATIC] PROV-TEST-018 (gitea#111): the Device Owner item carries the whole operator
+    // sequence, since nothing in the app can perform it — see PROV-BEHAVE-015/016.
+    @Test
+    fun `PROV-TEST-018 device owner item appears unsatisfied with the full operator sequence`() {
+        val result = ProvisioningAuditor.classify(
+            installPackagesGranted = true,
+            accessibilityGranted = true,
+            accessibilityServiceRunning = true,
+            batteryExemptionGranted = true,
+            requireDeviceOwner = true,
+            isDeviceOwner = false
+        )
+        assertEquals(4, result.items.size)
+        val item = result.items.first { it.key == ProvisioningAuditor.KEY_DEVICE_OWNER }
+        assertFalse("not the device owner -> unsatisfied", item.satisfied)
+        assertTrue("no in-app repair path exists for this item", item.operatorOnly)
+        val cmd = item.externalCommand
+        assertTrue(
+            "must name the real admin component, not a placeholder: $cmd",
+            cmd.contains("com.cfox.droidmesh/com.cfox.droidmesh.admin.DroidMeshDeviceAdminReceiver")
+        )
+        assertTrue("must name the dpm step: $cmd", cmd.contains("dpm set-device-owner"))
+        assertTrue(
+            "must tell the operator how to enumerate the accounts to remove: $cmd",
+            cmd.contains("dumpsys account")
+        )
+        assertTrue(
+            "must name the re-add step, or an operator strands the device signed out: $cmd",
+            cmd.contains("re-add", ignoreCase = true)
+        )
+    }
+
+    // [PROGRAMMATIC] PROV-TEST-024 (gitea#111): the destructive steps must come AFTER the check
+    // for an existing Device Owner. isDeviceOwnerApp answers only "is it us?", so a device some
+    // other package already owns is indistinguishable here from an unowned one — an operator who
+    // removed the accounts first would sign a GTV out of its Google account and then watch
+    // `dpm set-device-owner` fail anyway, because Device Owner is exclusive to one package.
+    @Test
+    fun `PROV-TEST-024 the device owner check precedes the destructive account removal`() {
+        val cmd = ProvisioningAuditor.classify(
+            installPackagesGranted = true,
+            accessibilityGranted = true,
+            accessibilityServiceRunning = true,
+            batteryExemptionGranted = true,
+            requireDeviceOwner = true,
+            isDeviceOwner = false
+        ).items.first { it.key == ProvisioningAuditor.KEY_DEVICE_OWNER }.externalCommand
+
+        val checkIndex = cmd.indexOf("dumpsys device_policy")
+        val removeIndex = cmd.indexOf("Remove all of them")
+        val setIndex = cmd.indexOf("dpm set-device-owner")
+        assertTrue("must tell the operator to check for an existing owner: $cmd", checkIndex >= 0)
+        assertTrue("must still name the removal step: $cmd", removeIndex >= 0)
+        assertTrue(
+            "the existing-owner check must come before the irreversible account removal: $cmd",
+            checkIndex < removeIndex
+        )
+        assertTrue("and removal still precedes the dpm call: $cmd", removeIndex < setIndex)
+    }
+
+    // [PROGRAMMATIC] PROV-TEST-019 (gitea#111): absent unless required — a mesh with no such
+    // requirement shows no Device Owner row at all, rather than a satisfied one.
+    @Test
+    fun `PROV-TEST-019 device owner item is absent unless the mesh requires it and satisfied on a device owner`() {
+        val notRequired = ProvisioningAuditor.classify(
+            installPackagesGranted = true,
+            accessibilityGranted = true,
+            accessibilityServiceRunning = true,
+            batteryExemptionGranted = true,
+            requireDeviceOwner = false,
+            isDeviceOwner = false
+        )
+        assertEquals("no device owner row when the mesh doesn't require it", 3, notRequired.items.size)
+        assertNull(notRequired.items.firstOrNull { it.key == ProvisioningAuditor.KEY_DEVICE_OWNER })
+        assertFalse(notRequired.operatorActionNeeded)
+
+        val requiredAndHeld = ProvisioningAuditor.classify(
+            installPackagesGranted = true,
+            accessibilityGranted = true,
+            accessibilityServiceRunning = true,
+            batteryExemptionGranted = true,
+            requireDeviceOwner = true,
+            isDeviceOwner = true
+        )
+        assertTrue(
+            "a real device owner satisfies the item",
+            requiredAndHeld.items.first { it.key == ProvisioningAuditor.KEY_DEVICE_OWNER }.satisfied
+        )
+        assertFalse(requiredAndHeld.operatorActionNeeded)
+    }
+
+    // [PROGRAMMATIC] PROV-TEST-020 (gitea#111): repairableItems() is exactly what repair() iterates.
+    // If an operatorOnly key reached that loop it would fall to the `else` branch and report a
+    // fabricated "Unknown provisioning item" failure on every pass.
+    @Test
+    fun `PROV-TEST-020 repairableItems skips operator-only items but keeps app-repairable ones`() {
+        // Built explicitly rather than via classify(): this must hold for any audit carrying an
+        // operatorOnly item, independent of whether classify() happens to emit one.
+        val audit = ProvisioningAuditor.ProvisioningAuditResult(
+            items = listOf(
+                ProvisioningAuditor.ProvisioningItem(
+                    key = ProvisioningAuditor.KEY_INSTALL_PACKAGES,
+                    label = "Install Unknown Apps",
+                    satisfied = false,
+                    externalCommand = "adb shell appops ..."
+                ),
+                ProvisioningAuditor.ProvisioningItem(
+                    key = ProvisioningAuditor.KEY_DEVICE_OWNER,
+                    label = "Device Owner",
+                    satisfied = false,
+                    externalCommand = "1. remove accounts ...",
+                    operatorOnly = true
+                ),
+                ProvisioningAuditor.ProvisioningItem(
+                    key = ProvisioningAuditor.KEY_ACCESSIBILITY,
+                    label = "Accessibility Service",
+                    satisfied = true,
+                    externalCommand = "adb shell settings ..."
+                )
+            ),
+            repairNeeded = true,
+            operatorActionNeeded = true
+        )
+        val repairable = ProvisioningAuditor.repairableItems(audit)
+        assertTrue(
+            "the genuinely app-repairable item is still attempted",
+            repairable.any { it.key == ProvisioningAuditor.KEY_INSTALL_PACKAGES }
+        )
+        assertFalse(
+            "device_owner must never reach repair()'s else branch",
+            repairable.any { it.key == ProvisioningAuditor.KEY_DEVICE_OWNER }
+        )
+        assertTrue("already-satisfied items are never repaired", repairable.none { it.satisfied })
+    }
+
+    // [PROGRAMMATIC] PROV-TEST-021 (gitea#111): repairNeeded narrows to app-repairable work, so an
+    // unsatisfiable item cannot make UpdaterForegroundService open a loopback ADB session on every
+    // boot forever — see PROV-BEHAVE-017.
+    @Test
+    fun `PROV-TEST-021 repairNeeded covers only app-repairable work and operatorActionNeeded covers the rest`() {
+        val operatorOnlyOutstanding = ProvisioningAuditor.classify(
+            installPackagesGranted = true,
+            accessibilityGranted = true,
+            accessibilityServiceRunning = true,
+            batteryExemptionGranted = true,
+            requireDeviceOwner = true,
+            isDeviceOwner = false
+        )
+        assertFalse(
+            "nothing here the app can repair — the service must not start an ADB session for it",
+            operatorOnlyOutstanding.repairNeeded
+        )
+        assertTrue(operatorOnlyOutstanding.operatorActionNeeded)
+
+        val appRepairableOutstanding = ProvisioningAuditor.classify(
+            installPackagesGranted = false,
+            accessibilityGranted = true,
+            accessibilityServiceRunning = true,
+            batteryExemptionGranted = true,
+            requireDeviceOwner = true,
+            isDeviceOwner = true
+        )
+        assertTrue(appRepairableOutstanding.repairNeeded)
+        assertFalse(appRepairableOutstanding.operatorActionNeeded)
     }
 }

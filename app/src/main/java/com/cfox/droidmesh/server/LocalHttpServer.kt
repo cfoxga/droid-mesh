@@ -1010,6 +1010,9 @@ class LocalHttpServer(
         val json = JSONObject()
         json.put("status", "ok")
         json.put("repairNeeded", audit.repairNeeded)
+        // PROV-BEHAVE-017: separate from repairNeeded — work a person must do at a workstation,
+        // which the banner has to present as instructions rather than a "Repair" button.
+        json.put("operatorActionNeeded", audit.operatorActionNeeded)
         val items = JSONArray()
         audit.items.forEach { item ->
             items.put(JSONObject().apply {
@@ -1017,6 +1020,7 @@ class LocalHttpServer(
                 put("label", item.label)
                 put("satisfied", item.satisfied)
                 put("externalCommand", item.externalCommand)
+                put("operatorOnly", item.operatorOnly)
             })
         }
         json.put("items", items)
@@ -1474,8 +1478,11 @@ class LocalHttpServer(
             })
         }
 
+        // [MESH-BEHAVE-020] Optional at creation; defaults off.
+        val requireDeviceOwner = body.optBoolean("requireDeviceOwner", false)
+
         // Add mesh to known templates (doesn't assign device)
-        val added = SettingsStore.addKnownMesh(context, meshId, meshName)
+        val added = SettingsStore.addKnownMesh(context, meshId, meshName, requireDeviceOwner)
         if (!added) {
             return jsonResponse(Response.Status.BAD_REQUEST, JSONObject().apply {
                 put("status", "error")
@@ -1492,6 +1499,7 @@ class LocalHttpServer(
             put("message", "Mesh created: $meshId")
             put("meshId", meshId)
             put("meshName", meshName)
+            put("requireDeviceOwner", requireDeviceOwner)
         }
         return jsonResponse(Response.Status.OK, json)
     }
@@ -1560,34 +1568,67 @@ class LocalHttpServer(
         val body = parseJsonBody(session)
         val meshId = body.optString("meshId", "").trim()
         val meshName = body.optString("meshName", "").trim()
+        val requireDeviceOwnerSent = body.has("requireDeviceOwner")
+        val requireDeviceOwner = body.optBoolean("requireDeviceOwner", false)
 
-        if (meshId.isBlank() || meshName.isBlank()) {
+        if (meshId.isBlank()) {
             return jsonResponse(Response.Status.BAD_REQUEST, JSONObject().apply {
                 put("status", "error")
-                put("error", "meshId and meshName are required")
+                put("error", "meshId is required")
             })
         }
 
-        // Only allow updating if this is the local mesh
-        if (meshId != SettingsStore.getLocalMeshId(context)) {
+        if (meshName.isBlank() && !requireDeviceOwnerSent) {
+            return jsonResponse(Response.Status.BAD_REQUEST, JSONObject().apply {
+                put("status", "error")
+                put("error", "meshName or requireDeviceOwner is required")
+            })
+        }
+
+        // [MESH-BEHAVE-020] The Device Owner requirement is a property of the fleet-wide
+        // known_meshes template, not of this device's own mesh identity, so it is settable for any
+        // known mesh. The mesh *name* stays local-only: it lives in this device's local mesh
+        // identity, and a rename from a node that isn't a member has nowhere to write.
+        //
+        // Both checks run before either write. A request carrying a flag change AND a rejected
+        // rename must not leave the flag applied and the config version bumped behind a 400 — the
+        // caller would read that as "nothing happened" while the change was already gossiping.
+        val isLocalMesh = meshId == SettingsStore.getLocalMeshId(context)
+        if (meshName.isNotBlank() && !isLocalMesh) {
             return jsonResponse(Response.Status.BAD_REQUEST, JSONObject().apply {
                 put("status", "error")
                 put("error", "Can only update the local mesh name")
             })
         }
+        if (requireDeviceOwnerSent && SettingsStore.getKnownMeshes(context).none { it.id == meshId }) {
+            return jsonResponse(Response.Status.BAD_REQUEST, JSONObject().apply {
+                put("status", "error")
+                put("error", "Mesh $meshId does not exist")
+            })
+        }
 
-        SettingsStore.setLocalMeshName(context, meshName)
-        SettingsStore.updateConfigVersion(context)
-        Logger.i("Mesh updated: $meshId name -> $meshName")
+        if (requireDeviceOwnerSent) {
+            SettingsStore.setMeshRequireDeviceOwner(context, meshId, requireDeviceOwner)
+            Logger.i("Mesh updated: $meshId requireDeviceOwner -> $requireDeviceOwner")
+        }
+
+        if (meshName.isNotBlank()) {
+            SettingsStore.setLocalMeshName(context, meshName)
+            SettingsStore.updateConfigVersion(context)
+            Logger.i("Mesh updated: $meshId name -> $meshName")
+        }
 
         // Sync to fleet
         meshManager?.syncConfigToMesh()
 
         val json = JSONObject().apply {
             put("status", "ok")
-            put("message", "Mesh name updated")
+            put("message", "Mesh updated")
             put("meshId", meshId)
             put("meshName", meshName)
+            // Read back rather than echo: a request that didn't carry the key must not report a
+            // fabricated `false` over whatever the mesh actually requires.
+            put("requireDeviceOwner", SettingsStore.meshRequiresDeviceOwner(context, meshId))
         }
         return jsonResponse(Response.Status.OK, json)
     }

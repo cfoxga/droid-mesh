@@ -264,10 +264,14 @@ class LocalHttpServer(
                 uri == "/api/logs/clear" && method == Method.POST -> handleLogsClear(session)
 
                 else -> {
+                    // API-BEHAVE-043: "error" alongside "message" -- the web UI's apiCall() only
+                    // throws (surfacing an alert) when a non-2xx body has a truthy "error" key, so
+                    // a route mismatch with "message" only was a silent no-op, not a visible failure.
                     jsonResponse(
                         Response.Status.NOT_FOUND,
                         JSONObject().apply {
                             put("status", "error")
+                            put("error", "Endpoint not found: ${method.name} $uri")
                             put("message", "Endpoint not found: ${method.name} $uri")
                         }
                     )

@@ -2752,7 +2752,7 @@ async function handleDeleteMesh(targetId) {
   if (!confirm(`Delete the "${meshName}" mesh? This cannot be undone and syncs to all devices.`)) return;
 
   try {
-    await apiCall(`/api/mesh/${encodeURIComponent(meshId)}`, { method: 'DELETE' });
+    await apiCall('/api/mesh/delete', { method: 'POST', body: JSON.stringify({ meshId }) });
     if (state.selectedMeshId === meshId) {
       state.selectedMeshId = state.localMeshId;
     }

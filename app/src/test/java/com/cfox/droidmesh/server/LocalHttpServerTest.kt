@@ -1126,6 +1126,23 @@ class LocalHttpServerTest {
         assertTrue(SettingsStore.getConfigVersion(mockContext) > versionBefore)
     }
 
+    // [API-TEST-066] API-BEHAVE-043: an unregistered route's 404 body must carry a non-blank
+    // "error" key (not just "message"), since apiCall() in the web UI only throws -- surfacing
+    // a user-facing alert -- when that key is truthy. Regression case is the Delete Mesh button,
+    // which called this exact nonexistent DELETE route and failed with no visible error.
+    @Test
+    fun testUnregisteredRouteReturns404WithErrorKey() {
+        val session = mockSession(
+            uri = "/api/mesh/googletv",
+            method = NanoHTTPD.Method.DELETE,
+            headers = authedHeaders()
+        )
+        val response = server.serve(session)
+        assertEquals(NanoHTTPD.Response.Status.NOT_FOUND, response.status)
+        val json = JSONObject(response.data?.readBytes()?.toString(Charsets.UTF_8) ?: "")
+        assertTrue(json.optString("error").isNotBlank())
+    }
+
     // [PROGRAMMATIC] API-BEHAVE-008 (deprecated): "Update All" fanned an update trigger out to
     // every online peer fleet-wide with no mesh filter, contradicting its own confirm-dialog
     // text, and had no accepted use case. The endpoint must no longer exist.

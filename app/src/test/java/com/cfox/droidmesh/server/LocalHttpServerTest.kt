@@ -2012,6 +2012,47 @@ class LocalHttpServerTest {
         )
     }
 
+    // [PROGRAMMATIC] ASET-TEST-025: Capture end to end, both routes to isSideloaded (naming
+    // heuristic fallback, and an explicit App Library override), not just captureRequirements().
+    @Test
+    fun testAppSettingsCaptureDeclaresInstallPackagesForSideloadedApps() {
+        SettingsStore.setMeshAppConfig(
+            mockContext, "unmanaged",
+            SettingsStore.MeshAppConfig(
+                packageName = "com.example.storeapp",
+                appName = "Store App Marked Sideloaded",
+                isSideloaded = true
+            )
+        )
+
+        fun requirementsFor(packageName: String): JSONObject {
+            val response = server.serve(mockSession("/api/system/app-settings/capture?packageName=$packageName"))
+            assertEquals(NanoHTTPD.Response.Status.OK, response.status)
+            return JSONObject(response.data?.readBytes()?.toString(Charsets.UTF_8) ?: "")
+        }
+
+        fun hasInstallPackages(json: JSONObject): Boolean {
+            val requirements = json.getJSONArray("requirements")
+            return (0 until requirements.length()).any {
+                val req = requirements.getJSONObject(it)
+                req.getString("type") == "app_op" && req.getString("value") == "REQUEST_INSTALL_PACKAGES"
+            }
+        }
+
+        assertTrue(
+            "naming-heuristic fallback: no library entry, but the package matches AppVersionHelper.isSideloadedApp",
+            hasInstallPackages(requirementsFor("me.jxl.unlisted_app"))
+        )
+        assertTrue(
+            "explicit App Library override: doesn't match the naming heuristic, but isSideloaded=true is on record",
+            hasInstallPackages(requirementsFor("com.example.storeapp"))
+        )
+        assertFalse(
+            "matches neither: still no guess",
+            hasInstallPackages(requirementsFor("com.example.storeapp2"))
+        )
+    }
+
     // [PROGRAMMATIC] ASET-TEST-014: index.html carries the app-settings repair banner, the App
     // Library requirements editor with capture, and the peer-card health row (ASET-BEHAVE-010).
     @Test

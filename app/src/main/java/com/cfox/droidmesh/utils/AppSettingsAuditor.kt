@@ -408,7 +408,8 @@ object AppSettingsAuditor {
      */
     fun captureRequirements(
         packageName: String,
-        snapshot: DeviceSettingsSnapshot
+        snapshot: DeviceSettingsSnapshot,
+        isSideloaded: Boolean = false
     ): List<AppSettingRequirement> {
         val out = mutableListOf<AppSettingRequirement>()
 
@@ -436,6 +437,16 @@ object AppSettingsAuditor {
         // Only ops actually verified allow this process -- never a guess.
         snapshot.verifiedAppOps[packageName]?.filterValues { it }?.keys?.sorted()?.forEach { op ->
             AppSettingRequirement.create(packageName, SettingType.APP_OP, op)?.let { out.add(it) }
+        }
+        // ASET-BEHAVE-015: the one deliberate exception to "only what's already verified" above.
+        // Installing updates for sideloaded apps is DroidMesh's core use case, and this op is
+        // exactly the OS "allow install from unknown sources" grant that blocks a sideloaded app's
+        // own native update flow when unset -- declaring the *requirement* isn't claiming it's
+        // satisfied (it still starts unverified/missing like any manually-added one, ASET-BEHAVE-004),
+        // so this doesn't reintroduce the guess the comment above forbids.
+        if (isSideloaded) {
+            AppSettingRequirement.create(packageName, SettingType.APP_OP, "REQUEST_INSTALL_PACKAGES")
+                ?.let { out.add(it) }
         }
         return out.distinct()
     }
@@ -749,10 +760,24 @@ object AppSettingsAuditor {
         val snapshot = snapshot(context, setOf(packageName))
         return CaptureResult(
             packageName = packageName,
-            requirements = captureRequirements(packageName, snapshot),
+            requirements = captureRequirements(packageName, snapshot, isSideloaded(context, packageName)),
             candidates = candidatesFor(context, packageName),
             appOpsVerified = verifiedAppOpsCopy().containsKey(packageName)
         )
+    }
+
+    /**
+     * ASET-BEHAVE-015: prefers the local mesh's own App Library entry (an admin may have overridden
+     * it there) and falls back to [AppVersionHelper.isSideloadedApp] when no entry exists yet --
+     * the same fallback [SettingsStore.MeshAppConfig.fromJson] uses, so Capture agrees with the
+     * editor whether it's opened from an existing row or while adding a new one.
+     */
+    private fun isSideloaded(context: Context, packageName: String): Boolean = try {
+        val meshId = SettingsStore.getLocalMeshId(context)
+        SettingsStore.getMeshAppLibrary(context, meshId)[packageName]?.isSideloaded
+            ?: AppVersionHelper.isSideloadedApp(packageName)
+    } catch (e: Exception) {
+        AppVersionHelper.isSideloadedApp(packageName)
     }
 
     /** What [packageName] actually declares, so the manual editor offers real values, not free text. */

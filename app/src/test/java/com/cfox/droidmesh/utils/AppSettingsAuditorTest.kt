@@ -359,6 +359,39 @@ class AppSettingsAuditorTest {
         )
     }
 
+    // [PROGRAMMATIC] ASET-TEST-024
+    @Test
+    fun testCaptureRequirementsDeclaresInstallPackagesForSideloadedApps() {
+        val bareSnapshot = AppSettingsAuditor.DeviceSettingsSnapshot()
+
+        assertTrue(
+            "sideloaded app: REQUEST_INSTALL_PACKAGES is declared even with nothing verified yet",
+            AppSettingsAuditor.captureRequirements(kiosk, bareSnapshot, isSideloaded = true)
+                .contains(req(kiosk, SettingType.APP_OP, "REQUEST_INSTALL_PACKAGES"))
+        )
+
+        val verifiedSnapshot = bareSnapshot.copy(
+            verifiedAppOps = mapOf(kiosk to mapOf("REQUEST_INSTALL_PACKAGES" to true))
+        )
+        assertEquals(
+            "already-verified-allow doesn't produce a duplicate entry",
+            1,
+            AppSettingsAuditor.captureRequirements(kiosk, verifiedSnapshot, isSideloaded = true)
+                .count { it.type == SettingType.APP_OP && it.value == "REQUEST_INSTALL_PACKAGES" }
+        )
+
+        assertFalse(
+            "not sideloaded (the default): capture stays already-verified-only, unchanged",
+            AppSettingsAuditor.captureRequirements(tqa, bareSnapshot)
+                .contains(req(tqa, SettingType.APP_OP, "REQUEST_INSTALL_PACKAGES"))
+        )
+        assertTrue(
+            "isSideloaded applies to whichever package is asked for, not just the fixture used above",
+            AppSettingsAuditor.captureRequirements(projectivy, bareSnapshot, isSideloaded = true)
+                .contains(req(projectivy, SettingType.APP_OP, "REQUEST_INSTALL_PACKAGES"))
+        )
+    }
+
     // [PROGRAMMATIC] ASET-TEST-013 (summary half; PeerNode half in PeerNodeAppSettingsTest)
     @Test
     fun testSummarizeCapsIssues() {

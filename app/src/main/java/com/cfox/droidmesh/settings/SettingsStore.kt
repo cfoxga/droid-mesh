@@ -17,7 +17,7 @@ import javax.crypto.spec.PBEKeySpec
 import javax.crypto.spec.SecretKeySpec
 
 /**
- * Persisted user-facing configuration for DroidMesh / KSU.
+ * Persisted user-facing configuration for DroidMesh.
  * Manages auto-update toggle, web admin password, web server settings,
  * mesh parameters, and mesh-wide configuration synchronization.
  */
